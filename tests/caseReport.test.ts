@@ -70,6 +70,7 @@ describe('case report exports', () => {
     expect(md).toContain('## Approvals');
     expect(md).toContain('## Handoff Records');
     expect(md).toContain('OpenCode');
+    expect(md).toContain('## Attachments');
 
     expect(json.summary).toEqual({
       contextEntries: 1,
@@ -77,6 +78,7 @@ describe('case report exports', () => {
       risks: 1,
       approvals: 1,
       handoffs: 1,
+      attachments: 0,
       lastApprovalStatus: 'approved',
     });
     expect(json.caseFile.owner).toBe('OpenCode');
@@ -102,6 +104,7 @@ describe('case report exports', () => {
       risks: 0,
       approvals: 0,
       handoffs: 0,
+      attachments: 0,
       lastApprovalStatus: 'none',
     });
   });

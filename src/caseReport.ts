@@ -1,8 +1,9 @@
 import type {
+  CaseApprovalStatus,
+  CaseAttachment,
   CaseFile,
   CaseReportJSON,
   CaseReportMarkdownOptions,
-  CaseApprovalStatus,
 } from './caseTypes';
 
 function formatList(values: string[]): string {
@@ -16,6 +17,13 @@ function formatOptional(value?: string | null): string {
 function summarizeApprovalStatus(caseFile: CaseFile): CaseApprovalStatus | 'none' {
   const latest = caseFile.approvals[caseFile.approvals.length - 1];
   return latest?.status ?? 'none';
+}
+
+function cloneAttachment(entry: CaseAttachment): CaseAttachment {
+  return {
+    ...entry,
+    metadata: entry.metadata ? { ...entry.metadata } : undefined,
+  };
 }
 
 export function exportCaseReportJSON(caseFile: CaseFile): CaseReportJSON {
@@ -42,7 +50,9 @@ export function exportCaseReportJSON(caseFile: CaseFile): CaseReportJSON {
         ...entry,
         recommendedNextActions: [...entry.recommendedNextActions],
         references: [...entry.references],
+        attachmentIds: [...entry.attachmentIds],
       })),
+      attachments: caseFile.attachments.map(cloneAttachment),
     },
     summary: {
       contextEntries: caseFile.contextTrail.length,
@@ -50,9 +60,32 @@ export function exportCaseReportJSON(caseFile: CaseFile): CaseReportJSON {
       risks: caseFile.riskLog.length,
       approvals: caseFile.approvals.length,
       handoffs: caseFile.handoffRecords.length,
+      attachments: caseFile.attachments.length,
       lastApprovalStatus: summarizeApprovalStatus(caseFile),
     },
   };
+}
+
+function formatAttachmentLine(prefix: string, value?: string): string {
+  return value ? `${prefix}: ${value}` : `${prefix}: None`;
+}
+
+function renderAttachment(attachment: CaseAttachment): string[] {
+  const lines = [`* ${attachment.label}`];
+  lines.push(`  * type: ${attachment.type}`);
+  if (attachment.path) {
+    lines.push(`  * path: ${attachment.path}`);
+  }
+  if (attachment.url) {
+    lines.push(`  * url: ${attachment.url}`);
+  }
+  if (attachment.description) {
+    lines.push(`  * description: ${attachment.description}`);
+  }
+  if (attachment.metadata && Object.keys(attachment.metadata).length > 0) {
+    lines.push(`  * metadata: ${JSON.stringify(attachment.metadata)}`);
+  }
+  return lines;
 }
 
 export function exportCaseReportMarkdown(
@@ -146,6 +179,17 @@ export function exportCaseReportMarkdown(
       lines.push(`Handoff notes: ${entry.handoffNotes}`);
       lines.push(`Recommended next actions: ${formatList(entry.recommendedNextActions)}`);
       lines.push(`References: ${formatList(entry.references)}`);
+      lines.push(`Attachment IDs: ${formatList(entry.attachmentIds)}`);
+      lines.push('');
+    });
+  }
+
+  lines.push('', '## Attachments', '');
+  if (caseFile.attachments.length === 0) {
+    lines.push('None');
+  } else {
+    caseFile.attachments.forEach((attachment) => {
+      lines.push(...renderAttachment(attachment));
       lines.push('');
     });
   }
@@ -156,6 +200,7 @@ export function exportCaseReportMarkdown(
   lines.push(`Risks: ${caseFile.riskLog.length}`);
   lines.push(`Approvals: ${caseFile.approvals.length}`);
   lines.push(`Handoffs: ${caseFile.handoffRecords.length}`);
+  lines.push(`Attachments: ${caseFile.attachments.length}`);
 
   return lines.join('\n').trim();
 }

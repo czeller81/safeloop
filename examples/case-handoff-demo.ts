@@ -4,10 +4,9 @@ import {
   exportCaseReportJSON,
   exportCaseReportMarkdown,
   recordCaseDecision,
-  recordCaseRisk,
-  recordHandoff,
   requestCaseApproval,
   resolveCaseApproval,
+  recordHandoff,
 } from '../src/index';
 
 function main(): void {
@@ -24,16 +23,24 @@ function main(): void {
     notes: ['Keep the layer local-first and additive'],
   });
 
+  caseFile = caseFile.attachArtifact({
+    type: 'file',
+    label: 'README',
+    path: './README.md',
+    description: 'Project overview and current feature map',
+  });
+
+  caseFile = caseFile.attachArtifact({
+    type: 'report',
+    label: 'Safety Report',
+    path: './SAFELOOP_REPORT.md',
+    description: 'Generated case report used for handoff review',
+  });
+
   caseFile = recordCaseDecision(caseFile, {
     decision: 'Implement Case Files as standalone TypeScript modules',
     rationale: 'Preserve existing APIs while adding accountability and handoff',
     relatedContextIds: [caseFile.contextTrail[0].id],
-  });
-
-  caseFile = recordCaseRisk(caseFile, {
-    risk: 'Coupling the new layer too tightly to the breaker runtime',
-    severity: 'medium',
-    mitigation: 'Keep the Case File API standalone and export-only',
   });
 
   caseFile = requestCaseApproval(caseFile, {
@@ -51,11 +58,11 @@ function main(): void {
   });
 
   caseFile = recordHandoff(caseFile, {
-    currentOwner: 'Hermes',
-    nextOwner: 'OpenCode',
-    handoffNotes: 'Continue from the approved case file and keep the ledger trail intact.',
-    recommendedNextActions: ['Review context trail', 'Continue implementation'],
-    references: ['.safeloop/ledger.jsonl', 'SAFELOOP_CASE.md'],
+    from: 'Hermes',
+    to: 'OpenCode',
+    notes: 'Continue from the approved case file and keep the ledger trail intact.',
+    recommendedNextActions: ['Review README', 'Review safety report', 'Continue implementation'],
+    attachmentIds: caseFile.listAttachments().map((attachment) => attachment.id),
   });
 
   console.log(exportCaseReportMarkdown(caseFile));

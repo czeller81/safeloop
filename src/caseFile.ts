@@ -2,6 +2,9 @@ import type {
   CaseApprovalRecord,
   CaseApprovalRequestInput,
   CaseApprovalResolutionInput,
+  CaseAttachment,
+  CaseAttachmentInput,
+  CaseAttachmentType,
   CaseContextEntry,
   CaseContextInput,
   CaseDecisionEntry,
@@ -16,12 +19,34 @@ import type {
   CaseRiskSeverity,
 } from './caseTypes';
 
+type CaseFileData = Omit<
+  CaseFile,
+  'attachArtifact' | 'removeAttachment' | 'listAttachments'
+>;
+
+const CASE_ATTACHMENT_TYPES = new Set<CaseAttachmentType>([
+  'file',
+  'directory',
+  'url',
+  'report',
+  'image',
+  'document',
+  'pull_request',
+  'issue',
+  'log',
+  'other',
+]);
+
 function now(): string {
   return new Date().toISOString();
 }
 
 function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createAttachmentId(): string {
+  return `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function trimText(value: string): string {
@@ -33,7 +58,7 @@ function normalizeStringArray(values?: string[]): string[] {
   const normalized = values
     .map((value) => trimText(String(value)))
     .filter((value) => value.length > 0);
-  return [...new Set(normalized)];
+  return Array.from(new Set(normalized));
 }
 
 function normalizeStatus(status?: CaseFileStatus): CaseFileStatus {
@@ -49,7 +74,29 @@ function normalizeStatus(status?: CaseFileStatus): CaseFileStatus {
   }
 }
 
-function cloneCaseFile(caseFile: CaseFile): CaseFile {
+function normalizeAttachmentType(type: string): CaseAttachmentType {
+  const normalized = trimText(type) as CaseAttachmentType;
+  if (!CASE_ATTACHMENT_TYPES.has(normalized)) {
+    throw new Error(`Unsupported attachment type: ${type}`);
+  }
+  return normalized;
+}
+
+function cloneMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  return { ...metadata };
+}
+
+function cloneAttachment(entry: CaseAttachment): CaseAttachment {
+  return {
+    ...entry,
+    metadata: cloneMetadata(entry.metadata),
+  };
+}
+
+function cloneCaseFile(caseFile: CaseFileData): CaseFileData {
   return {
     ...caseFile,
     participants: [...caseFile.participants],
@@ -71,18 +118,39 @@ function cloneCaseFile(caseFile: CaseFile): CaseFile {
       ...entry,
       recommendedNextActions: [...entry.recommendedNextActions],
       references: [...entry.references],
+      attachmentIds: [...entry.attachmentIds],
     })),
+    attachments: caseFile.attachments.map(cloneAttachment),
   };
 }
 
+function enhanceCaseFile(caseFile: CaseFileData): CaseFile {
+  Object.defineProperties(caseFile, {
+    attachArtifact: {
+      enumerable: false,
+      value: (input: CaseAttachmentInput) => attachArtifact(caseFile as CaseFile, input),
+    },
+    removeAttachment: {
+      enumerable: false,
+      value: (attachmentId: string) => removeAttachment(caseFile as CaseFile, attachmentId),
+    },
+    listAttachments: {
+      enumerable: false,
+      value: () => listAttachments(caseFile as CaseFile),
+    },
+  });
+
+  return caseFile as CaseFile;
+}
+
 function withUpdatedCaseFile(
-  caseFile: CaseFile,
-  updater: (draft: CaseFile) => void,
+  caseFile: CaseFileData,
+  updater: (draft: CaseFileData) => void,
 ): CaseFile {
   const draft = cloneCaseFile(caseFile);
   updater(draft);
   draft.updatedAt = now();
-  return draft;
+  return enhanceCaseFile(draft);
 }
 
 function updateStatus(caseFile: CaseFile, status: CaseFileStatus): CaseFile {
@@ -97,10 +165,7 @@ function updateStatus(caseFile: CaseFile, status: CaseFileStatus): CaseFile {
   });
 }
 
-function ensureParticipants(
-  owner: string,
-  participants?: string[],
-): string[] {
+function ensureParticipants(owner: string, participants?: string[]): string[] {
   const merged = normalizeStringArray([owner, ...(participants ?? [])]);
   return merged.length > 0 ? merged : [trimText(owner)];
 }
@@ -109,9 +174,41 @@ function isCaseApprovalActive(approval: CaseApprovalRecord): boolean {
   return approval.status === 'requested';
 }
 
+function requireNonEmpty(value: string | undefined, fieldName: string): string {
+  const trimmed = trimText(value ?? '');
+  if (!trimmed) {
+    throw new Error(`${fieldName} is required`);
+  }
+  return trimmed;
+}
+
+function resolveHandoffOwner(input: CaseHandoffInput, fallback: string): string {
+  return requireNonEmpty(
+    input.currentOwner ?? input.from ?? fallback,
+    'currentOwner/from',
+  );
+}
+
+function resolveHandoffNextOwner(input: CaseHandoffInput): string {
+  return requireNonEmpty(input.nextOwner ?? input.to, 'nextOwner/to');
+}
+
+function resolveHandoffNotes(input: CaseHandoffInput): string {
+  return requireNonEmpty(input.handoffNotes ?? input.notes, 'handoffNotes/notes');
+}
+
+function ensureAttachmentIdsExist(caseFile: CaseFile, attachmentIds: string[]): void {
+  const knownIds = new Set(caseFile.attachments.map((attachment) => attachment.id));
+  attachmentIds.forEach((attachmentId) => {
+    if (!knownIds.has(attachmentId)) {
+      throw new Error(`Attachment not found: ${attachmentId}`);
+    }
+  });
+}
+
 export function createCaseFile(input: CaseFileCreateInput): CaseFile {
   const timestamp = now();
-  return {
+  return enhanceCaseFile({
     id: createId('case'),
     goal: trimText(input.goal),
     owner: trimText(input.owner),
@@ -123,10 +220,11 @@ export function createCaseFile(input: CaseFileCreateInput): CaseFile {
     riskLog: [],
     approvals: [],
     handoffRecords: [],
+    attachments: [],
     createdAt: timestamp,
     updatedAt: timestamp,
     closedAt: null,
-  };
+  });
 }
 
 export function addCaseContext(
@@ -180,6 +278,47 @@ export function recordCaseRisk(
   return withUpdatedCaseFile(caseFile, (draft) => {
     draft.riskLog.push(entry);
   });
+}
+
+export function attachArtifact(
+  caseFile: CaseFileData,
+  input: CaseAttachmentInput,
+): CaseFile {
+  const entry: CaseAttachment = {
+    id: createAttachmentId(),
+    type: normalizeAttachmentType(input.type),
+    label: requireNonEmpty(input.label, 'label'),
+    createdAt: now(),
+    path: input.path ? trimText(input.path) : undefined,
+    url: input.url ? trimText(input.url) : undefined,
+    description: input.description ? trimText(input.description) : undefined,
+    metadata: cloneMetadata(input.metadata),
+  };
+
+  return withUpdatedCaseFile(caseFile, (draft) => {
+    draft.attachments.push(entry);
+  });
+}
+
+export function removeAttachment(
+  caseFile: CaseFileData,
+  attachmentId: string,
+): CaseFile {
+  const normalizedAttachmentId = requireNonEmpty(attachmentId, 'attachmentId');
+
+  return withUpdatedCaseFile(caseFile, (draft) => {
+    const before = draft.attachments.length;
+    draft.attachments = draft.attachments.filter(
+      (entry) => entry.id !== normalizedAttachmentId,
+    );
+    if (draft.attachments.length === before) {
+      throw new Error(`Attachment not found: ${normalizedAttachmentId}`);
+    }
+  });
+}
+
+export function listAttachments(caseFile: CaseFileData): CaseAttachment[] {
+  return caseFile.attachments.map(cloneAttachment);
 }
 
 export function requestCaseApproval(
@@ -238,18 +377,23 @@ export function resolveCaseApproval(
   });
 }
 
-export function recordHandoff(
-  caseFile: CaseFile,
-  input: CaseHandoffInput,
-): CaseFile {
+export function recordHandoff(caseFile: CaseFile, input: CaseHandoffInput): CaseFile {
+  const currentOwner = resolveHandoffOwner(input, caseFile.owner);
+  const nextOwner = resolveHandoffNextOwner(input);
+  const handoffNotes = resolveHandoffNotes(input);
+  const attachmentIds = normalizeStringArray(input.attachmentIds);
+
+  ensureAttachmentIdsExist(caseFile, attachmentIds);
+
   const entry: CaseHandoffRecord = {
     id: createId('handoff'),
     timestamp: now(),
-    currentOwner: trimText(input.currentOwner ?? caseFile.owner),
-    nextOwner: trimText(input.nextOwner),
-    handoffNotes: trimText(input.handoffNotes),
+    currentOwner,
+    nextOwner,
+    handoffNotes,
     recommendedNextActions: normalizeStringArray(input.recommendedNextActions),
     references: normalizeStringArray(input.references),
+    attachmentIds,
   };
 
   return withUpdatedCaseFile(caseFile, (draft) => {

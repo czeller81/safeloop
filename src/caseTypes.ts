@@ -9,6 +9,38 @@ export type CaseRiskSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export type CaseApprovalStatus = 'requested' | 'approved' | 'rejected';
 
+export type CaseAttachmentType =
+  | 'file'
+  | 'directory'
+  | 'url'
+  | 'report'
+  | 'image'
+  | 'document'
+  | 'pull_request'
+  | 'issue'
+  | 'log'
+  | 'other';
+
+export interface CaseAttachment {
+  id: string;
+  type: CaseAttachmentType;
+  label: string;
+  createdAt: string;
+  path?: string;
+  url?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CaseAttachmentInput {
+  type: CaseAttachmentType;
+  label: string;
+  path?: string;
+  url?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface CaseContextEntry {
   id: string;
   timestamp: string;
@@ -58,6 +90,7 @@ export interface CaseHandoffRecord {
   handoffNotes: string;
   recommendedNextActions: string[];
   references: string[];
+  attachmentIds: string[];
 }
 
 export interface CaseFile {
@@ -72,9 +105,13 @@ export interface CaseFile {
   riskLog: CaseRiskEntry[];
   approvals: CaseApprovalRecord[];
   handoffRecords: CaseHandoffRecord[];
+  attachments: CaseAttachment[];
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+  attachArtifact(input: CaseAttachmentInput): CaseFile;
+  removeAttachment(attachmentId: string): CaseFile;
+  listAttachments(): CaseAttachment[];
 }
 
 export interface CaseFileCreateInput {
@@ -121,10 +158,14 @@ export interface CaseApprovalResolutionInput {
 
 export interface CaseHandoffInput {
   currentOwner?: string;
-  nextOwner: string;
-  handoffNotes: string;
+  from?: string;
+  nextOwner?: string;
+  to?: string;
+  handoffNotes?: string;
+  notes?: string;
   recommendedNextActions?: string[];
   references?: string[];
+  attachmentIds?: string[];
 }
 
 export interface CaseReportSummary {
@@ -133,6 +174,7 @@ export interface CaseReportSummary {
   risks: number;
   approvals: number;
   handoffs: number;
+  attachments: number;
   lastApprovalStatus: CaseApprovalStatus | 'none';
 }
 
