@@ -176,6 +176,27 @@ const breaker = createBreaker(BREAKER_PRESETS.standardCodingAgent);
 | `standardCodingAgent` | 2 | 2 | 8000 | 30000 | true |
 | `exploratoryResearchAgent` | 3 | 2 | 12000 | 60000 | false |
 
+### Hermes/OpenCode helpers
+
+For Hermes/OpenCode-style loop engineering workflows, the package includes two small convenience helpers:
+
+```typescript
+import {
+  createCodingAgentBreaker,
+  toMarkdownReport,
+} from 'agent-circuit-breaker';
+
+const breaker = createCodingAgentBreaker();
+const result = await breaker.run(runCodingLoop);
+
+console.log(toMarkdownReport(result));
+```
+
+- `createCodingAgentBreaker(config?)` uses `BREAKER_PRESETS.standardCodingAgent` by default and lets you override only the settings you need.
+- `toMarkdownReport(result)` turns a `BreakerResult` into a compact Markdown summary you can print after a run.
+
+These helpers are meant to make local agent-loop experiments easier to read, easier to tune, and easier to hand back to a human when the breaker trips.
+
 ## Features
 
 ### 1. Hard loop limit (`maxRetries`)

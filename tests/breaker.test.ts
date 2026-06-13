@@ -1,4 +1,10 @@
-import { createBreaker } from '../src/index';
+import {
+  BREAKER_PRESETS,
+  createBreaker,
+  createCodingAgentBreaker,
+  toMarkdownReport,
+  type BreakerResult,
+} from '../src/index';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -509,6 +515,121 @@ describe('agent-circuit-breaker', () => {
       // maxRetries=2 => 3 total attempts, repeatedErrors=2 => trips on 2nd identical error
       expect(result.stoppedBy).toBe('repeated_error');
       expect(result.attempts).toBe(2);
+    });
+  });
+
+  describe('coding agent helpers', () => {
+    it('createCodingAgentBreaker() uses the standard preset by default', async () => {
+      const breaker = createCodingAgentBreaker();
+      let step = 0;
+      const result = await breaker.run(async () => {
+        step += 1;
+        if (step <= 3) {
+          throw new Error(`step ${step}`);
+        }
+        return 'done';
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.stoppedBy).toBe('max_retries');
+      expect(result.attempts).toBe(3);
+    });
+
+    it('createCodingAgentBreaker() accepts overrides', async () => {
+      const breaker = createCodingAgentBreaker({ maxRetries: 1, maxRepeatedErrors: 0 });
+      let step = 0;
+      const result = await breaker.run(async () => {
+        step += 1;
+        if (step <= 2) {
+          throw new Error(`fail ${step}`);
+        }
+        return 'done';
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.stoppedBy).toBe('max_retries');
+      expect(result.attempts).toBe(2);
+    });
+
+    it('createCodingAgentBreaker() does not mutate BREAKER_PRESETS', async () => {
+      const snapshot = JSON.parse(
+        JSON.stringify(BREAKER_PRESETS.standardCodingAgent),
+      );
+      createCodingAgentBreaker({ tokenBudget: { perTask: 1 } });
+      expect(BREAKER_PRESETS.standardCodingAgent).toEqual(snapshot);
+    });
+
+    it('toMarkdownReport() returns Markdown for a failed result', () => {
+      const result = {
+        success: false,
+        stoppedBy: 'repeated_error',
+        attempts: 3,
+        tokenEstimate: 123,
+        lastError: 'disk full',
+        escalationMessage:
+          'The agent loop was stopped.\n\nWhat failed: disk full\nWhat was tried: 3 attempt(s) were made.\nWhy it stopped: The same error repeated.\nWhat a human should decide next: Review the task and error above.',
+        auditEntries: [
+          {
+            timestamp: 1,
+            type: 'attempt',
+            message: 'Attempt 1',
+          },
+          {
+            timestamp: 2,
+            type: 'failure',
+            message: 'Attempt 1 failed: disk full',
+          },
+          {
+            timestamp: 3,
+            type: 'breaker_trip',
+            message: 'Repeated error detected',
+          },
+        ],
+      } as BreakerResult;
+
+      const md = toMarkdownReport(result);
+      expect(md).toContain('# Agent Circuit Breaker Report');
+      expect(md).toContain('Status: Failed');
+      expect(md).toContain('Trip reason: repeated_error');
+      expect(md).toContain('Attempts: 3');
+      expect(md).toContain('Token usage: 123');
+      expect(md).toContain('## Escalation');
+      expect(md).toContain('Recommended human action: Review the task and error above.');
+      expect(md).toContain('## Audit Summary');
+      expect(md).toContain('* attempt');
+      expect(md).toContain('* failure');
+      expect(md).toContain('* breaker_trip');
+    });
+
+    it('toMarkdownReport() returns Markdown for a successful result', async () => {
+      const breaker = createBreaker();
+      const result = await breaker.run(async (ctx) => {
+        ctx.recordTokenUsage(7);
+        return 'done';
+      });
+
+      const md = toMarkdownReport(result);
+      expect(md).toContain('# Agent Circuit Breaker Report');
+      expect(md).toContain('Status: Succeeded');
+      expect(md).toContain('Attempts: 1');
+      expect(md).toContain('Token usage: 7');
+      expect(md).toContain('## Audit Summary');
+      expect(md).toContain('* attempt');
+      expect(md).toContain('* retry');
+      expect(md).not.toContain('## Escalation');
+    });
+
+    it('toMarkdownReport() handles missing optional fields safely', () => {
+      const md = toMarkdownReport(
+        {
+          success: true,
+          stoppedBy: '',
+          attempts: 1,
+        } as unknown as BreakerResult,
+      );
+
+      expect(md).toContain('Status: Succeeded');
+      expect(md).toContain('Attempts: 1');
     });
   });
 

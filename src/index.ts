@@ -92,6 +92,87 @@ export const BREAKER_PRESETS = {
   },
 } as const;
 
+function mergeBreakerConfig(
+  base: BreakerConfig,
+  override?: BreakerConfig,
+): BreakerConfig {
+  return {
+    ...base,
+    ...override,
+    tokenBudget: {
+      ...base.tokenBudget,
+      ...override?.tokenBudget,
+    },
+  };
+}
+
+export function createCodingAgentBreaker(config?: BreakerConfig): Breaker {
+  return createBreaker(
+    mergeBreakerConfig(BREAKER_PRESETS.standardCodingAgent, config),
+  );
+}
+
+function formatAuditSummary(auditEntries: AuditEntry[]): string | null {
+  if (auditEntries.length === 0) return null;
+
+  const counts = new Map<AuditEntry['type'], number>();
+  for (const entry of auditEntries) {
+    counts.set(entry.type, (counts.get(entry.type) ?? 0) + 1);
+  }
+
+  const lines = Array.from(counts.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([type, count]) => `* ${type}${count > 1 ? ` x${count}` : ''}`);
+
+  return lines.join('\n');
+}
+
+function extractRecommendedAction(escalationMessage: string): string | null {
+  const match = escalationMessage.match(
+    /What a human should decide next:\s*([\s\S]*)$/,
+  );
+  if (!match) return null;
+
+  return match[1].trim().replace(/\n+/g, ' ');
+}
+
+export function toMarkdownReport(result: BreakerResult): string {
+  const status = result.success ? 'Succeeded' : 'Failed';
+  const lines: string[] = ['# Agent Circuit Breaker Report', ''];
+
+  lines.push(`Status: ${status}`);
+
+  if (!result.success && result.stoppedBy) {
+    lines.push(`Trip reason: ${result.stoppedBy}`);
+  }
+
+  lines.push(`Attempts: ${result.attempts}`);
+
+  if (typeof result.tokenEstimate === 'number') {
+    lines.push(`Token usage: ${result.tokenEstimate}`);
+  }
+
+  if (result.lastError) {
+    lines.push(`Last error: ${result.lastError}`);
+  }
+
+  if (result.escalationMessage) {
+    lines.push('', '## Escalation', '', result.escalationMessage);
+
+    const recommendedAction = extractRecommendedAction(result.escalationMessage);
+    if (recommendedAction) {
+      lines.push('', `Recommended human action: ${recommendedAction}`);
+    }
+  }
+
+  const auditSummary = formatAuditSummary(result.auditEntries ?? []);
+  if (auditSummary) {
+    lines.push('', '## Audit Summary', '', auditSummary);
+  }
+
+  return lines.join('\n').trim();
+}
+
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
