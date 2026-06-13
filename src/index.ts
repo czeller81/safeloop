@@ -930,7 +930,8 @@ function extractTokenCost(value: unknown): number {
     const obj = value as Record<string, unknown>;
     const stepCost = typeof obj._stepTokenCost === 'number' ? obj._stepTokenCost : 0;
     const totalEstimate = typeof obj._tokenEstimate === 'number' ? obj._tokenEstimate : 0;
-    return stepCost || totalEstimate;
+    const tokensUsed = typeof obj.tokensUsed === 'number' ? obj.tokensUsed : 0;
+    return stepCost || totalEstimate || tokensUsed;
   }
   return 0;
 }

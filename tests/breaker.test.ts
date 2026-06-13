@@ -553,7 +553,7 @@ describe('safeloop', () => {
       expect(result.attempts).toBe(2);
     });
 
-    it('createCodingAgentBreaker() returns a successful report when awaited', async () => {
+    it('createCodingAgentBreaker() reports token usage from a successful awaited run', async () => {
       const breaker = createCodingAgentBreaker();
       const result = await breaker.run(async () => ({
         status: 'completed',
@@ -562,8 +562,10 @@ describe('safeloop', () => {
 
       const md = toMarkdownReport(result);
       expect(result.success).toBe(true);
+      expect(result.tokenEstimate).toBe(100);
       expect(md).toContain('Status: Succeeded');
       expect(md).toContain('Attempts: 1');
+      expect(md).toContain('Token usage: 100');
       expect(md).not.toContain('undefined');
     });
 

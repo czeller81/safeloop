@@ -162,7 +162,7 @@ The task function receives a `BreakerContext` with:
 
 **Token tracking** — the library accumulates estimated token usage across all attempts. Tokens can be reported three ways:
 
-1. **Return value**: return `{ _stepTokenCost: 150 }` or `{ _tokenEstimate: 150 }` from your task.
+1. **Return value**: return `{ _stepTokenCost: 150 }` or `{ _tokenEstimate: 150 }` from your task. For compatibility with some consumers, `tokensUsed: 150` is also accepted.
 2. **Error object**: set `error._stepTokenCost` or `error._tokenEstimate` before throwing.
 3. **Explicit**: call `ctx.recordTokenUsage(150)` at any point during the task.
 
