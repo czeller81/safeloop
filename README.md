@@ -262,6 +262,7 @@ console.log(toMarkdownReport(result));
 
 - `createCodingAgentBreaker(config?)` uses `BREAKER_PRESETS.standardCodingAgent` by default and lets you override only the settings you need.
 - `toMarkdownReport(result)` turns a `BreakerResult` into a compact Markdown summary you can print after a run.
+- `breaker.run(...)` is async, so always `await` it before passing the result into `toMarkdownReport(...)`.
 
 These helpers are meant to make local agent-loop experiments easier to read, easier to tune, and easier to hand back to a human when the breaker trips.
 

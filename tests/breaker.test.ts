@@ -553,6 +553,20 @@ describe('safeloop', () => {
       expect(result.attempts).toBe(2);
     });
 
+    it('createCodingAgentBreaker() returns a successful report when awaited', async () => {
+      const breaker = createCodingAgentBreaker();
+      const result = await breaker.run(async () => ({
+        status: 'completed',
+        tokensUsed: 100,
+      }));
+
+      const md = toMarkdownReport(result);
+      expect(result.success).toBe(true);
+      expect(md).toContain('Status: Succeeded');
+      expect(md).toContain('Attempts: 1');
+      expect(md).not.toContain('undefined');
+    });
+
     it('createCodingAgentBreaker() does not mutate BREAKER_PRESETS', async () => {
       const snapshot = JSON.parse(
         JSON.stringify(BREAKER_PRESETS.standardCodingAgent),
