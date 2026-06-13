@@ -1,9 +1,17 @@
 {
   "name": "agent-circuit-breaker",
   "version": "0.1.0",
-  "description": "Framework-agnostic circuit breaker for AI agent loops. Prevents infinite token burn when agents get stuck.",
+  "description": "A lightweight governance SDK for local AI agent loops with a policy gate, circuit breaker, action ledger, markdown reports, and live simulations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charleszeller/agent-circuit-breaker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/charleszeller/agent-circuit-breaker/issues"
+  },
+  "homepage": "https://github.com/charleszeller/agent-circuit-breaker#readme",
   "files": [
     "dist"
   ],
@@ -15,12 +23,16 @@
     "prepare": "npm run build"
   },
   "keywords": [
+    "ai-agents",
+    "agentic-ai",
+    "ai-governance",
     "circuit-breaker",
-    "ai-agent",
-    "llm",
-    "token-budget",
-    "agent-loop",
-    "resilience"
+    "policy-gate",
+    "agent-ops",
+    "local-ai",
+    "observability",
+    "audit-trail",
+    "typescript"
   ],
   "license": "MIT",
   "devDependencies": {

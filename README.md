@@ -1,26 +1,84 @@
 # agent-circuit-breaker
 
-A framework-agnostic circuit breaker for AI agent loops. Prevents agents from burning tokens forever when they get stuck on repeating failures, uncontrolled scope expansion, or excessive token use.
+Lightweight governance SDK for local AI agent loops: policy gate + circuit breaker + action ledger.
 
-## Why
+This package is for builders who want to keep local agent runs reviewable and bounded without turning the project into another coding agent framework.
 
-AI agents get stuck in loops. They repeat the same failed LLM call, expand the task scope without asking, or drain your API budget on fruitless retries. Most agent frameworks leave this to the developer.
+It helps with four things:
 
-This library is a drop-in guard that:
+- Policy Gate before execution
+- Circuit Breaker during execution
+- Action Ledger after/during execution
+- Markdown Report + live simulation for human review
 
-- Stops retrying after a configurable limit.
-- Detects when the same error keeps recurring.
-- Tracks estimated token usage per step and per task.
-- Prevents silent scope expansion.
-- Provides a manual kill switch.
-- Logs every attempt, failure, and decision.
-- Returns a structured result explaining what happened and what a human should do next.
+## Why this matters
 
-## Hermes + OpenCode Experiment
+Local AI agent loops can fail in predictable ways:
+- repeated retries on the same error
+- uncontrolled scope expansion
+- token burn on unproductive attempts
+- unsafe actions that should be reviewed before execution
 
-This package can be used as a circuit breaker guardrail for AI coding agents, including Hermes and OpenCode, to prevent retry loops, token burn, scope expansion, and unsafe unattended execution.
+This library gives you small governance primitives instead of a full agent stack. It is designed to stay boring, auditable, and easy to reason about.
 
-Example: [`examples/hermes-opencode-loop.ts`](examples/hermes-opencode-loop.ts) -- simulated Hermes/OpenCode coding loop with retry, scope-freeze, and token budget protection.
+## Governance loop
+
+- Policy Gate: decide whether a run should be allowed before any executor starts.
+- Circuit Breaker: stop runaway loops during execution.
+- Action Ledger: record prompts, commands, files, validations, approvals, and closeout.
+- Markdown Report: turn a run into a human-readable summary.
+- Live Simulation: prove the controls work in a local simulated loop.
+
+## Quick start
+
+```typescript
+import { createBreaker, createPolicyGate, createAgentRunLedger } from 'agent-circuit-breaker';
+
+const gate = createPolicyGate({
+  oversightMode: 'HITL',
+  allowedFiles: ['README.md', 'src/**'],
+  allowedCommands: ['npm test', 'npm run build'],
+  blockedCommands: ['git push', 'npm publish'],
+  maxRisk: 'medium',
+});
+
+const decision = gate.evaluate({
+  task: 'Update docs and run validation',
+  requestedFiles: ['README.md'],
+  requestedCommands: ['npm test'],
+  risk: 'low',
+});
+
+if (!decision.allowed) {
+  throw new Error(decision.message);
+}
+
+const breaker = createBreaker({ maxRetries: 3 });
+const ledger = createAgentRunLedger({
+  runId: 'run-001',
+  agent: 'Hermes',
+  executor: 'local',
+  repo: 'agent-circuit-breaker',
+  task: 'update docs',
+  allowedFiles: ['README.md'],
+  startedAt: new Date().toISOString(),
+});
+
+ledger.recordPrompt('Update README and run tests.');
+ledger.recordCommand('npm test', { exitCode: 0, summary: 'passed' });
+ledger.close('completed');
+
+const result = await breaker.run(async () => ({ ok: true, _stepTokenCost: 50 }));
+console.log(result.success, ledger.toMarkdown());
+```
+
+Run the local proof harness:
+
+```bash
+npm run example:live-simulation
+```
+
+Disclaimer: this package provides governance primitives, not a complete security boundary. Users must still sandbox tools, restrict credentials, review diffs, and apply least-privilege access.
 
 ## Install
 
