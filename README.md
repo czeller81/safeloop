@@ -24,6 +24,8 @@ This package gives you small governance primitives instead of a full agent stack
 
 ## Install
 
+Safeloop v0.1.0 is published on npm. Install it with:
+
 ```bash
 npm install safeloop
 ```

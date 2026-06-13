@@ -19,6 +19,10 @@ Initial public launch candidate for the local AI agent governance SDK.
 
 ### Notes
 
+- GitHub v0.1.0 release completed
+- npm publish completed: `safeloop@0.1.0`
+- Final npm registry install test passed
+- External consumer test verified Policy Gate, Action Ledger, Circuit Breaker reports, token usage reporting, and no undefined/crashes
 - Breaker runtime supervision for agent loops
 - Policy gating before execution
 - Action ledger recording for review and auditability
