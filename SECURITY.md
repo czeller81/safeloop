@@ -8,11 +8,15 @@ Security fixes will be backported to the latest published v0.1 release where pra
 
 ## Reporting a Vulnerability
 
-If you discover a security issue, report it privately to the maintainers before public disclosure.
+Security contact: Charles Zeller / [charleszeller@gmail.com](mailto:charleszeller@gmail.com)
 
+If you discover a security issue, report it privately before public disclosure.
+Please include the affected version, a short summary, reproduction steps, and any relevant logs or indicators.
 Do not open a public issue with exploit details.
 If a GitHub Security Advisory process is available for the repository, use that.
-Otherwise, contact the maintainer through the private channel established for the project.
+Otherwise, email the security contact above.
+
+We aim to acknowledge good-faith reports promptly and will coordinate disclosure before any public write-up.
 
 ## Security Model
 
@@ -22,7 +26,7 @@ Otherwise, contact the maintainer through the private channel established for th
 - action ledgers for review and auditability
 - markdown reports for human review
 
-It is not a sandbox and does not enforce system-level isolation.
+It is not a sandbox and is not a complete security boundary.
 
 ## What This Package Does Not Protect Against
 
@@ -39,7 +43,9 @@ This package does not replace:
 
 - Run local-first whenever possible.
 - Use least privilege for tools and credentials.
-- Avoid production credentials in local agent loops.
+- Do not run agents with production credentials.
+- Sandbox external tools and networked actions.
+- Avoid exposing `.env`, SSH keys, npm tokens, GitHub tokens, or API keys in prompts, logs, or ledger entries.
 - Require human approval for high-risk actions.
 - Review `git diff` before commit or push.
 - Treat the live simulation harness as proof of control logic, not as a security boundary.

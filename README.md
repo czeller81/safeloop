@@ -1,38 +1,39 @@
 # agent-circuit-breaker
 
-Lightweight governance SDK for local AI agent loops: policy gate + circuit breaker + action ledger.
+agent-circuit-breaker is a lightweight governance SDK for local AI agent loops.
 
-This package is for builders who want to keep local agent runs reviewable and bounded without turning the project into another coding agent framework.
+It helps keep local agent runs reviewable, bounded, and easier to approve without turning the project into another coding-agent framework.
 
-It helps with four things:
+## Why this exists
 
-- Policy Gate before execution
-- Circuit Breaker during execution
-- Action Ledger after/during execution
-- Markdown Report + live simulation for human review
-
-## Why this matters
-
-Local AI agent loops can fail in predictable ways:
+Local AI agent loops fail in predictable ways:
 - repeated retries on the same error
 - uncontrolled scope expansion
 - token burn on unproductive attempts
 - unsafe actions that should be reviewed before execution
 
-This library gives you small governance primitives instead of a full agent stack. It is designed to stay boring, auditable, and easy to reason about.
+This package gives you small governance primitives instead of a full agent stack. It is designed to stay boring, auditable, and easy to reason about.
 
 ## Governance loop
 
-- Policy Gate: decide whether a run should be allowed before any executor starts.
-- Circuit Breaker: stop runaway loops during execution.
-- Action Ledger: record prompts, commands, files, validations, approvals, and closeout.
-- Markdown Report: turn a run into a human-readable summary.
-- Live Simulation: prove the controls work in a local simulated loop.
+- Policy Gate before execution
+- Circuit Breaker during execution
+- Action Ledger after/during execution
+- Markdown Report for human review
+- Live Simulation for proof
+
+## Install
+
+```bash
+npm install agent-circuit-breaker
+```
+
+Zero runtime dependencies.
 
 ## Quick start
 
 ```typescript
-import { createBreaker, createPolicyGate, createAgentRunLedger } from 'agent-circuit-breaker';
+import { createPolicyGate, createBreaker } from 'agent-circuit-breaker';
 
 const gate = createPolicyGate({
   oversightMode: 'HITL',
@@ -54,41 +55,50 @@ if (!decision.allowed) {
 }
 
 const breaker = createBreaker({ maxRetries: 3 });
-const ledger = createAgentRunLedger({
-  runId: 'run-001',
-  agent: 'Hermes',
-  executor: 'local',
-  repo: 'agent-circuit-breaker',
-  task: 'update docs',
-  allowedFiles: ['README.md'],
-  startedAt: new Date().toISOString(),
-});
-
-ledger.recordPrompt('Update README and run tests.');
-ledger.recordCommand('npm test', { exitCode: 0, summary: 'passed' });
-ledger.close('completed');
-
 const result = await breaker.run(async () => ({ ok: true, _stepTokenCost: 50 }));
-console.log(result.success, ledger.toMarkdown());
+
+console.log(decision.message);
+console.log(result.success);
 ```
 
-Run the local proof harness:
+Run the live simulation from this repo after `npm install` or `npm ci`:
 
 ```bash
 npm run example:live-simulation
 ```
 
+The simulation is repo-local and uses the TypeScript example harness. It is for proof and review, not a security boundary.
+
+## API references
+
+### `createPolicyGate(config)`
+
+Creates a pre-run approval gate for local agent work. It evaluates requested files, requested commands, risk, and approval state.
+
+Returns a decision with:
+- `allowed`
+- `requiresApproval`
+- `reasons`
+- `violations`
+- `message`
+
+### `createAgentRunLedger(metadata)`
+
+Creates an in-memory run ledger for prompts, commands, changed files, validations, scope checks, approvals, and closeout.
+
+Common methods:
+- `recordPrompt()`
+- `recordCommand()`
+- `recordChangedFiles()`
+- `recordValidation()`
+- `recordScopeCheck()`
+- `recordApproval()`
+- `close()`
+- `toMarkdown()`
+
 Disclaimer: this package provides governance primitives, not a complete security boundary. Users must still sandbox tools, restrict credentials, review diffs, and apply least-privilege access.
 
-## Install
-
-```bash
-npm install agent-circuit-breaker
-```
-
-Zero runtime dependencies.
-
-## Quick start
+## Breaker API quick start
 
 ```typescript
 import { createBreaker } from 'agent-circuit-breaker';
