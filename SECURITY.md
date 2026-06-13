@@ -20,7 +20,7 @@ We aim to acknowledge good-faith reports promptly and will coordinate disclosure
 
 ## Security Model
 
-`agent-circuit-breaker` provides governance primitives for local AI agent loops:
+`Safeloop` provides governance primitives for local AI agent loops:
 - policy gating before execution
 - circuit breaking during execution
 - action ledgers for review and auditability

@@ -1,6 +1,6 @@
-# agent-circuit-breaker
+# Safeloop
 
-agent-circuit-breaker is a lightweight governance SDK for local AI agent loops.
+Safeloop is a lightweight governance SDK for local AI agent loops.
 
 It helps keep local agent runs reviewable, bounded, and easier to approve without turning the project into another coding-agent framework.
 
@@ -25,7 +25,7 @@ This package gives you small governance primitives instead of a full agent stack
 ## Install
 
 ```bash
-npm install agent-circuit-breaker
+npm install safeloop
 ```
 
 Zero runtime dependencies.
@@ -33,7 +33,7 @@ Zero runtime dependencies.
 ## Quick start
 
 ```typescript
-import { createPolicyGate, createBreaker } from 'agent-circuit-breaker';
+import { createPolicyGate, createBreaker } from 'safeloop';
 
 const gate = createPolicyGate({
   oversightMode: 'HITL',
@@ -101,7 +101,7 @@ Disclaimer: this package provides governance primitives, not a complete security
 ## Breaker API quick start
 
 ```typescript
-import { createBreaker } from 'agent-circuit-breaker';
+import { createBreaker } from 'safeloop';
 
 const breaker = createBreaker({
   maxRetries: 3,
@@ -233,7 +233,7 @@ const breaker = createBreaker({
 Use the built-in `BREAKER_PRESETS` for common agent-loop safety modes:
 
 ```typescript
-import { createBreaker, BREAKER_PRESETS } from 'agent-circuit-breaker';
+import { createBreaker, BREAKER_PRESETS } from 'safeloop';
 
 const breaker = createBreaker(BREAKER_PRESETS.standardCodingAgent);
 ```
@@ -252,7 +252,7 @@ For Hermes/OpenCode-style loop engineering workflows, the package includes two s
 import {
   createCodingAgentBreaker,
   toMarkdownReport,
-} from 'agent-circuit-breaker';
+} from 'safeloop';
 
 const breaker = createCodingAgentBreaker();
 const result = await breaker.run(runCodingLoop);
@@ -278,13 +278,13 @@ Together they form the foundation for local AI agent governance:
 Example:
 
 ```typescript
-import { createAgentRunLedger } from 'agent-circuit-breaker';
+import { createAgentRunLedger } from 'safeloop';
 
 const ledger = createAgentRunLedger({
   runId: 'run-001',
   agent: 'Hermes',
   executor: 'OpenCode',
-  repo: 'agent-circuit-breaker',
+  repo: 'safeloop',
   task: 'ship ledger v1',
   allowedFiles: ['src/index.ts', 'tests/breaker.test.ts'],
   startedAt: new Date().toISOString(),
@@ -309,7 +309,7 @@ Together they form a small governance loop for local AI agents.
 Example:
 
 ```typescript
-import { createPolicyGate } from 'agent-circuit-breaker';
+import { createPolicyGate } from 'safeloop';
 
 const gate = createPolicyGate({
   oversightMode: "HITL",

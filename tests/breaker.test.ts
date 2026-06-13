@@ -38,7 +38,7 @@ async function cooperativeBlock(ctx: {
   return 'cancelled';
 }
 
-describe('agent-circuit-breaker', () => {
+describe('safeloop', () => {
   describe('retry limit', () => {
     it('stops after default maxRetries (3)', async () => {
       const breaker = createBreaker({ maxRepeatedErrors: 0 });
@@ -590,7 +590,7 @@ describe('agent-circuit-breaker', () => {
       } as BreakerResult;
 
       const md = toMarkdownReport(result);
-      expect(md).toContain('# Agent Circuit Breaker Report');
+      expect(md).toContain('# Safeloop Report');
       expect(md).toContain('Status: Failed');
       expect(md).toContain('Trip reason: repeated_error');
       expect(md).toContain('Attempts: 3');
@@ -611,7 +611,7 @@ describe('agent-circuit-breaker', () => {
       });
 
       const md = toMarkdownReport(result);
-      expect(md).toContain('# Agent Circuit Breaker Report');
+      expect(md).toContain('# Safeloop Report');
       expect(md).toContain('Status: Succeeded');
       expect(md).toContain('Attempts: 1');
       expect(md).toContain('Token usage: 7');
@@ -641,7 +641,7 @@ describe('agent-circuit-breaker', () => {
         runId: 'run-001',
         agent: 'Hermes',
         executor: 'OpenCode',
-        repo: 'agent-circuit-breaker',
+        repo: 'safeloop',
         task: 'tighten governance',
         allowedFiles: ['src/index.ts', 'tests/breaker.test.ts'],
         startedAt: '2026-06-13T00:00:00.000Z',
@@ -664,7 +664,7 @@ describe('agent-circuit-breaker', () => {
         runId: 'run-002',
         agent: 'Hermes',
         executor: 'OpenCode',
-        repo: 'agent-circuit-breaker',
+        repo: 'safeloop',
         task: 'agent ledger',
         allowedFiles: ['src/index.ts'],
         startedAt: '2026-06-13T00:00:00.000Z',
@@ -724,7 +724,7 @@ describe('agent-circuit-breaker', () => {
         runId: 'run-003',
         agent: 'Hermes',
         executor: 'OpenCode',
-        repo: 'agent-circuit-breaker',
+        repo: 'safeloop',
         task: 'write report',
         allowedFiles: ['src/index.ts'],
         startedAt: '2026-06-13T00:00:00.000Z',
@@ -754,7 +754,7 @@ describe('agent-circuit-breaker', () => {
         runId: 'run-004',
         agent: 'Hermes',
         executor: 'OpenCode',
-        repo: 'agent-circuit-breaker',
+        repo: 'safeloop',
         task: 'minimal run',
         allowedFiles: [],
         startedAt: '2026-06-13T00:00:00.000Z',

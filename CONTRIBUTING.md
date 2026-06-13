@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve `agent-circuit-breaker`.
+Thanks for helping improve `Safeloop`.
 
 ## Install
 

@@ -146,7 +146,7 @@ function printMarkdownReports(): void {
 
   assertScenario(
     'markdown_report',
-    failedReport.includes('Agent Circuit Breaker Report') &&
+    failedReport.includes('Safeloop Report') &&
       failedReport.includes('Status: Failed') &&
       successReport.includes('Status: Succeeded') &&
       successReport.includes('## Audit Summary'),
@@ -159,7 +159,7 @@ function printLedger(): void {
     runId: 'live-sim-001',
     agent: 'Hermes',
     executor: 'OpenCode simulation',
-    repo: 'agent-circuit-breaker',
+    repo: 'safeloop',
     task: 'control-loop simulation',
     allowedFiles: ['README.md'],
     startedAt: new Date().toISOString(),
@@ -192,7 +192,7 @@ function printLedger(): void {
 }
 
 async function main(): Promise<void> {
-  console.log('Agent Circuit Breaker live simulation');
+  console.log('Safeloop live simulation');
   console.log('This is a local simulation only. No real OpenCode execution is used.');
 
   const repeatedError = await repeatedErrorScenario();

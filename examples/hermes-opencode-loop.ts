@@ -6,7 +6,7 @@ import { createBreaker, BreakerContext } from '../src/index';
  * In production, Hermes would:
  *   1. Create a JSON task file describing the goal and allowed files
  *   2. Invoke the PowerShell wrapper:
- *      & "C:\Users\CharlesZeller\hermes-tools\run-opencode-agent-circuit-breaker.ps1" `
+ *      & "C:\Users\CharlesZeller\hermes-tools\run-opencode-safeloop.ps1" `
  *        -TaskFile "task-<id>.json"
  *   3. The wrapper executes OpenCode inside the circuit breaker
  *
@@ -32,7 +32,7 @@ function createTask(goal: string, allowedFiles: string[]): TaskSpec {
  *
  * In production, this would be the OpenCode agent prompt/execution cycle,
  * invoked via the PowerShell wrapper at:
- *   C:\Users\CharlesZeller\hermes-tools\run-opencode-agent-circuit-breaker.ps1
+ *   C:\Users\CharlesZeller\hermes-tools\run-opencode-safeloop.ps1
  */
 async function simulateCodingStep(
   ctx: BreakerContext,
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
     // In production, Hermes writes a task file and calls the PowerShell wrapper:
     console.log(`  Hermes writes task-${ctx.attempt}.json and invokes:`);
     console.log(
-      `    & "C:\\Users\\CharlesZeller\\hermes-tools\\run-opencode-agent-circuit-breaker.ps1" ` +
+      `    & "C:\\Users\\CharlesZeller\\hermes-tools\\run-opencode-safeloop.ps1" ` +
         `-TaskFile "task-${ctx.attempt}.json"`,
     );
     console.log();

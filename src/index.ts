@@ -814,7 +814,7 @@ function extractRecommendedAction(escalationMessage: string): string | null {
 
 export function toMarkdownReport(result: BreakerResult): string {
   const status = result.success ? 'Succeeded' : 'Failed';
-  const lines: string[] = ['# Agent Circuit Breaker Report', ''];
+  const lines: string[] = ['# Safeloop Report', ''];
 
   lines.push(`Status: ${status}`);
 

@@ -1,17 +1,17 @@
 {
-  "name": "agent-circuit-breaker",
+  "name": "safeloop",
   "version": "0.1.0",
-  "description": "A lightweight governance SDK for local AI agent loops with a policy gate, circuit breaker, action ledger, markdown reports, and live simulations.",
+  "description": "Safeloop is a lightweight governance SDK for local AI agent loops with policy gates, circuit breakers, action ledgers, markdown reports, and live simulations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/charleszeller/agent-circuit-breaker.git"
+    "url": "git+https://github.com/charleszeller/safeloop.git"
   },
   "bugs": {
-    "url": "https://github.com/charleszeller/agent-circuit-breaker/issues"
+    "url": "https://github.com/charleszeller/safeloop/issues"
   },
-  "homepage": "https://github.com/charleszeller/agent-circuit-breaker#readme",
+  "homepage": "https://github.com/charleszeller/safeloop#readme",
   "files": [
     "dist"
   ],
