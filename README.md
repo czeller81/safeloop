@@ -160,6 +160,22 @@ const breaker = createBreaker({
 });
 ```
 
+## Presets
+
+Use the built-in `BREAKER_PRESETS` for common agent-loop safety modes:
+
+```typescript
+import { createBreaker, BREAKER_PRESETS } from 'agent-circuit-breaker';
+
+const breaker = createBreaker(BREAKER_PRESETS.standardCodingAgent);
+```
+
+| Preset | maxRetries | maxRepeatedErrors | perStep | perTask | scopeFreeze |
+|--------|-----------|-------------------|---------|---------|-------------|
+| `conservativeCodingAgent` | 1 | 1 | 4000 | 12000 | true |
+| `standardCodingAgent` | 2 | 2 | 8000 | 30000 | true |
+| `exploratoryResearchAgent` | 3 | 2 | 12000 | 60000 | false |
+
 ## Features
 
 ### 1. Hard loop limit (`maxRetries`)

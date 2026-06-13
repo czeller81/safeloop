@@ -468,6 +468,50 @@ describe('agent-circuit-breaker', () => {
     });
   });
 
+  describe('BREAKER_PRESETS', () => {
+    it('exports presets with correct conservativeCodingAgent values', () => {
+      const { BREAKER_PRESETS } = require('../src/index');
+      expect(BREAKER_PRESETS.conservativeCodingAgent).toEqual({
+        maxRetries: 1,
+        maxRepeatedErrors: 1,
+        tokenBudget: { perStep: 4000, perTask: 12000 },
+        scopeFreeze: true,
+      });
+    });
+
+    it('exports presets with correct standardCodingAgent values', () => {
+      const { BREAKER_PRESETS } = require('../src/index');
+      expect(BREAKER_PRESETS.standardCodingAgent).toEqual({
+        maxRetries: 2,
+        maxRepeatedErrors: 2,
+        tokenBudget: { perStep: 8000, perTask: 30000 },
+        scopeFreeze: true,
+      });
+    });
+
+    it('exports presets with correct exploratoryResearchAgent values', () => {
+      const { BREAKER_PRESETS } = require('../src/index');
+      expect(BREAKER_PRESETS.exploratoryResearchAgent).toEqual({
+        maxRetries: 3,
+        maxRepeatedErrors: 2,
+        tokenBudget: { perStep: 12000, perTask: 60000 },
+        scopeFreeze: false,
+      });
+    });
+
+    it('works end-to-end with createBreaker(BREAKER_PRESETS.standardCodingAgent)', async () => {
+      const { createBreaker, BREAKER_PRESETS } = require('../src/index');
+      const breaker = createBreaker(BREAKER_PRESETS.standardCodingAgent);
+      const result = await breaker.run(async () => {
+        throw new Error('task failed');
+      });
+      expect(result.success).toBe(false);
+      // maxRetries=2 => 3 total attempts, repeatedErrors=2 => trips on 2nd identical error
+      expect(result.stoppedBy).toBe('repeated_error');
+      expect(result.attempts).toBe(2);
+    });
+  });
+
   describe('reset', () => {
     it('clears state for reuse', async () => {
       const breaker = createBreaker();

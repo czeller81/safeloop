@@ -71,6 +71,27 @@ export const DEFAULTS = {
   scopeFreeze: true,
 } as const;
 
+export const BREAKER_PRESETS = {
+  conservativeCodingAgent: {
+    maxRetries: 1,
+    maxRepeatedErrors: 1,
+    tokenBudget: { perStep: 4000, perTask: 12000 },
+    scopeFreeze: true,
+  },
+  standardCodingAgent: {
+    maxRetries: 2,
+    maxRepeatedErrors: 2,
+    tokenBudget: { perStep: 8000, perTask: 30000 },
+    scopeFreeze: true,
+  },
+  exploratoryResearchAgent: {
+    maxRetries: 3,
+    maxRepeatedErrors: 2,
+    tokenBudget: { perStep: 12000, perTask: 60000 },
+    scopeFreeze: false,
+  },
+} as const;
+
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
