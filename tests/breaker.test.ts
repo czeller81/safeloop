@@ -793,6 +793,62 @@ describe('safeloop', () => {
       expect(json.closedAt).toBeNull();
     });
 
+    it('records a PolicyGateDecision directly as a scope check', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HITL',
+        maxRisk: 'medium',
+      });
+      const decision = gate.evaluate({
+        task: 'Update policy text',
+        risk: 'high',
+      });
+      const ledger = createAgentRunLedger({
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'testlab',
+      });
+
+      expect(() => {
+        ledger.recordScopeCheck(decision);
+        ledger.toJSON();
+        ledger.toMarkdown();
+      }).not.toThrow();
+
+      const json = ledger.toJSON();
+      expect(json.scopeChecks).toHaveLength(1);
+      expect(json.scopeChecks[0]).toMatchObject({
+        ok: decision.allowed,
+        allowed: decision.allowed,
+        requiresApproval: decision.requiresApproval,
+        reasons: decision.reasons,
+        violations: decision.violations,
+        oversightMode: decision.oversightMode,
+        risk: decision.risk,
+        message: decision.message,
+      });
+      expect(ledger.toMarkdown()).toContain('## Scope Checks');
+    });
+
+    it('accepts a minimal partial scope check payload with allowed boolean', () => {
+      const ledger = createAgentRunLedger({
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'testlab',
+      });
+
+      expect(() => {
+        ledger.recordScopeCheck({ allowed: true });
+        ledger.toJSON();
+        ledger.toMarkdown();
+      }).not.toThrow();
+
+      const json = ledger.toJSON();
+      expect(json.scopeChecks[0]).toMatchObject({
+        ok: true,
+        allowed: true,
+      });
+    });
+
     it('normalises missing optional array fields to empty arrays in toJSON', () => {
       const ledger = createAgentRunLedger({
         agent: 'Hermes',

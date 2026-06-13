@@ -97,9 +97,24 @@ export interface AgentRunLedgerCommandResult {
 
 export interface AgentRunLedgerScopeCheck {
   ok: boolean;
-  allowed?: string[];
+  allowed?: string[] | boolean;
+  requiresApproval?: boolean;
+  reasons?: string[];
   violations?: string[];
   message?: string;
+  oversightMode?: OversightMode;
+  risk?: PolicyRisk;
+}
+
+export interface AgentRunLedgerScopeCheckInput {
+  ok?: boolean;
+  allowed?: string[] | boolean;
+  requiresApproval?: boolean;
+  reasons?: string[];
+  violations?: string[];
+  message?: string;
+  oversightMode?: OversightMode;
+  risk?: PolicyRisk;
 }
 
 export interface AgentRunLedgerApproval {
@@ -195,7 +210,7 @@ export interface AgentRunLedger {
     status: AgentRunLedgerValidationStatus,
     details?: string,
   ): void;
-  recordScopeCheck(result: AgentRunLedgerScopeCheck): void;
+  recordScopeCheck(result: AgentRunLedgerScopeCheckInput): void;
   recordApproval(
     approver: string,
     decision: AgentRunLedgerApprovalDecision,
@@ -487,6 +502,36 @@ function formatMaybeText(value?: string): string {
   return value && value.trim() ? value : 'None';
 }
 
+function cloneScopeCheckAllowed(
+  allowed?: string[] | boolean,
+): string[] | boolean | undefined {
+  if (Array.isArray(allowed)) {
+    return [...allowed];
+  }
+
+  if (typeof allowed === 'boolean') {
+    return allowed;
+  }
+
+  return undefined;
+}
+
+function cloneMaybeStringArray(values?: string[]): string[] | undefined {
+  return Array.isArray(values) ? [...values] : undefined;
+}
+
+function formatMaybeScopeAllowed(value?: string[] | boolean): string {
+  if (Array.isArray(value)) {
+    return formatMaybeList(value);
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+
+  return 'None';
+}
+
 function formatMaybeNumber(value?: number): string {
   return typeof value === 'number' ? String(value) : 'n/a';
 }
@@ -554,11 +599,13 @@ export function createAgentRunLedger(
           type: 'scope_check',
           data: {
             ok: entry.data.ok,
-            allowed: entry.data.allowed ? [...entry.data.allowed] : undefined,
-            violations: entry.data.violations
-              ? [...entry.data.violations]
-              : undefined,
+            allowed: cloneScopeCheckAllowed(entry.data.allowed),
+            requiresApproval: entry.data.requiresApproval,
+            reasons: cloneMaybeStringArray(entry.data.reasons),
+            violations: cloneMaybeStringArray(entry.data.violations),
             message: entry.data.message,
+            oversightMode: entry.data.oversightMode,
+            risk: entry.data.risk,
           },
         };
       case 'approval':
@@ -590,9 +637,13 @@ export function createAgentRunLedger(
       validations: validations.map((entry) => ({ ...entry })),
       scopeChecks: scopeChecks.map((entry) => ({
         ok: entry.ok,
-        allowed: entry.allowed ? [...entry.allowed] : undefined,
-        violations: entry.violations ? [...entry.violations] : undefined,
+        allowed: cloneScopeCheckAllowed(entry.allowed),
+        requiresApproval: entry.requiresApproval,
+        reasons: cloneMaybeStringArray(entry.reasons),
+        violations: cloneMaybeStringArray(entry.violations),
         message: entry.message,
+        oversightMode: entry.oversightMode,
+        risk: entry.risk,
       })),
       approvals: approvals.map((entry) => ({ ...entry })),
       events: events.map(cloneLedgerEvent),
@@ -644,12 +695,21 @@ export function createAgentRunLedger(
     addEvent({ timestamp: Date.now(), type: 'validation', data: { ...entry } });
   }
 
-  function recordScopeCheck(result: AgentRunLedgerScopeCheck): void {
+  function recordScopeCheck(result: AgentRunLedgerScopeCheckInput): void {
     const entry: AgentRunLedgerScopeCheck = {
-      ok: result.ok,
-      allowed: result.allowed ? [...result.allowed] : undefined,
-      violations: result.violations ? [...result.violations] : undefined,
+      ok:
+        typeof result.ok === 'boolean'
+          ? result.ok
+          : typeof result.allowed === 'boolean'
+            ? result.allowed
+            : !(Array.isArray(result.violations) && result.violations.length > 0),
+      allowed: cloneScopeCheckAllowed(result.allowed),
+      requiresApproval: result.requiresApproval,
+      reasons: cloneMaybeStringArray(result.reasons),
+      violations: cloneMaybeStringArray(result.violations),
       message: result.message,
+      oversightMode: result.oversightMode,
+      risk: result.risk,
     };
     scopeChecks.push(entry);
     addEvent({ timestamp: Date.now(), type: 'scope_check', data: { ...entry } });
@@ -733,9 +793,19 @@ export function createAgentRunLedger(
     } else {
       json.scopeChecks.forEach((entry) => {
         lines.push(`- ok: ${entry.ok ? 'yes' : 'no'}`);
-        lines.push(`  - allowed: ${formatMaybeList(entry.allowed ?? [])}`);
+        lines.push(`  - allowed: ${formatMaybeScopeAllowed(entry.allowed)}`);
+        lines.push(`  - reasons: ${formatMaybeList(entry.reasons ?? [])}`);
         lines.push(`  - violations: ${formatMaybeList(entry.violations ?? [])}`);
         lines.push(`  - message: ${formatMaybeText(entry.message)}`);
+        if (typeof entry.requiresApproval === 'boolean') {
+          lines.push(`  - requires approval: ${entry.requiresApproval ? 'yes' : 'no'}`);
+        }
+        if (entry.oversightMode) {
+          lines.push(`  - oversight mode: ${entry.oversightMode}`);
+        }
+        if (entry.risk) {
+          lines.push(`  - risk: ${entry.risk}`);
+        }
       });
     }
 
