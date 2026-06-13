@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js",
+    "test": "jest --config jest.config.js",
     "example": "ts-node examples/wrap-agent.ts",
     "prepare": "npm run build"
   },

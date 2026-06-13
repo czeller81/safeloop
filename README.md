@@ -16,6 +16,12 @@ This library is a drop-in guard that:
 - Logs every attempt, failure, and decision.
 - Returns a structured result explaining what happened and what a human should do next.
 
+## Hermes + OpenCode Experiment
+
+This package can be used as a circuit breaker guardrail for AI coding agents, including Hermes and OpenCode, to prevent retry loops, token burn, scope expansion, and unsafe unattended execution.
+
+Example: [`examples/hermes-opencode-loop.ts`](examples/hermes-opencode-loop.ts) -- simulated Hermes/OpenCode coding loop with retry, scope-freeze, and token budget protection.
+
 ## Install
 
 ```bash
