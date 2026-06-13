@@ -773,6 +773,49 @@ describe('safeloop', () => {
       expect(json.approvals[0].note).toBeUndefined();
       expect(ledger.toMarkdown()).toContain('None');
     });
+
+    it('creates a ledger with minimal metadata (regression)', () => {
+      const ledger = createAgentRunLedger({
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'testlab',
+      });
+
+      const json = ledger.toJSON();
+      expect(json.metadata.agent).toBe('Hermes');
+      expect(json.metadata.executor).toBe('OpenCode');
+      expect(json.metadata.repo).toBe('testlab');
+      expect(json.metadata.runId).toBeTruthy();
+      expect(json.metadata.task).toBe('untitled');
+      expect(json.metadata.startedAt).toBeTruthy();
+      expect(json.metadata.allowedFiles).toEqual([]);
+      expect(json.status).toBe('open');
+      expect(json.closedAt).toBeNull();
+    });
+
+    it('normalises missing optional array fields to empty arrays in toJSON', () => {
+      const ledger = createAgentRunLedger({
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'testlab',
+      });
+
+      const json = ledger.toJSON();
+      expect(json.metadata.allowedFiles).toEqual([]);
+    });
+
+    it('normalises missing optional array fields safely in toMarkdown', () => {
+      const ledger = createAgentRunLedger({
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'testlab',
+      });
+
+      const md = ledger.toMarkdown();
+      expect(md).toContain('# Agent Run Ledger');
+      expect(md).toContain('## Allowed Files');
+      expect(md).toContain('None');
+    });
   });
 
   describe('Policy Gate', () => {

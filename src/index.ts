@@ -81,13 +81,13 @@ export type AgentRunLedgerApprovalDecision =
   | 'needs_changes';
 
 export interface AgentRunLedgerMetadata {
-  runId: string;
+  runId?: string;
   agent: string;
   executor: string;
   repo: string;
-  task: string;
-  allowedFiles: string[];
-  startedAt: string;
+  task?: string;
+  allowedFiles?: string[];
+  startedAt?: string;
 }
 
 export interface AgentRunLedgerCommandResult {
@@ -294,7 +294,7 @@ function cloneAgentRunLedgerMetadata(
 ): AgentRunLedgerMetadata {
   return {
     ...metadata,
-    allowedFiles: [...metadata.allowedFiles],
+    allowedFiles: metadata.allowedFiles ? [...metadata.allowedFiles] : [],
   };
 }
 
@@ -494,7 +494,13 @@ function formatMaybeNumber(value?: number): string {
 export function createAgentRunLedger(
   initialMetadata: AgentRunLedgerMetadata,
 ): AgentRunLedger {
-  const metadata = cloneAgentRunLedgerMetadata(initialMetadata);
+  const metadata = cloneAgentRunLedgerMetadata({
+    runId: `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    task: 'untitled',
+    startedAt: new Date().toISOString(),
+    allowedFiles: [],
+    ...initialMetadata,
+  });
   const events: AgentRunLedgerEvent[] = [];
   const prompts: string[] = [];
   const commands: AgentRunLedgerCommand[] = [];
@@ -682,7 +688,7 @@ export function createAgentRunLedger(
     lines.push(`Started at: ${json.metadata.startedAt}`);
     lines.push(`Closed at: ${json.closedAt ?? 'open'}`);
 
-    lines.push('', '## Allowed Files', '', formatMaybeList(json.metadata.allowedFiles));
+    lines.push('', '## Allowed Files', '', formatMaybeList(json.metadata.allowedFiles ?? []));
     lines.push('', '## Prompt History', '');
     lines.push(
       json.prompts.length > 0 ? json.prompts.map((prompt) => `- ${prompt}`).join('\n') : 'None',
