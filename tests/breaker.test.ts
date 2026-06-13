@@ -3,6 +3,7 @@ import {
   createAgentRunLedger,
   createBreaker,
   createCodingAgentBreaker,
+  createPolicyGate,
   toMarkdownReport,
   type BreakerResult,
 } from '../src/index';
@@ -771,6 +772,221 @@ describe('agent-circuit-breaker', () => {
       expect(json.scopeChecks[0].message).toBeUndefined();
       expect(json.approvals[0].note).toBeUndefined();
       expect(ledger.toMarkdown()).toContain('None');
+    });
+  });
+
+  describe('Policy Gate', () => {
+    it('allows a low-risk request within allowed files and commands', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOTL',
+        allowedFiles: ['README.md', 'examples/**'],
+        allowedCommands: ['npm test', 'git status'],
+        blockedCommands: ['git push', 'npm publish'],
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Update README documentation',
+        requestedFiles: ['README.md', 'examples/demo.ts'],
+        requestedCommands: ['npm test', 'git status'],
+        risk: 'low',
+      });
+
+      expect(decision.allowed).toBe(true);
+      expect(decision.requiresApproval).toBe(false);
+      expect(decision.violations).toHaveLength(0);
+      expect(decision.message).toContain('approved');
+    });
+
+    it('blocks requested files outside allowedFiles', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOTL',
+        allowedFiles: ['README.md'],
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Modify docs and package metadata',
+        requestedFiles: ['README.md', 'package.json'],
+        risk: 'low',
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.violations).toContain('file not allowed: package.json');
+      expect(decision.message).toContain('blocked');
+    });
+
+    it('blocks blockedCommands such as git push or npm publish', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOTL',
+        blockedCommands: ['git push', 'npm publish'],
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Attempt to publish changes',
+        requestedCommands: ['git push origin master'],
+        risk: 'low',
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.violations).toContain('blocked command: git push origin master');
+    });
+
+    it('blocks commands not listed in allowedCommands when allowedCommands is provided', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOTL',
+        allowedCommands: ['npm test'],
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Run validation and build',
+        requestedCommands: ['npm test', 'npm run build'],
+        risk: 'low',
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.violations).toContain('command not allowed: npm run build');
+    });
+
+    it('HITL high-risk request requires approval if hasHumanApproval is false', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HITL',
+        maxRisk: 'high',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Modify production deploy flow',
+        risk: 'high',
+        hasHumanApproval: false,
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.requiresApproval).toBe(true);
+      expect(decision.message).toContain('human approval');
+    });
+
+    it('HITL high-risk request allows when hasHumanApproval is true and no other violations exist', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HITL',
+        allowedFiles: ['README.md'],
+        allowedCommands: ['npm test'],
+        maxRisk: 'high',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Update README after approval',
+        requestedFiles: ['README.md'],
+        requestedCommands: ['npm test'],
+        risk: 'high',
+        hasHumanApproval: true,
+      });
+
+      expect(decision.allowed).toBe(true);
+      expect(decision.requiresApproval).toBe(false);
+      expect(decision.violations).toHaveLength(0);
+    });
+
+    it('blocks request risk above maxRisk', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOOTL',
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Run a high-risk action',
+        risk: 'high',
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.violations).toContain('risk high exceeds maxRisk medium');
+    });
+
+    it('HOTL allows supervised medium-risk request if within policy', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOTL',
+        allowedFiles: ['src/index.ts'],
+        allowedCommands: ['npm test'],
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Make a supervised code change',
+        requestedFiles: ['src/index.ts'],
+        requestedCommands: ['npm test'],
+        risk: 'medium',
+      });
+
+      expect(decision.allowed).toBe(true);
+      expect(decision.oversightMode).toBe('HOTL');
+    });
+
+    it('HOOTL allows low-risk request but still blocks explicit violations', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOOTL',
+        allowedFiles: ['README.md'],
+        blockedCommands: ['rm -rf'],
+        maxRisk: 'high',
+      });
+
+      const safeDecision = gate.evaluate({
+        task: 'Update README text',
+        requestedFiles: ['README.md'],
+        risk: 'low',
+      });
+
+      const violationDecision = gate.evaluate({
+        task: 'Try an unsafe command',
+        requestedFiles: ['README.md'],
+        requestedCommands: ['rm -rf /tmp/test'],
+        risk: 'low',
+      });
+
+      expect(safeDecision.allowed).toBe(true);
+      expect(violationDecision.allowed).toBe(false);
+      expect(violationDecision.violations).toContain(
+        'blocked command: rm -rf /tmp/test',
+      );
+    });
+
+    it('normalizes Windows-style paths', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HOTL',
+        allowedFiles: ['examples/*'],
+        maxRisk: 'high',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Run example script',
+        requestedFiles: ['examples\\demo.ts'],
+        risk: 'low',
+      });
+
+      expect(decision.allowed).toBe(true);
+      expect(decision.violations).toHaveLength(0);
+    });
+
+    it('decision object includes clear reasons and message', () => {
+      const gate = createPolicyGate({
+        oversightMode: 'HITL',
+        allowedFiles: ['README.md'],
+        blockedCommands: ['git push'],
+        maxRisk: 'medium',
+      });
+
+      const decision = gate.evaluate({
+        task: 'Push changes',
+        requestedFiles: ['package.json'],
+        requestedCommands: ['git push origin master'],
+        risk: 'high',
+        hasHumanApproval: false,
+      });
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.reasons.length).toBeGreaterThan(0);
+      expect(decision.message.length).toBeGreaterThan(0);
+      expect(decision.message).toContain('Policy Gate');
     });
   });
 

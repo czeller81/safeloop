@@ -230,6 +230,45 @@ ledger.close('completed');
 console.log(ledger.toMarkdown());
 ```
 
+## Policy Gate: approve before execution
+
+Policy Gate runs before the agent starts.
+Circuit Breaker supervises during execution.
+Agent Action Ledger records what happened.
+
+Together they form a small governance loop for local AI agents.
+
+Example:
+
+```typescript
+import { createPolicyGate } from 'agent-circuit-breaker';
+
+const gate = createPolicyGate({
+  oversightMode: "HITL",
+  allowedFiles: ["README.md", "examples/**"],
+  allowedCommands: ["npm test", "npm run build", "git status", "git diff"],
+  blockedCommands: ["git push", "npm publish", "rm -rf"],
+  maxRisk: "medium",
+});
+
+const decision = gate.evaluate({
+  task: "Update README documentation",
+  requestedFiles: ["README.md"],
+  requestedCommands: ["npm test"],
+  risk: "low",
+});
+
+if (!decision.allowed) {
+  throw new Error(decision.message);
+}
+```
+
+Policy Gate uses simple, conservative matching:
+- allowedFiles supports exact paths, `/*` for direct children, and `/**` for recursive folder access.
+- Windows backslashes are normalized to forward slashes before matching.
+- blockedCommands are matched by case-insensitive substring so obvious dangerous commands are caught.
+- allowedCommands are matched by normalized exact command string.
+
 ## Features
 
 ### 1. Hard loop limit (`maxRetries`)

@@ -206,6 +206,41 @@ export interface AgentRunLedger {
   toMarkdown(): string;
 }
 
+export type OversightMode = 'HITL' | 'HOTL' | 'HOOTL';
+
+export type PolicyRisk = 'low' | 'medium' | 'high';
+
+export interface PolicyGateConfig {
+  oversightMode: OversightMode;
+  allowedFiles?: string[];
+  allowedCommands?: string[];
+  blockedCommands?: string[];
+  requireApprovalFor?: string[];
+  maxRisk?: PolicyRisk;
+}
+
+export interface PolicyGateRequest {
+  task: string;
+  requestedFiles?: string[];
+  requestedCommands?: string[];
+  risk?: PolicyRisk;
+  hasHumanApproval?: boolean;
+}
+
+export interface PolicyGateDecision {
+  allowed: boolean;
+  requiresApproval: boolean;
+  reasons: string[];
+  violations: string[];
+  oversightMode: OversightMode;
+  risk: PolicyRisk;
+  message: string;
+}
+
+export interface PolicyGate {
+  evaluate(request: PolicyGateRequest): PolicyGateDecision;
+}
+
 export const DEFAULTS = {
   maxRetries: 3,
   maxRepeatedErrors: 2,
@@ -260,6 +295,187 @@ function cloneAgentRunLedgerMetadata(
   return {
     ...metadata,
     allowedFiles: [...metadata.allowedFiles],
+  };
+}
+
+function normalizePath(value: string): string {
+  let normalized = value.split('\\').join('/').trim();
+  while (normalized.includes('//')) {
+    normalized = normalized.replace('//', '/');
+  }
+  return normalized;
+}
+
+function normalizeCommand(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function riskRank(risk: PolicyRisk): number {
+  switch (risk) {
+    case 'low':
+      return 1;
+    case 'medium':
+      return 2;
+    case 'high':
+      return 3;
+  }
+}
+
+function matchesAllowedFilePattern(pattern: string, file: string): boolean {
+  const normalizedPattern = normalizePath(pattern);
+  const normalizedFile = normalizePath(file);
+
+  if (normalizedPattern.endsWith('/**')) {
+    const base = normalizedPattern.slice(0, -3);
+    return (
+      normalizedFile === base ||
+      normalizedFile.startsWith(`${base}/`)
+    );
+  }
+
+  if (normalizedPattern.endsWith('/*')) {
+    const base = normalizedPattern.slice(0, -2);
+    if (!normalizedFile.startsWith(`${base}/`)) return false;
+    const rest = normalizedFile.slice(base.length + 1);
+    return !rest.includes('/');
+  }
+
+  return normalizedPattern === normalizedFile;
+}
+
+function matchesAnyAllowedFile(
+  allowedFiles: string[],
+  requestedFile: string,
+): boolean {
+  return allowedFiles.some((pattern) =>
+    matchesAllowedFilePattern(pattern, requestedFile),
+  );
+}
+
+function commandMatchesBlockedPattern(
+  blockedPattern: string,
+  command: string,
+): boolean {
+  return normalizeCommand(command).includes(normalizeCommand(blockedPattern));
+}
+
+function commandIsAllowed(
+  allowedCommands: string[],
+  command: string,
+): boolean {
+  return allowedCommands.some(
+    (allowedCommand) => normalizeCommand(allowedCommand) === normalizeCommand(command),
+  );
+}
+
+function createDecisionMessage(
+  allowed: boolean,
+  requiresApproval: boolean,
+  reasons: string[],
+  violations: string[],
+): string {
+  if (allowed) {
+    return 'Policy Gate approved this run.';
+  }
+
+  if (requiresApproval) {
+    return reasons.length > 0
+      ? `Policy Gate requires human approval before execution: ${reasons.join('; ')}.`
+      : 'Policy Gate requires human approval before execution.';
+  }
+
+  const parts: string[] = ['Policy Gate blocked this run.'];
+  if (violations.length > 0) {
+    parts.push(`Violations: ${violations.join('; ')}.`);
+  }
+  if (reasons.length > 0) {
+    parts.push(`Reasons: ${reasons.join('; ')}.`);
+  }
+  return parts.join(' ');
+}
+
+export function createPolicyGate(policy: PolicyGateConfig): PolicyGate {
+  const oversightMode = policy.oversightMode;
+  const maxRisk = policy.maxRisk ?? 'high';
+  const allowedFiles = policy.allowedFiles?.map(normalizePath) ?? [];
+  const allowedCommands = policy.allowedCommands?.map(normalizeCommand) ?? [];
+  const blockedCommands = policy.blockedCommands?.map(normalizeCommand) ?? [];
+  const requireApprovalFor = policy.requireApprovalFor?.map((value) =>
+    value.toLowerCase().trim(),
+  ) ?? [];
+
+  return {
+    evaluate(request: PolicyGateRequest): PolicyGateDecision {
+      const risk = request.risk ?? 'low';
+      const requestedFiles = request.requestedFiles ?? [];
+      const requestedCommands = request.requestedCommands ?? [];
+      const reasons: string[] = [];
+      const violations: string[] = [];
+      const approvalReasons: string[] = [];
+
+      const riskTooHigh = riskRank(risk) > riskRank(maxRisk);
+      if (riskTooHigh) {
+        violations.push(`risk ${risk} exceeds maxRisk ${maxRisk}`);
+        reasons.push(`request risk ${risk} exceeds policy maxRisk ${maxRisk}`);
+      }
+
+      for (const file of requestedFiles) {
+        if (allowedFiles.length > 0 && !matchesAnyAllowedFile(allowedFiles, file)) {
+          violations.push(`file not allowed: ${normalizePath(file)}`);
+        }
+      }
+
+      for (const command of requestedCommands) {
+        if (
+          blockedCommands.some((blockedCommand) =>
+            commandMatchesBlockedPattern(blockedCommand, command),
+          )
+        ) {
+          violations.push(`blocked command: ${command.trim()}`);
+        }
+
+        if (
+          allowedCommands.length > 0 &&
+          !commandIsAllowed(allowedCommands, command)
+        ) {
+          violations.push(`command not allowed: ${command.trim()}`);
+        }
+      }
+
+      const requestText = [request.task, ...requestedCommands].join(' ').toLowerCase();
+      const matchedApprovalRules = requireApprovalFor.filter((trigger) =>
+        trigger && requestText.includes(trigger),
+      );
+
+      if (matchedApprovalRules.length > 0 && !request.hasHumanApproval) {
+        approvalReasons.push(
+          `requires approval for: ${matchedApprovalRules.join(', ')}`,
+        );
+      }
+
+      if (oversightMode === 'HITL' && risk === 'high' && !request.hasHumanApproval) {
+        approvalReasons.push('high-risk run requires human approval in HITL mode');
+      }
+
+      if (approvalReasons.length > 0) {
+        reasons.push(...approvalReasons);
+      }
+
+      const blocked = violations.length > 0;
+      const requiresApproval = !blocked && approvalReasons.length > 0;
+      const allowed = !blocked && !requiresApproval;
+      const message = createDecisionMessage(allowed, requiresApproval, reasons, violations);
+
+      return {
+        allowed,
+        requiresApproval,
+        reasons,
+        violations,
+        oversightMode,
+        risk,
+        message,
+      };
+    },
   };
 }
 
