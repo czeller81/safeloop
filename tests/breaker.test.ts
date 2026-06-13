@@ -1,5 +1,6 @@
 import {
   BREAKER_PRESETS,
+  createAgentRunLedger,
   createBreaker,
   createCodingAgentBreaker,
   toMarkdownReport,
@@ -630,6 +631,146 @@ describe('agent-circuit-breaker', () => {
 
       expect(md).toContain('Status: Succeeded');
       expect(md).toContain('Attempts: 1');
+    });
+  });
+
+  describe('Agent Action Ledger', () => {
+    it('creates a ledger with metadata', () => {
+      const metadata = {
+        runId: 'run-001',
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'agent-circuit-breaker',
+        task: 'tighten governance',
+        allowedFiles: ['src/index.ts', 'tests/breaker.test.ts'],
+        startedAt: '2026-06-13T00:00:00.000Z',
+      };
+
+      const ledger = createAgentRunLedger(metadata);
+      const json = ledger.toJSON();
+
+      expect(json.metadata).toEqual(metadata);
+      expect(json.status).toBe('open');
+      expect(json.closedAt).toBeNull();
+      expect(metadata.allowedFiles).toEqual([
+        'src/index.ts',
+        'tests/breaker.test.ts',
+      ]);
+    });
+
+    it('records prompt, command, changed files, validations, scope checks, approval, and close', () => {
+      const ledger = createAgentRunLedger({
+        runId: 'run-002',
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'agent-circuit-breaker',
+        task: 'agent ledger',
+        allowedFiles: ['src/index.ts'],
+        startedAt: '2026-06-13T00:00:00.000Z',
+      });
+
+      ledger.recordPrompt('Build the first version of the action ledger.');
+      ledger.recordCommand('npm test', { exitCode: 0, summary: 'passed' });
+      ledger.recordChangedFiles(['src/index.ts', 'tests/breaker.test.ts']);
+      ledger.recordValidation('npm test', 'passed', '52 tests passed');
+      ledger.recordScopeCheck({
+        ok: false,
+        allowed: ['src/index.ts', 'tests/breaker.test.ts'],
+        violations: ['README.md'],
+        message: 'README.md is out of scope',
+      });
+      ledger.recordApproval('Charles', 'approved', 'Looks good');
+      ledger.close('completed');
+
+      const json = ledger.toJSON();
+      expect(json.prompts).toEqual([
+        'Build the first version of the action ledger.',
+      ]);
+      expect(json.commands).toEqual([
+        { command: 'npm test', result: { exitCode: 0, summary: 'passed' } },
+      ]);
+      expect(json.changedFiles).toEqual([
+        ['src/index.ts', 'tests/breaker.test.ts'],
+      ]);
+      expect(json.validations).toEqual([
+        {
+          name: 'npm test',
+          status: 'passed',
+          details: '52 tests passed',
+        },
+      ]);
+      expect(json.scopeChecks).toEqual([
+        {
+          ok: false,
+          allowed: ['src/index.ts', 'tests/breaker.test.ts'],
+          violations: ['README.md'],
+          message: 'README.md is out of scope',
+        },
+      ]);
+      expect(json.approvals).toEqual([
+        {
+          approver: 'Charles',
+          decision: 'approved',
+          note: 'Looks good',
+        },
+      ]);
+      expect(json.status).toBe('completed');
+      expect(json.closedAt).not.toBeNull();
+    });
+
+    it('returns readable markdown', () => {
+      const ledger = createAgentRunLedger({
+        runId: 'run-003',
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'agent-circuit-breaker',
+        task: 'write report',
+        allowedFiles: ['src/index.ts'],
+        startedAt: '2026-06-13T00:00:00.000Z',
+      });
+
+      ledger.recordPrompt('Draft the governance ledger.');
+      ledger.recordCommand('npm run build', { exitCode: 0 });
+      ledger.recordChangedFiles(['src/index.ts']);
+      ledger.recordValidation('npm run build', 'passed');
+      ledger.recordScopeCheck({ ok: true });
+      ledger.recordApproval('Charles', 'needs_changes', 'Add more detail');
+      ledger.close('blocked');
+
+      const md = ledger.toMarkdown();
+      expect(md).toContain('# Agent Run Ledger');
+      expect(md).toContain('Run ID: run-003');
+      expect(md).toContain('Status: blocked');
+      expect(md).toContain('## Commands');
+      expect(md).toContain('npm run build');
+      expect(md).toContain('## Validations');
+      expect(md).toContain('## Human Approval');
+      expect(md).toContain('## Events');
+    });
+
+    it('handles missing optional fields safely', () => {
+      const ledger = createAgentRunLedger({
+        runId: 'run-004',
+        agent: 'Hermes',
+        executor: 'OpenCode',
+        repo: 'agent-circuit-breaker',
+        task: 'minimal run',
+        allowedFiles: [],
+        startedAt: '2026-06-13T00:00:00.000Z',
+      });
+
+      ledger.recordCommand('npm test');
+      ledger.recordValidation('npm test', 'skipped');
+      ledger.recordScopeCheck({ ok: true });
+      ledger.recordApproval('Charles', 'rejected');
+      ledger.close('escalated');
+
+      const json = ledger.toJSON();
+      expect(json.commands[0].result).toBeUndefined();
+      expect(json.validations[0].details).toBeUndefined();
+      expect(json.scopeChecks[0].message).toBeUndefined();
+      expect(json.approvals[0].note).toBeUndefined();
+      expect(ledger.toMarkdown()).toContain('None');
     });
   });
 

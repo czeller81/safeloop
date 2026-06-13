@@ -64,6 +64,148 @@ export interface Breaker {
   log(): AuditEntry[];
 }
 
+export type AgentRunLedgerCloseStatus =
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'escalated';
+
+export type AgentRunLedgerValidationStatus =
+  | 'passed'
+  | 'failed'
+  | 'skipped';
+
+export type AgentRunLedgerApprovalDecision =
+  | 'approved'
+  | 'rejected'
+  | 'needs_changes';
+
+export interface AgentRunLedgerMetadata {
+  runId: string;
+  agent: string;
+  executor: string;
+  repo: string;
+  task: string;
+  allowedFiles: string[];
+  startedAt: string;
+}
+
+export interface AgentRunLedgerCommandResult {
+  exitCode?: number;
+  summary?: string;
+}
+
+export interface AgentRunLedgerScopeCheck {
+  ok: boolean;
+  allowed?: string[];
+  violations?: string[];
+  message?: string;
+}
+
+export interface AgentRunLedgerApproval {
+  approver: string;
+  decision: AgentRunLedgerApprovalDecision;
+  note?: string;
+}
+
+export interface AgentRunLedgerValidation {
+  name: string;
+  status: AgentRunLedgerValidationStatus;
+  details?: string;
+}
+
+export interface AgentRunLedgerCommand {
+  command: string;
+  result?: AgentRunLedgerCommandResult;
+}
+
+export interface AgentRunLedgerPromptEvent {
+  timestamp: number;
+  type: 'prompt';
+  data: { prompt: string };
+}
+
+export interface AgentRunLedgerCommandEvent {
+  timestamp: number;
+  type: 'command';
+  data: { command: string; result?: AgentRunLedgerCommandResult };
+}
+
+export interface AgentRunLedgerChangedFilesEvent {
+  timestamp: number;
+  type: 'changed_files';
+  data: { files: string[] };
+}
+
+export interface AgentRunLedgerValidationEvent {
+  timestamp: number;
+  type: 'validation';
+  data: AgentRunLedgerValidation;
+}
+
+export interface AgentRunLedgerScopeCheckEvent {
+  timestamp: number;
+  type: 'scope_check';
+  data: AgentRunLedgerScopeCheck;
+}
+
+export interface AgentRunLedgerApprovalEvent {
+  timestamp: number;
+  type: 'approval';
+  data: AgentRunLedgerApproval;
+}
+
+export interface AgentRunLedgerCloseEvent {
+  timestamp: number;
+  type: 'close';
+  data: { status: AgentRunLedgerCloseStatus };
+}
+
+export type AgentRunLedgerEvent =
+  | AgentRunLedgerPromptEvent
+  | AgentRunLedgerCommandEvent
+  | AgentRunLedgerChangedFilesEvent
+  | AgentRunLedgerValidationEvent
+  | AgentRunLedgerScopeCheckEvent
+  | AgentRunLedgerApprovalEvent
+  | AgentRunLedgerCloseEvent;
+
+export interface AgentRunLedgerJSON {
+  metadata: AgentRunLedgerMetadata;
+  status: AgentRunLedgerCloseStatus | 'open';
+  closedAt: string | null;
+  prompts: string[];
+  commands: AgentRunLedgerCommand[];
+  changedFiles: string[][];
+  validations: AgentRunLedgerValidation[];
+  scopeChecks: AgentRunLedgerScopeCheck[];
+  approvals: AgentRunLedgerApproval[];
+  events: AgentRunLedgerEvent[];
+}
+
+export interface AgentRunLedger {
+  recordPrompt(prompt: string): void;
+  recordCommand(
+    command: string,
+    result?: AgentRunLedgerCommandResult,
+  ): void;
+  recordChangedFiles(files: string[]): void;
+  recordValidation(
+    name: string,
+    status: AgentRunLedgerValidationStatus,
+    details?: string,
+  ): void;
+  recordScopeCheck(result: AgentRunLedgerScopeCheck): void;
+  recordApproval(
+    approver: string,
+    decision: AgentRunLedgerApprovalDecision,
+    note?: string,
+  ): void;
+  close(status: AgentRunLedgerCloseStatus): void;
+  toJSON(): AgentRunLedgerJSON;
+  toMarkdown(): string;
+}
+
 export const DEFAULTS = {
   maxRetries: 3,
   maxRepeatedErrors: 2,
@@ -90,7 +232,7 @@ export const BREAKER_PRESETS = {
     tokenBudget: { perStep: 12000, perTask: 60000 },
     scopeFreeze: false,
   },
-} as const;
+} satisfies Record<string, BreakerConfig>;
 
 function mergeBreakerConfig(
   base: BreakerConfig,
@@ -110,6 +252,324 @@ export function createCodingAgentBreaker(config?: BreakerConfig): Breaker {
   return createBreaker(
     mergeBreakerConfig(BREAKER_PRESETS.standardCodingAgent, config),
   );
+}
+
+function cloneAgentRunLedgerMetadata(
+  metadata: AgentRunLedgerMetadata,
+): AgentRunLedgerMetadata {
+  return {
+    ...metadata,
+    allowedFiles: [...metadata.allowedFiles],
+  };
+}
+
+function formatMaybeList(values: string[]): string {
+  return values.length > 0 ? values.map((value) => `- ${value}`).join('\n') : 'None';
+}
+
+function formatMaybeText(value?: string): string {
+  return value && value.trim() ? value : 'None';
+}
+
+function formatMaybeNumber(value?: number): string {
+  return typeof value === 'number' ? String(value) : 'n/a';
+}
+
+export function createAgentRunLedger(
+  initialMetadata: AgentRunLedgerMetadata,
+): AgentRunLedger {
+  const metadata = cloneAgentRunLedgerMetadata(initialMetadata);
+  const events: AgentRunLedgerEvent[] = [];
+  const prompts: string[] = [];
+  const commands: AgentRunLedgerCommand[] = [];
+  const changedFiles: string[][] = [];
+  const validations: AgentRunLedgerValidation[] = [];
+  const scopeChecks: AgentRunLedgerScopeCheck[] = [];
+  const approvals: AgentRunLedgerApproval[] = [];
+  let status: AgentRunLedgerCloseStatus | 'open' = 'open';
+  let closedAt: string | null = null;
+
+  function addEvent(event: AgentRunLedgerEvent): void {
+    events.push(event);
+  }
+
+  function now(): string {
+    return new Date().toISOString();
+  }
+
+  function cloneLedgerEvent(entry: AgentRunLedgerEvent): AgentRunLedgerEvent {
+    switch (entry.type) {
+      case 'prompt':
+        return {
+          timestamp: entry.timestamp,
+          type: 'prompt',
+          data: { prompt: entry.data.prompt },
+        };
+      case 'command':
+        return {
+          timestamp: entry.timestamp,
+          type: 'command',
+          data: {
+            command: entry.data.command,
+            result: entry.data.result ? { ...entry.data.result } : undefined,
+          },
+        };
+      case 'changed_files':
+        return {
+          timestamp: entry.timestamp,
+          type: 'changed_files',
+          data: { files: [...entry.data.files] },
+        };
+      case 'validation':
+        return {
+          timestamp: entry.timestamp,
+          type: 'validation',
+          data: { ...entry.data },
+        };
+      case 'scope_check':
+        return {
+          timestamp: entry.timestamp,
+          type: 'scope_check',
+          data: {
+            ok: entry.data.ok,
+            allowed: entry.data.allowed ? [...entry.data.allowed] : undefined,
+            violations: entry.data.violations
+              ? [...entry.data.violations]
+              : undefined,
+            message: entry.data.message,
+          },
+        };
+      case 'approval':
+        return {
+          timestamp: entry.timestamp,
+          type: 'approval',
+          data: { ...entry.data },
+        };
+      case 'close':
+        return {
+          timestamp: entry.timestamp,
+          type: 'close',
+          data: { status: entry.data.status },
+        };
+    }
+  }
+
+  function cloneJSON(): AgentRunLedgerJSON {
+    return {
+      metadata: cloneAgentRunLedgerMetadata(metadata),
+      status,
+      closedAt,
+      prompts: [...prompts],
+      commands: commands.map((entry) => ({
+        command: entry.command,
+        result: entry.result ? { ...entry.result } : undefined,
+      })),
+      changedFiles: changedFiles.map((entry) => [...entry]),
+      validations: validations.map((entry) => ({ ...entry })),
+      scopeChecks: scopeChecks.map((entry) => ({
+        ok: entry.ok,
+        allowed: entry.allowed ? [...entry.allowed] : undefined,
+        violations: entry.violations ? [...entry.violations] : undefined,
+        message: entry.message,
+      })),
+      approvals: approvals.map((entry) => ({ ...entry })),
+      events: events.map(cloneLedgerEvent),
+    };
+  }
+
+  function recordPrompt(prompt: string): void {
+    prompts.push(prompt);
+    addEvent({ timestamp: Date.now(), type: 'prompt', data: { prompt } });
+  }
+
+  function recordCommand(
+    command: string,
+    result?: AgentRunLedgerCommandResult,
+  ): void {
+    const entry = { command, result: result ? { ...result } : undefined };
+    commands.push(entry);
+    addEvent({
+      timestamp: Date.now(),
+      type: 'command',
+      data: {
+        command,
+        result: entry.result ? { ...entry.result } : undefined,
+      },
+    });
+  }
+
+  function recordChangedFiles(files: string[]): void {
+    const entry = [...files];
+    changedFiles.push(entry);
+    addEvent({
+      timestamp: Date.now(),
+      type: 'changed_files',
+      data: { files: [...entry] },
+    });
+  }
+
+  function recordValidation(
+    name: string,
+    validationStatus: AgentRunLedgerValidationStatus,
+    details?: string,
+  ): void {
+    const entry: AgentRunLedgerValidation = {
+      name,
+      status: validationStatus,
+      details,
+    };
+    validations.push(entry);
+    addEvent({ timestamp: Date.now(), type: 'validation', data: { ...entry } });
+  }
+
+  function recordScopeCheck(result: AgentRunLedgerScopeCheck): void {
+    const entry: AgentRunLedgerScopeCheck = {
+      ok: result.ok,
+      allowed: result.allowed ? [...result.allowed] : undefined,
+      violations: result.violations ? [...result.violations] : undefined,
+      message: result.message,
+    };
+    scopeChecks.push(entry);
+    addEvent({ timestamp: Date.now(), type: 'scope_check', data: { ...entry } });
+  }
+
+  function recordApproval(
+    approver: string,
+    decision: AgentRunLedgerApprovalDecision,
+    note?: string,
+  ): void {
+    const entry: AgentRunLedgerApproval = { approver, decision, note };
+    approvals.push(entry);
+    addEvent({ timestamp: Date.now(), type: 'approval', data: { ...entry } });
+  }
+
+  function close(nextStatus: AgentRunLedgerCloseStatus): void {
+    status = nextStatus;
+    closedAt = now();
+    addEvent({
+      timestamp: Date.now(),
+      type: 'close',
+      data: { status: nextStatus },
+    });
+  }
+
+  function toMarkdown(): string {
+    const json = cloneJSON();
+    const lines: string[] = ['# Agent Run Ledger', ''];
+
+    lines.push(`Run ID: ${json.metadata.runId}`);
+    lines.push(`Agent: ${json.metadata.agent}`);
+    lines.push(`Executor: ${json.metadata.executor}`);
+    lines.push(`Repo: ${json.metadata.repo}`);
+    lines.push(`Task: ${json.metadata.task}`);
+    lines.push(`Status: ${json.status}`);
+    lines.push(`Started at: ${json.metadata.startedAt}`);
+    lines.push(`Closed at: ${json.closedAt ?? 'open'}`);
+
+    lines.push('', '## Allowed Files', '', formatMaybeList(json.metadata.allowedFiles));
+    lines.push('', '## Prompt History', '');
+    lines.push(
+      json.prompts.length > 0 ? json.prompts.map((prompt) => `- ${prompt}`).join('\n') : 'None',
+    );
+
+    lines.push('', '## Commands', '');
+    if (json.commands.length === 0) {
+      lines.push('None');
+    } else {
+      json.commands.forEach((entry, index) => {
+        lines.push(`${index + 1}. ${entry.command}`);
+        lines.push(`   - exit code: ${formatMaybeNumber(entry.result?.exitCode)}`);
+        lines.push(`   - summary: ${formatMaybeText(entry.result?.summary)}`);
+      });
+    }
+
+    lines.push('', '## Changed Files', '');
+    if (json.changedFiles.length === 0) {
+      lines.push('None');
+    } else {
+      json.changedFiles.forEach((group, index) => {
+        lines.push(`${index + 1}.`);
+        lines.push(formatMaybeList(group));
+      });
+    }
+
+    lines.push('', '## Validations', '');
+    lines.push(
+      json.validations.length > 0
+        ? json.validations
+            .map(
+              (entry) =>
+                `- ${entry.name}: ${entry.status}${entry.details ? ` — ${entry.details}` : ''}`,
+            )
+            .join('\n')
+        : 'None',
+    );
+
+    lines.push('', '## Scope Checks', '');
+    if (json.scopeChecks.length === 0) {
+      lines.push('None');
+    } else {
+      json.scopeChecks.forEach((entry) => {
+        lines.push(`- ok: ${entry.ok ? 'yes' : 'no'}`);
+        lines.push(`  - allowed: ${formatMaybeList(entry.allowed ?? [])}`);
+        lines.push(`  - violations: ${formatMaybeList(entry.violations ?? [])}`);
+        lines.push(`  - message: ${formatMaybeText(entry.message)}`);
+      });
+    }
+
+    lines.push('', '## Human Approval', '');
+    lines.push(
+      json.approvals.length > 0
+        ? json.approvals
+            .map(
+              (entry) =>
+                `- ${entry.approver}: ${entry.decision}${entry.note ? ` — ${entry.note}` : ''}`,
+            )
+            .join('\n')
+        : 'None',
+    );
+
+    lines.push('', '## Events', '');
+    lines.push(
+      json.events.length > 0
+        ? json.events
+            .map((entry) => {
+              const when = new Date(entry.timestamp).toISOString();
+              switch (entry.type) {
+                case 'prompt':
+                  return `- [${when}] prompt: ${entry.data.prompt}`;
+                case 'command':
+                  return `- [${when}] command: ${entry.data.command}`;
+                case 'changed_files':
+                  return `- [${when}] changed files: ${entry.data.files.join(', ')}`;
+                case 'validation':
+                  return `- [${when}] validation: ${entry.data.name} (${entry.data.status})`;
+                case 'scope_check':
+                  return `- [${when}] scope check: ${entry.data.ok ? 'ok' : 'violations'}`;
+                case 'approval':
+                  return `- [${when}] approval: ${entry.data.approver} (${entry.data.decision})`;
+                case 'close':
+                  return `- [${when}] close: ${entry.data.status}`;
+              }
+            })
+            .join('\n')
+        : 'None',
+    );
+
+    return lines.join('\n').trim();
+  }
+
+  return {
+    recordPrompt,
+    recordCommand,
+    recordChangedFiles,
+    recordValidation,
+    recordScopeCheck,
+    recordApproval,
+    close,
+    toJSON: cloneJSON,
+    toMarkdown,
+  };
 }
 
 function formatAuditSummary(auditEntries: AuditEntry[]): string | null {

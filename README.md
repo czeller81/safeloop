@@ -197,6 +197,39 @@ console.log(toMarkdownReport(result));
 
 These helpers are meant to make local agent-loop experiments easier to read, easier to tune, and easier to hand back to a human when the breaker trips.
 
+## Agent Action Ledger
+
+The circuit breaker is the emergency brake.
+The Agent Action Ledger is the audit trail.
+
+Together they form the foundation for local AI agent governance:
+- The breaker stops unsafe or runaway loops.
+- The ledger records what the agent tried, changed, validated, and approved.
+- Combined, they make agent runs easier to review, debug, and control.
+
+Example:
+
+```typescript
+import { createAgentRunLedger } from 'agent-circuit-breaker';
+
+const ledger = createAgentRunLedger({
+  runId: 'run-001',
+  agent: 'Hermes',
+  executor: 'OpenCode',
+  repo: 'agent-circuit-breaker',
+  task: 'ship ledger v1',
+  allowedFiles: ['src/index.ts', 'tests/breaker.test.ts'],
+  startedAt: new Date().toISOString(),
+});
+
+ledger.recordPrompt('Add the Agent Action Ledger API.');
+ledger.recordCommand('npm test', { exitCode: 0, summary: 'passed' });
+ledger.recordValidation('npm test', 'passed');
+ledger.close('completed');
+
+console.log(ledger.toMarkdown());
+```
+
 ## Features
 
 ### 1. Hard loop limit (`maxRetries`)
