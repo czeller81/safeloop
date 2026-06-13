@@ -6,12 +6,12 @@
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/charleszeller/safeloop.git"
+    "url": "git+https://github.com/czeller81/safeloop.git"
   },
   "bugs": {
-    "url": "https://github.com/charleszeller/safeloop/issues"
+    "url": "https://github.com/czeller81/safeloop/issues"
   },
-  "homepage": "https://github.com/charleszeller/safeloop#readme",
+  "homepage": "https://github.com/czeller81/safeloop#readme",
   "files": [
     "dist"
   ],
