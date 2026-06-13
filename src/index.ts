@@ -925,6 +925,10 @@ export function toMarkdownReport(result: BreakerResult): string {
   return lines.join('\n').trim();
 }
 
+export { createCaseFile, addCaseContext, recordCaseDecision, recordCaseRisk, requestCaseApproval, resolveCaseApproval, recordHandoff } from './caseFile';
+export { exportCaseReportMarkdown, exportCaseReportJSON } from './caseReport';
+export type { CaseFile, CaseFileCreateInput, CaseFileStatus, CaseContextEntry, CaseContextInput, CaseDecisionEntry, CaseDecisionInput, CaseRiskEntry, CaseRiskInput, CaseRiskSeverity, CaseApprovalRecord, CaseApprovalRequestInput, CaseApprovalResolutionInput, CaseApprovalStatus, CaseHandoffRecord, CaseHandoffInput, CaseReportJSON, CaseReportMarkdownOptions, CaseReportSummary } from './caseTypes';
+
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;

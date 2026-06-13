@@ -14,6 +14,19 @@ Local AI agent loops fail in predictable ways:
 
 This package gives you small governance primitives instead of a full agent stack. It is designed to stay boring, auditable, and easy to reason about.
 
+## How Safeloop is different
+
+Safeloop is not an enterprise AI governance platform or full agent runtime.
+
+It is a lightweight TypeScript SDK for local agentic coding workflows. It gives developers simple primitives they can embed around tools like OpenCode, Claude Code, Codex, Hermes-style operators, or custom scripts.
+
+Use Safeloop when you want a small, understandable control layer:
+
+- policy gates before execution
+- circuit breakers during execution
+- action ledgers after execution
+- markdown reports for human review
+
 ## Governance loop
 
 - Policy Gate before execution
@@ -21,6 +34,71 @@ This package gives you small governance primitives instead of a full agent stack
 - Action Ledger after/during execution
 - Markdown Report for human review
 - Live Simulation for proof
+
+## Agent Accountability + Handoff
+
+Safeloop now also supports a small Case File layer for ownership and handoff.
+
+Use it when you want to track:
+- goal
+- owner
+- project
+- participants
+- status
+- context used
+- decisions and rationale
+- risks and mitigation
+- approvals
+- handoff notes and next actions
+
+The Case File layer stays local-first and standalone. It can reference existing Safeloop artifacts like ledger entries or markdown reports, but it does not depend on them.
+
+```typescript
+import {
+  createCaseFile,
+  addCaseContext,
+  recordCaseDecision,
+  requestCaseApproval,
+  resolveCaseApproval,
+  recordHandoff,
+  exportCaseReportMarkdown,
+} from 'safeloop';
+
+let caseFile = createCaseFile({
+  goal: 'Hand off the current agent task',
+  owner: 'Hermes',
+  project: 'Safeloop',
+});
+
+caseFile = addCaseContext(caseFile, {
+  contextUsed: 'Existing breaker and ledger flow',
+  references: ['.safeloop/ledger.jsonl', 'SAFELOOP_CASE.md'],
+});
+
+caseFile = recordCaseDecision(caseFile, {
+  decision: 'Keep the new layer additive',
+  rationale: 'Preserve existing behavior and APIs',
+});
+
+caseFile = requestCaseApproval(caseFile, {
+  subject: 'Approve the handoff',
+  requestedBy: 'Hermes',
+  requestedFor: 'Charles',
+});
+
+caseFile = resolveCaseApproval(caseFile, caseFile.approvals[0].id, {
+  status: 'approved',
+  approver: 'Charles',
+});
+
+caseFile = recordHandoff(caseFile, {
+  nextOwner: 'OpenCode',
+  handoffNotes: 'Continue from the approved case file.',
+  recommendedNextActions: ['Review context', 'Continue implementation'],
+});
+
+console.log(exportCaseReportMarkdown(caseFile));
+```
 
 ## Install
 
