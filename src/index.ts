@@ -283,6 +283,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
     while (true) {
       if (killSwitchEngaged || abortController?.signal.aborted) {
         const reason = killReason || 'kill switch engaged';
+        isTripped = true;
         record('breaker_trip', `Kill switch engaged: ${reason}`);
         return {
           success: false,
@@ -299,6 +300,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
       }
 
       if (attempts > maxRetries) {
+        isTripped = true;
         record('breaker_trip', `Exceeded max retries (${maxRetries})`);
         escalationMessage = buildEscalation(
           `The task failed on every attempt. Last error: ${lastError ?? 'unknown'}`,
@@ -372,6 +374,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
         tokenUsed += tokenCost;
 
         if (scopeProposed) {
+          isTripped = true;
           record(
             'breaker_trip',
             `Scope change denied: ${scopeProposalDescription}`,
@@ -393,6 +396,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
         }
 
         if (tokenUsed > perTaskBudget) {
+          isTripped = true;
           record(
             'budget_check',
             `Task token budget exceeded: ${tokenUsed} > ${perTaskBudget}`,
@@ -413,6 +417,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
         }
 
         if (tokenCost > perStepBudget) {
+          isTripped = true;
           record(
             'budget_check',
             `Step token budget exceeded: ${tokenCost} > ${perStepBudget}`,
@@ -433,6 +438,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
         }
 
         if (checkScopeInResult(result)) {
+          isTripped = true;
           record(
             'scope_denied',
             'Task returned new goals without using proposeScopeChange()',
@@ -473,6 +479,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
         record('failure', `Attempt ${attempts} failed: ${errMsg}`, errTokenCost ? { tokenCost: errTokenCost } : undefined);
 
         if (detectRepeatedError(errMsg)) {
+          isTripped = true;
           record(
             'breaker_trip',
             `Repeated error detected: "${errMsg}" appeared ` +
@@ -532,7 +539,7 @@ export function createBreaker(config?: BreakerConfig): Breaker {
 
     status(): BreakerStatus {
       return {
-        isTripped: killSwitchEngaged,
+        isTripped,
         isKilled: killSwitchEngaged,
         attempts,
         tripReason,

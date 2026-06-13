@@ -655,5 +655,16 @@ describe('agent-circuit-breaker', () => {
       expect(st).toHaveProperty('attempts');
       expect(st).toHaveProperty('tripReason');
     });
+
+    it('marks status as tripped after a non-kill stop', async () => {
+      const breaker = createBreaker();
+      await breaker.run(async () => {
+        throw new Error('boom');
+      });
+
+      const st = breaker.status();
+      expect(st.isTripped).toBe(true);
+      expect(st.isKilled).toBe(false);
+    });
   });
 });
