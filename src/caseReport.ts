@@ -4,7 +4,9 @@ import type {
   CaseFile,
   CaseReportJSON,
   CaseReportMarkdownOptions,
+  Participant,
 } from './caseTypes';
+import { getParticipant, listParticipants } from './caseFile';
 
 function formatList(values: string[]): string {
   return values.length > 0 ? values.map((value) => `- ${value}`).join('\n') : 'None';
@@ -26,12 +28,58 @@ function cloneAttachment(entry: CaseAttachment): CaseAttachment {
   };
 }
 
+function cloneParticipant(participant: Participant): Participant {
+  return { ...participant };
+}
+
+function titleCase(value: string): string {
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function getDisplayParticipantName(caseFile: CaseFile, participantId?: string | null): string | null {
+  if (!participantId) {
+    return null;
+  }
+  return getParticipant(caseFile, participantId)?.name ?? participantId;
+}
+
+function renderParticipantBullet(participant: Participant): string[] {
+  return [
+    `* ${participant.name}`,
+    `  * type: ${participant.type}`,
+    `  * role: ${participant.role}`,
+  ];
+}
+
+function renderParticipantSummaryTable(participants: Participant[]): string[] {
+  const lines = ['| Participant | Type | Role |', '| --- | --- | --- |'];
+  participants.forEach((participant) => {
+    lines.push(
+      `| ${participant.name} | ${titleCase(participant.type)} | ${titleCase(participant.role)} |`,
+    );
+  });
+  return lines;
+}
+
+function renderAttributionLine(label: string, participantName?: string | null): string[] {
+  if (!participantName) {
+    return [];
+  }
+  return [`${label}: ${participantName}`];
+}
+
 export function exportCaseReportJSON(caseFile: CaseFile): CaseReportJSON {
   return {
     generatedAt: new Date().toISOString(),
     caseFile: {
       ...caseFile,
       participants: [...caseFile.participants],
+      participantDirectory: caseFile.participantDirectory
+        ? caseFile.participantDirectory.map(cloneParticipant)
+        : undefined,
       contextTrail: caseFile.contextTrail.map((entry) => ({
         ...entry,
         references: [...entry.references],
@@ -103,8 +151,24 @@ export function exportCaseReportMarkdown(
   lines.push(`Updated at: ${caseFile.updatedAt}`);
   lines.push(`Closed at: ${formatOptional(caseFile.closedAt)}`);
 
+  const participants = listParticipants(caseFile);
+
   lines.push('', '## Participants', '');
-  lines.push(formatList(caseFile.participants));
+  if (participants.length === 0) {
+    lines.push('None');
+  } else {
+    participants.forEach((participant) => {
+      lines.push(...renderParticipantBullet(participant));
+      lines.push('');
+    });
+  }
+
+  lines.push('', '## Participants Summary', '');
+  if (participants.length === 0) {
+    lines.push('None');
+  } else {
+    lines.push(...renderParticipantSummaryTable(participants));
+  }
 
   lines.push('', '## Context Trail', '');
   if (caseFile.contextTrail.length === 0 && !options.includeEmptySections) {
@@ -113,6 +177,7 @@ export function exportCaseReportMarkdown(
     caseFile.contextTrail.forEach((entry, index) => {
       lines.push(`### Context ${index + 1}`);
       lines.push(`Context used: ${entry.contextUsed}`);
+      lines.push(...renderAttributionLine('By', getDisplayParticipantName(caseFile, entry.createdBy)));
       lines.push(`References: ${formatList(entry.references)}`);
       lines.push(`Notes: ${formatList(entry.notes)}`);
       lines.push('');
@@ -130,6 +195,7 @@ export function exportCaseReportMarkdown(
       lines.push(`### Decision ${index + 1}`);
       lines.push(`Decision: ${entry.decision}`);
       lines.push(`Rationale: ${entry.rationale}`);
+      lines.push(...renderAttributionLine('By', getDisplayParticipantName(caseFile, entry.createdBy)));
       lines.push(`Owner: ${formatOptional(entry.owner ?? null)}`);
       lines.push(`Related context IDs: ${formatList(entry.relatedContextIds)}`);
       lines.push('');
@@ -143,6 +209,7 @@ export function exportCaseReportMarkdown(
     caseFile.riskLog.forEach((entry, index) => {
       lines.push(`### Risk ${index + 1}`);
       lines.push(`Risk: ${entry.risk}`);
+      lines.push(...renderAttributionLine('By', getDisplayParticipantName(caseFile, entry.createdBy)));
       lines.push(`Severity: ${entry.severity}`);
       lines.push(`Mitigation: ${entry.mitigation}`);
       lines.push(`Status: ${entry.status}`);
@@ -157,11 +224,11 @@ export function exportCaseReportMarkdown(
     caseFile.approvals.forEach((entry, index) => {
       lines.push(`### Approval ${index + 1}`);
       lines.push(`Subject: ${entry.subject}`);
-      lines.push(`Requested by: ${entry.requestedBy}`);
+      lines.push(`Requested by: ${formatOptional(getDisplayParticipantName(caseFile, entry.requestedByParticipantId) ?? entry.requestedBy)}`);
       lines.push(`Requested for: ${entry.requestedFor}`);
       lines.push(`Reason: ${formatOptional(entry.reason)}`);
       lines.push(`Status: ${entry.status}`);
-      lines.push(`Approver: ${formatOptional(entry.approver)}`);
+      lines.push(`By: ${formatOptional(getDisplayParticipantName(caseFile, entry.resolvedByParticipantId) ?? entry.approver)}`);
       lines.push(`Note: ${formatOptional(entry.note)}`);
       lines.push(`References: ${formatList(entry.references)}`);
       lines.push('');
@@ -174,8 +241,8 @@ export function exportCaseReportMarkdown(
   } else {
     caseFile.handoffRecords.forEach((entry, index) => {
       lines.push(`### Handoff ${index + 1}`);
-      lines.push(`Current owner: ${entry.currentOwner}`);
-      lines.push(`Next owner: ${entry.nextOwner}`);
+      lines.push(`Current owner: ${formatOptional(getDisplayParticipantName(caseFile, entry.fromParticipantId) ?? entry.currentOwner)}`);
+      lines.push(`Next owner: ${formatOptional(getDisplayParticipantName(caseFile, entry.toParticipantId) ?? entry.nextOwner)}`);
       lines.push(`Handoff notes: ${entry.handoffNotes}`);
       lines.push(`Recommended next actions: ${formatList(entry.recommendedNextActions)}`);
       lines.push(`References: ${formatList(entry.references)}`);

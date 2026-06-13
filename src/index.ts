@@ -936,6 +936,11 @@ export {
   attachArtifact,
   removeAttachment,
   listAttachments,
+  addParticipant,
+  removeParticipant,
+  listParticipants,
+  getParticipant,
+  hasParticipant,
 } from './caseFile';
 export { exportCaseReportMarkdown, exportCaseReportJSON } from './caseReport';
 export type {
@@ -961,6 +966,10 @@ export type {
   CaseReportJSON,
   CaseReportMarkdownOptions,
   CaseReportSummary,
+  Participant,
+  ParticipantInput,
+  ParticipantType,
+  ParticipantRole,
 } from './caseTypes';
 
 function extractTokenCost(value: unknown): number {

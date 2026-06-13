@@ -21,6 +21,33 @@ export type CaseAttachmentType =
   | 'log'
   | 'other';
 
+export type ParticipantType = 'agent' | 'human' | 'system';
+
+export type ParticipantRole =
+  | 'owner'
+  | 'implementer'
+  | 'reviewer'
+  | 'approver'
+  | 'observer'
+  | 'operator'
+  | 'other';
+
+export interface Participant {
+  id: string;
+  name: string;
+  type: ParticipantType;
+  role: ParticipantRole;
+  createdAt: string;
+}
+
+export interface ParticipantInput {
+  id: string;
+  name: string;
+  type: ParticipantType;
+  role?: ParticipantRole;
+  createdAt?: string;
+}
+
 export interface CaseAttachment {
   id: string;
   type: CaseAttachmentType;
@@ -47,6 +74,7 @@ export interface CaseContextEntry {
   contextUsed: string;
   references: string[];
   notes: string[];
+  createdBy?: string;
 }
 
 export interface CaseDecisionEntry {
@@ -56,6 +84,7 @@ export interface CaseDecisionEntry {
   rationale: string;
   owner?: string;
   relatedContextIds: string[];
+  createdBy?: string;
 }
 
 export interface CaseRiskEntry {
@@ -65,6 +94,7 @@ export interface CaseRiskEntry {
   severity: CaseRiskSeverity;
   mitigation: string;
   status: 'open' | 'accepted' | 'mitigated';
+  createdBy?: string;
 }
 
 export interface CaseApprovalRecord {
@@ -80,6 +110,8 @@ export interface CaseApprovalRecord {
   note: string | null;
   requestedAt: string;
   resolvedAt: string | null;
+  requestedByParticipantId?: string;
+  resolvedByParticipantId?: string;
 }
 
 export interface CaseHandoffRecord {
@@ -91,6 +123,8 @@ export interface CaseHandoffRecord {
   recommendedNextActions: string[];
   references: string[];
   attachmentIds: string[];
+  fromParticipantId?: string;
+  toParticipantId?: string;
 }
 
 export interface CaseFile {
@@ -99,6 +133,7 @@ export interface CaseFile {
   owner: string;
   project: string;
   participants: string[];
+  participantDirectory?: Participant[];
   status: CaseFileStatus;
   contextTrail: CaseContextEntry[];
   decisionLog: CaseDecisionEntry[];
@@ -112,6 +147,11 @@ export interface CaseFile {
   attachArtifact(input: CaseAttachmentInput): CaseFile;
   removeAttachment(attachmentId: string): CaseFile;
   listAttachments(): CaseAttachment[];
+  addParticipant(input: ParticipantInput): CaseFile;
+  removeParticipant(participantId: string): CaseFile;
+  listParticipants(): Participant[];
+  getParticipant(participantId: string): Participant | undefined;
+  hasParticipant(participantId: string): boolean;
 }
 
 export interface CaseFileCreateInput {
@@ -119,6 +159,7 @@ export interface CaseFileCreateInput {
   owner: string;
   project: string;
   participants?: string[];
+  participantDirectory?: ParticipantInput[];
   status?: CaseFileStatus;
 }
 
@@ -126,6 +167,7 @@ export interface CaseContextInput {
   contextUsed: string;
   references?: string[];
   notes?: string[];
+  createdBy?: string;
 }
 
 export interface CaseDecisionInput {
@@ -133,6 +175,7 @@ export interface CaseDecisionInput {
   rationale: string;
   owner?: string;
   relatedContextIds?: string[];
+  createdBy?: string;
 }
 
 export interface CaseRiskInput {
@@ -140,6 +183,7 @@ export interface CaseRiskInput {
   severity: CaseRiskSeverity;
   mitigation: string;
   status?: CaseRiskEntry['status'];
+  createdBy?: string;
 }
 
 export interface CaseApprovalRequestInput {
@@ -148,12 +192,14 @@ export interface CaseApprovalRequestInput {
   requestedFor?: string;
   reason?: string;
   references?: string[];
+  requestedByParticipantId?: string;
 }
 
 export interface CaseApprovalResolutionInput {
   status: 'approved' | 'rejected';
   approver: string;
   note?: string;
+  resolvedByParticipantId?: string;
 }
 
 export interface CaseHandoffInput {
@@ -166,6 +212,8 @@ export interface CaseHandoffInput {
   recommendedNextActions?: string[];
   references?: string[];
   attachmentIds?: string[];
+  fromParticipantId?: string;
+  toParticipantId?: string;
 }
 
 export interface CaseReportSummary {

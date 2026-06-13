@@ -17,11 +17,22 @@ import type {
   CaseRiskEntry,
   CaseRiskInput,
   CaseRiskSeverity,
+  Participant,
+  ParticipantInput,
+  ParticipantRole,
+  ParticipantType,
 } from './caseTypes';
 
 type CaseFileData = Omit<
   CaseFile,
-  'attachArtifact' | 'removeAttachment' | 'listAttachments'
+  | 'attachArtifact'
+  | 'removeAttachment'
+  | 'listAttachments'
+  | 'addParticipant'
+  | 'removeParticipant'
+  | 'listParticipants'
+  | 'getParticipant'
+  | 'hasParticipant'
 >;
 
 const CASE_ATTACHMENT_TYPES = new Set<CaseAttachmentType>([
@@ -96,33 +107,183 @@ function cloneAttachment(entry: CaseAttachment): CaseAttachment {
   };
 }
 
-function cloneCaseFile(caseFile: CaseFileData): CaseFileData {
+function normalizeParticipantType(type: string): ParticipantType {
+  const normalized = trimText(type).toLowerCase();
+  if (normalized === 'agent' || normalized === 'human' || normalized === 'system') {
+    return normalized;
+  }
+  throw new Error(`Unsupported participant type: ${type}`);
+}
+
+function normalizeParticipantRole(role: string | undefined): ParticipantRole {
+  if (!role) {
+    return 'other';
+  }
+  const normalized = trimText(role).toLowerCase();
+  if (
+    normalized === 'owner' ||
+    normalized === 'implementer' ||
+    normalized === 'reviewer' ||
+    normalized === 'approver' ||
+    normalized === 'observer' ||
+    normalized === 'operator' ||
+    normalized === 'other'
+  ) {
+    return normalized;
+  }
+  throw new Error(`Unsupported participant role: ${role}`);
+}
+
+function normalizeParticipantInput(input: ParticipantInput): Participant {
   return {
-    ...caseFile,
-    participants: [...caseFile.participants],
-    contextTrail: caseFile.contextTrail.map((entry) => ({
-      ...entry,
-      references: [...entry.references],
-      notes: [...entry.notes],
-    })),
-    decisionLog: caseFile.decisionLog.map((entry) => ({
-      ...entry,
-      relatedContextIds: [...entry.relatedContextIds],
-    })),
-    riskLog: caseFile.riskLog.map((entry) => ({ ...entry })),
-    approvals: caseFile.approvals.map((entry) => ({
-      ...entry,
-      references: [...entry.references],
-    })),
-    handoffRecords: caseFile.handoffRecords.map((entry) => ({
-      ...entry,
-      recommendedNextActions: [...entry.recommendedNextActions],
-      references: [...entry.references],
-      attachmentIds: [...entry.attachmentIds],
-    })),
-    attachments: caseFile.attachments.map(cloneAttachment),
+    id: requireNonEmpty(input.id, 'participant id'),
+    name: requireNonEmpty(input.name, 'participant name'),
+    type: normalizeParticipantType(input.type),
+    role: normalizeParticipantRole(input.role),
+    createdAt: input.createdAt ? trimText(input.createdAt) : now(),
   };
 }
+
+function cloneParticipant(participant: Participant): Participant {
+  return { ...participant };
+}
+
+function cloneParticipantDirectory(
+  participants?: Participant[],
+): Participant[] | undefined {
+  if (!participants) {
+    return undefined;
+  }
+  return participants.map(cloneParticipant);
+}
+
+function normalizeParticipantDirectory(
+  participants?: ParticipantInput[],
+): Participant[] {
+  if (!Array.isArray(participants)) {
+    return [];
+  }
+
+  const seenIds = new Set<string>();
+  return participants.map((participant) => {
+    const normalized = normalizeParticipantInput(participant);
+    if (seenIds.has(normalized.id)) {
+      throw new Error(`Duplicate participant id: ${normalized.id}`);
+    }
+    seenIds.add(normalized.id);
+    return normalized;
+  });
+}
+
+function legacyParticipantFromId(
+  caseFile: CaseFileData,
+  participantId: string,
+): Participant {
+  return {
+    id: participantId,
+    name: participantId,
+    type: 'agent',
+    role: participantId === caseFile.owner ? 'owner' : 'observer',
+    createdAt: caseFile.createdAt,
+  };
+}
+
+function listParticipantsFromCaseFile(caseFile: CaseFileData): Participant[] {
+  const explicit = caseFile.participantDirectory ?? [];
+  const explicitIds = new Set(explicit.map((participant) => participant.id));
+  const participants: Participant[] = explicit.map(cloneParticipant);
+
+  if (!explicitIds.has(caseFile.owner)) {
+    participants.unshift({
+      id: caseFile.owner,
+      name: caseFile.owner,
+      type: 'agent',
+      role: 'owner',
+      createdAt: caseFile.createdAt,
+    });
+  }
+
+  for (const participantId of caseFile.participants) {
+    if (!explicitIds.has(participantId) && !participants.some((entry) => entry.id === participantId)) {
+      participants.push(legacyParticipantFromId(caseFile, participantId));
+    }
+  }
+
+  return participants;
+}
+
+function getParticipantFromCaseFile(
+  caseFile: CaseFileData,
+  participantId: string,
+): Participant | undefined {
+  const normalizedParticipantId = requireNonEmpty(participantId, 'participantId');
+  const explicit = caseFile.participantDirectory?.find(
+    (participant) => participant.id === normalizedParticipantId,
+  );
+  if (explicit) {
+    return cloneParticipant(explicit);
+  }
+
+  if (caseFile.owner === normalizedParticipantId || caseFile.participants.includes(normalizedParticipantId)) {
+    return legacyParticipantFromId(caseFile, normalizedParticipantId);
+  }
+
+  return undefined;
+}
+
+function hasParticipantInCaseFile(
+  caseFile: CaseFileData,
+  participantId: string,
+): boolean {
+  return Boolean(getParticipantFromCaseFile(caseFile, participantId));
+}
+
+function ensureParticipantExists(
+  caseFile: CaseFileData,
+  participantId: string | undefined,
+  fieldName: string,
+): void {
+  if (!participantId) {
+    return;
+  }
+  if (!hasParticipantInCaseFile(caseFile, participantId)) {
+    throw new Error(`Participant not found for ${fieldName}: ${participantId}`);
+  }
+}
+
+function ensureUniqueParticipantId(caseFile: CaseFileData, participantId: string): void {
+  if (hasParticipantInCaseFile(caseFile, participantId)) {
+    throw new Error(`Participant already exists: ${participantId}`);
+  }
+}
+function cloneCaseFile(caseFile: CaseFileData): CaseFileData {
+    return {
+      ...caseFile,
+      participants: [...caseFile.participants],
+      participantDirectory: cloneParticipantDirectory(caseFile.participantDirectory),
+      contextTrail: caseFile.contextTrail.map((entry) => ({
+        ...entry,
+        references: [...entry.references],
+        notes: [...entry.notes],
+      })),
+      decisionLog: caseFile.decisionLog.map((entry) => ({
+        ...entry,
+        relatedContextIds: [...entry.relatedContextIds],
+      })),
+      riskLog: caseFile.riskLog.map((entry) => ({ ...entry })),
+      approvals: caseFile.approvals.map((entry) => ({
+        ...entry,
+        references: [...entry.references],
+      })),
+      handoffRecords: caseFile.handoffRecords.map((entry) => ({
+        ...entry,
+        recommendedNextActions: [...entry.recommendedNextActions],
+        references: [...entry.references],
+        attachmentIds: [...entry.attachmentIds],
+      })),
+      attachments: caseFile.attachments.map(cloneAttachment),
+    };
+  }
 
 function enhanceCaseFile(caseFile: CaseFileData): CaseFile {
   Object.defineProperties(caseFile, {
@@ -137,6 +298,26 @@ function enhanceCaseFile(caseFile: CaseFileData): CaseFile {
     listAttachments: {
       enumerable: false,
       value: () => listAttachments(caseFile as CaseFile),
+    },
+    addParticipant: {
+      enumerable: false,
+      value: (input: ParticipantInput) => addParticipant(caseFile as CaseFile, input),
+    },
+    removeParticipant: {
+      enumerable: false,
+      value: (participantId: string) => removeParticipant(caseFile as CaseFile, participantId),
+    },
+    listParticipants: {
+      enumerable: false,
+      value: () => listParticipants(caseFile as CaseFile),
+    },
+    getParticipant: {
+      enumerable: false,
+      value: (participantId: string) => getParticipant(caseFile as CaseFile, participantId),
+    },
+    hasParticipant: {
+      enumerable: false,
+      value: (participantId: string) => hasParticipant(caseFile as CaseFile, participantId),
     },
   });
 
@@ -214,6 +395,7 @@ export function createCaseFile(input: CaseFileCreateInput): CaseFile {
     owner: trimText(input.owner),
     project: trimText(input.project),
     participants: ensureParticipants(input.owner, input.participants),
+    participantDirectory: normalizeParticipantDirectory(input.participantDirectory),
     status: normalizeStatus(input.status),
     contextTrail: [],
     decisionLog: [],
@@ -231,12 +413,14 @@ export function addCaseContext(
   caseFile: CaseFile,
   input: CaseContextInput,
 ): CaseFile {
+  ensureParticipantExists(caseFile, input.createdBy, 'createdBy');
   const entry: CaseContextEntry = {
     id: createId('context'),
     timestamp: now(),
     contextUsed: trimText(input.contextUsed),
     references: normalizeStringArray(input.references),
     notes: normalizeStringArray(input.notes),
+    createdBy: input.createdBy ? trimText(input.createdBy) : undefined,
   };
 
   return withUpdatedCaseFile(caseFile, (draft) => {
@@ -248,6 +432,7 @@ export function recordCaseDecision(
   caseFile: CaseFile,
   input: CaseDecisionInput,
 ): CaseFile {
+  ensureParticipantExists(caseFile, input.createdBy, 'createdBy');
   const entry: CaseDecisionEntry = {
     id: createId('decision'),
     timestamp: now(),
@@ -255,6 +440,7 @@ export function recordCaseDecision(
     rationale: trimText(input.rationale),
     owner: input.owner ? trimText(input.owner) : undefined,
     relatedContextIds: normalizeStringArray(input.relatedContextIds),
+    createdBy: input.createdBy ? trimText(input.createdBy) : undefined,
   };
 
   return withUpdatedCaseFile(caseFile, (draft) => {
@@ -266,6 +452,7 @@ export function recordCaseRisk(
   caseFile: CaseFile,
   input: CaseRiskInput,
 ): CaseFile {
+  ensureParticipantExists(caseFile, input.createdBy, 'createdBy');
   const entry: CaseRiskEntry = {
     id: createId('risk'),
     timestamp: now(),
@@ -273,6 +460,7 @@ export function recordCaseRisk(
     severity: input.severity as CaseRiskSeverity,
     mitigation: trimText(input.mitigation),
     status: input.status ?? 'open',
+    createdBy: input.createdBy ? trimText(input.createdBy) : undefined,
   };
 
   return withUpdatedCaseFile(caseFile, (draft) => {
@@ -321,10 +509,61 @@ export function listAttachments(caseFile: CaseFileData): CaseAttachment[] {
   return caseFile.attachments.map(cloneAttachment);
 }
 
+export function addParticipant(
+  caseFile: CaseFile,
+  input: ParticipantInput,
+): CaseFile {
+  const participant = normalizeParticipantInput(input);
+  ensureUniqueParticipantId(caseFile, participant.id);
+
+  return withUpdatedCaseFile(caseFile, (draft) => {
+    draft.participantDirectory = [...(draft.participantDirectory ?? []), participant];
+    if (!draft.participants.includes(participant.id)) {
+      draft.participants.push(participant.id);
+    }
+  });
+}
+
+export function removeParticipant(
+  caseFile: CaseFile,
+  participantId: string,
+): CaseFile {
+  const normalizedParticipantId = requireNonEmpty(participantId, 'participantId');
+
+  return withUpdatedCaseFile(caseFile, (draft) => {
+    draft.participantDirectory = (draft.participantDirectory ?? []).filter(
+      (participant) => participant.id !== normalizedParticipantId,
+    );
+    draft.participants = draft.participants.filter(
+      (entry) => entry !== normalizedParticipantId,
+    );
+  });
+}
+
+export function listParticipants(caseFile: CaseFileData): Participant[] {
+  return listParticipantsFromCaseFile(caseFile).map(cloneParticipant);
+}
+
+export function getParticipant(
+  caseFile: CaseFileData,
+  participantId: string,
+): Participant | undefined {
+  const participant = getParticipantFromCaseFile(caseFile, participantId);
+  return participant ? cloneParticipant(participant) : undefined;
+}
+
+export function hasParticipant(
+  caseFile: CaseFileData,
+  participantId: string,
+): boolean {
+  return hasParticipantInCaseFile(caseFile, participantId);
+}
+
 export function requestCaseApproval(
   caseFile: CaseFile,
   input: CaseApprovalRequestInput,
 ): CaseFile {
+  ensureParticipantExists(caseFile, input.requestedByParticipantId, 'requestedByParticipantId');
   const timestamp = now();
   const entry: CaseApprovalRecord = {
     id: createId('approval'),
@@ -339,6 +578,9 @@ export function requestCaseApproval(
     note: null,
     requestedAt: timestamp,
     resolvedAt: null,
+    requestedByParticipantId: input.requestedByParticipantId
+      ? trimText(input.requestedByParticipantId)
+      : undefined,
   };
 
   return withUpdatedCaseFile(caseFile, (draft) => {
@@ -352,6 +594,7 @@ export function resolveCaseApproval(
   approvalId: string,
   input: CaseApprovalResolutionInput,
 ): CaseFile {
+  ensureParticipantExists(caseFile, input.resolvedByParticipantId, 'resolvedByParticipantId');
   return withUpdatedCaseFile(caseFile, (draft) => {
     const approval = draft.approvals.find((entry) => entry.id === approvalId);
     if (!approval) {
@@ -362,6 +605,9 @@ export function resolveCaseApproval(
     approval.approver = trimText(input.approver);
     approval.note = input.note ? trimText(input.note) : null;
     approval.resolvedAt = now();
+    approval.resolvedByParticipantId = input.resolvedByParticipantId
+      ? trimText(input.resolvedByParticipantId)
+      : undefined;
 
     const anyPendingApproval = draft.approvals.some(isCaseApprovalActive);
     if (input.status === 'rejected') {
@@ -383,6 +629,8 @@ export function recordHandoff(caseFile: CaseFile, input: CaseHandoffInput): Case
   const handoffNotes = resolveHandoffNotes(input);
   const attachmentIds = normalizeStringArray(input.attachmentIds);
 
+  ensureParticipantExists(caseFile, input.fromParticipantId, 'fromParticipantId');
+  ensureParticipantExists(caseFile, input.toParticipantId, 'toParticipantId');
   ensureAttachmentIdsExist(caseFile, attachmentIds);
 
   const entry: CaseHandoffRecord = {
@@ -394,6 +642,8 @@ export function recordHandoff(caseFile: CaseFile, input: CaseHandoffInput): Case
     recommendedNextActions: normalizeStringArray(input.recommendedNextActions),
     references: normalizeStringArray(input.references),
     attachmentIds,
+    fromParticipantId: input.fromParticipantId ? trimText(input.fromParticipantId) : undefined,
+    toParticipantId: input.toParticipantId ? trimText(input.toParticipantId) : undefined,
   };
 
   return withUpdatedCaseFile(caseFile, (draft) => {

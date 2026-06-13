@@ -1,12 +1,14 @@
 import {
   addCaseContext,
+  addParticipant,
   createCaseFile,
   exportCaseReportJSON,
   exportCaseReportMarkdown,
   recordCaseDecision,
+  recordCaseRisk,
+  recordHandoff,
   requestCaseApproval,
   resolveCaseApproval,
-  recordHandoff,
 } from '../src/index';
 
 function main(): void {
@@ -14,38 +16,47 @@ function main(): void {
     goal: 'Hand off the current Safeloop implementation safely',
     owner: 'Hermes',
     project: 'Safeloop',
-    participants: ['Hermes', 'OpenCode'],
+  });
+
+  caseFile = addParticipant(caseFile, {
+    id: 'OpenCode',
+    name: 'OpenCode',
+    type: 'agent',
+    role: 'implementer',
+  });
+
+  caseFile = addParticipant(caseFile, {
+    id: 'Charles',
+    name: 'Charles',
+    type: 'human',
+    role: 'approver',
   });
 
   caseFile = addCaseContext(caseFile, {
     contextUsed: 'Existing policy gate, breaker, ledger, and report concepts',
     references: ['src/index.ts', '.safeloop/ledger.jsonl', 'SAFELOOP_CASE.md'],
     notes: ['Keep the layer local-first and additive'],
-  });
-
-  caseFile = caseFile.attachArtifact({
-    type: 'file',
-    label: 'README',
-    path: './README.md',
-    description: 'Project overview and current feature map',
-  });
-
-  caseFile = caseFile.attachArtifact({
-    type: 'report',
-    label: 'Safety Report',
-    path: './SAFELOOP_REPORT.md',
-    description: 'Generated case report used for handoff review',
+    createdBy: 'Hermes',
   });
 
   caseFile = recordCaseDecision(caseFile, {
-    decision: 'Implement Case Files as standalone TypeScript modules',
-    rationale: 'Preserve existing APIs while adding accountability and handoff',
+    decision: 'Implement Case File attribution as standalone participant metadata',
+    rationale: 'Preserve existing APIs while adding accountability and handoff attribution',
     relatedContextIds: [caseFile.contextTrail[0].id],
+    createdBy: 'OpenCode',
+  });
+
+  caseFile = recordCaseRisk(caseFile, {
+    risk: 'Work may lose attribution during handoff',
+    severity: 'medium',
+    mitigation: 'Store participant IDs on the context trail, approvals, and handoffs',
+    createdBy: 'OpenCode',
   });
 
   caseFile = requestCaseApproval(caseFile, {
-    subject: 'Approve Case File layer',
+    subject: 'Approve Case File attribution layer',
     requestedBy: 'Hermes',
+    requestedByParticipantId: 'Hermes',
     requestedFor: 'Charles',
     reason: 'Ready for review before handoff',
     references: ['SAFELOOP_CASE.md'],
@@ -54,12 +65,15 @@ function main(): void {
   caseFile = resolveCaseApproval(caseFile, caseFile.approvals[0].id, {
     status: 'approved',
     approver: 'Charles',
+    resolvedByParticipantId: 'Charles',
     note: 'Proceed',
   });
 
   caseFile = recordHandoff(caseFile, {
     from: 'Hermes',
     to: 'OpenCode',
+    fromParticipantId: 'Hermes',
+    toParticipantId: 'OpenCode',
     notes: 'Continue from the approved case file and keep the ledger trail intact.',
     recommendedNextActions: ['Review README', 'Review safety report', 'Continue implementation'],
     attachmentIds: caseFile.listAttachments().map((attachment) => attachment.id),

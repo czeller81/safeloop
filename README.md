@@ -1,8 +1,99 @@
 # Safeloop
 
-Safeloop is a lightweight governance SDK for local AI agent loops.
+## Agent Accountability + Handoff SDK
 
-It helps keep local agent runs reviewable, bounded, and easier to approve without turning the project into another coding-agent framework.
+Safeloop helps AI agents and humans collaborate through portable Case Files.
+
+As teams move from one AI agent to many, the hardest problem is no longer execution—it is continuity. Context gets lost, decisions become unclear, approvals disappear, and work must be repeatedly explained to the next agent or reviewer.
+
+Safeloop solves this by creating structured Case Files that travel with the work.
+
+A Case File captures:
+
+* Goals
+* Context
+* Decisions
+* Risks
+* Approvals
+* Attachments
+* Handoffs
+* Reports
+
+This creates a portable accountability trail that allows agents and humans to continue work without losing critical information.
+
+Built for:
+
+* Hermes
+* OpenCode
+* Claude Code
+* Codex
+* Replit Agents
+* Custom agent workflows
+
+### What Safeloop Provides
+
+#### Agent Accountability
+
+Track:
+
+* what happened
+* why it happened
+* who made the decision
+* what evidence was used
+* what risks were accepted
+
+#### Agent Handoffs
+
+Transfer work between:
+
+* agent → agent
+* agent → human
+* human → agent
+
+without requiring the entire task to be re-explained.
+
+#### Governance Primitives
+
+Safeloop also includes:
+
+* Policy Gates
+* Circuit Breakers
+* Action Ledgers
+* Markdown Reports
+
+These primitives help teams build safer agentic workflows while maintaining a complete accountability trail.
+
+### Why Safeloop Exists
+
+Git tracks code.
+
+Safeloop tracks agent work.
+
+Git answers:
+
+"What changed?"
+
+Safeloop answers:
+
+"Why did it change?"
+"Who decided?"
+"What evidence was used?"
+"What should happen next?"
+
+### Local First
+
+Safeloop is intentionally:
+
+* local-first
+* file-based
+* lightweight
+* TypeScript-native
+
+No cloud service.
+No database required.
+No hosted platform.
+
+Your Case Files remain under your control.
 
 ## Why this exists
 
@@ -37,7 +128,7 @@ Use Safeloop when you want a small, understandable control layer:
 
 ## Agent Accountability + Handoff
 
-Safeloop now also supports a small Case File layer for ownership and handoff.
+Safeloop now also supports a small Case File layer for ownership, attribution, and handoff.
 
 Use it when you want to track:
 - goal
@@ -51,16 +142,19 @@ Use it when you want to track:
 - approvals
 - handoff notes and next actions
 
+Each Case File can also attribute records to participants so you can see who created context, made decisions, raised risks, approved the work, and handed it off.
+
 The Case File layer stays local-first and standalone. It can reference existing Safeloop artifacts like ledger entries or markdown reports, but it does not depend on them.
 
 ```typescript
 import {
-  createCaseFile,
   addCaseContext,
+  addParticipant,
+  createCaseFile,
   recordCaseDecision,
+  recordHandoff,
   requestCaseApproval,
   resolveCaseApproval,
-  recordHandoff,
   exportCaseReportMarkdown,
 } from 'safeloop';
 
@@ -70,29 +164,50 @@ let caseFile = createCaseFile({
   project: 'Safeloop',
 });
 
+caseFile = addParticipant(caseFile, {
+  id: 'OpenCode',
+  name: 'OpenCode',
+  type: 'agent',
+  role: 'implementer',
+});
+
+caseFile = addParticipant(caseFile, {
+  id: 'Charles',
+  name: 'Charles',
+  type: 'human',
+  role: 'approver',
+});
+
 caseFile = addCaseContext(caseFile, {
   contextUsed: 'Existing breaker and ledger flow',
   references: ['.safeloop/ledger.jsonl', 'SAFELOOP_CASE.md'],
+  createdBy: 'Hermes',
 });
 
 caseFile = recordCaseDecision(caseFile, {
   decision: 'Keep the new layer additive',
   rationale: 'Preserve existing behavior and APIs',
+  createdBy: 'OpenCode',
 });
 
 caseFile = requestCaseApproval(caseFile, {
   subject: 'Approve the handoff',
   requestedBy: 'Hermes',
+  requestedByParticipantId: 'Hermes',
   requestedFor: 'Charles',
 });
 
 caseFile = resolveCaseApproval(caseFile, caseFile.approvals[0].id, {
   status: 'approved',
   approver: 'Charles',
+  resolvedByParticipantId: 'Charles',
 });
 
 caseFile = recordHandoff(caseFile, {
-  nextOwner: 'OpenCode',
+  from: 'Hermes',
+  to: 'OpenCode',
+  fromParticipantId: 'Hermes',
+  toParticipantId: 'OpenCode',
   handoffNotes: 'Continue from the approved case file.',
   recommendedNextActions: ['Review context', 'Continue implementation'],
 });
