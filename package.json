@@ -11,6 +11,7 @@
     "build": "tsc",
     "test": "jest --config jest.config.js",
     "example": "ts-node examples/wrap-agent.ts",
+    "example:live-simulation": "ts-node examples/breaker-live-simulation.ts",
     "prepare": "npm run build"
   },
   "keywords": [
