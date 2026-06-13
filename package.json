@@ -1,0 +1,33 @@
+{
+  "name": "agent-circuit-breaker",
+  "version": "0.1.0",
+  "description": "Framework-agnostic circuit breaker for AI agent loops. Prevents infinite token burn when agents get stuck.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js",
+    "example": "ts-node examples/wrap-agent.ts",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "circuit-breaker",
+    "ai-agent",
+    "llm",
+    "token-budget",
+    "agent-loop",
+    "resilience"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
