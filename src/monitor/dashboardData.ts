@@ -90,22 +90,61 @@ function deriveRiskSummary(events: SafeloopStreamEvent[]): DashboardSnapshot['ri
 }
 
 function deriveApprovalQueue(events: SafeloopStreamEvent[]): DashboardSnapshot['approvals'] {
-  const requested = events.filter((event) => event.type === 'approval.requested');
-  const resolved = new Set(
-    events
-      .filter((event) => event.type === 'approval.resolved')
-      .map((event) => String(event.metadata?.approvalId ?? event.id)),
-  );
+  const approvals: Array<{
+    id: string;
+    summary: string;
+    approver?: string;
+    reason?: string;
+    status: 'pending' | 'approved' | 'rejected';
+  }> = [];
+  const approvalIndexByKey = new Map<string, number>();
 
-  return requested
-    .filter((event) => !resolved.has(String(event.metadata?.approvalId ?? event.id)))
-    .map((event) => ({
-      id: event.id,
-      summary: event.summary,
-      approver: typeof event.metadata?.approver === 'string' ? event.metadata.approver : undefined,
-      reason: typeof event.metadata?.reason === 'string' ? event.metadata.reason : undefined,
-      status: 'pending',
-    }));
+  for (const event of events) {
+    if (event.type === 'approval.requested') {
+      const entry = {
+        id: event.id,
+        summary: event.summary,
+        approver: typeof event.metadata?.approver === 'string' ? event.metadata.approver : undefined,
+        reason: typeof event.metadata?.reason === 'string' ? event.metadata.reason : undefined,
+        status: 'pending' as const,
+      };
+      approvalIndexByKey.set(event.id, approvals.length);
+      if (typeof event.metadata?.approvalId === 'string' && event.metadata.approvalId.trim().length > 0) {
+        approvalIndexByKey.set(event.metadata.approvalId.trim(), approvals.length);
+      }
+      approvals.push(entry);
+      continue;
+    }
+
+    if (event.type === 'approval.resolved') {
+      const approvalId = typeof event.metadata?.approvalId === 'string' ? event.metadata.approvalId.trim() : '';
+      let approvalIndex = approvalId ? approvalIndexByKey.get(approvalId) : undefined;
+
+      if (approvalIndex === undefined) {
+        for (let index = approvals.length - 1; index >= 0; index -= 1) {
+          if (approvals[index].status === 'pending') {
+            approvalIndex = index;
+            break;
+          }
+        }
+      }
+
+      if (approvalIndex === undefined) {
+        continue;
+      }
+
+      approvals[approvalIndex] = {
+        ...approvals[approvalIndex],
+        status: event.metadata?.decision === 'rejected' ? 'rejected' : 'approved',
+        approver: typeof event.metadata?.approver === 'string' ? event.metadata.approver : approvals[approvalIndex].approver,
+      };
+      if (approvalId) {
+        approvalIndexByKey.set(approvalId, approvalIndex);
+      }
+    }
+  }
+
+  return approvals;
 }
 
 function deriveArtifacts(events: SafeloopStreamEvent[]): DashboardSnapshot['artifacts'] {

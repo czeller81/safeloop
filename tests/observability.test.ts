@@ -334,6 +334,64 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(snapshot.steeringInsights[0].verdict).toBe('baseline');
   });
 
+  it('marks resolved approvals as approved instead of leaving them pending', () => {
+    appendEvent(
+      {
+        id: 'evt-1',
+        type: 'task.started',
+        timestamp: '2026-06-14T12:00:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-1',
+        summary: 'Start approval flow',
+        metadata: { goal: 'Exercise approval aggregation' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-2',
+        type: 'approval.requested',
+        timestamp: '2026-06-14T12:01:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-1',
+        summary: 'Request approval for README change',
+        metadata: { approver: 'Charles', reason: 'Need review before commit' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-3',
+        type: 'approval.resolved',
+        timestamp: '2026-06-14T12:02:00.000Z',
+        agentId: 'charles-1',
+        agentName: 'Charles',
+        caseId: 'case-1',
+        summary: 'Approved for local validation only',
+        metadata: {
+          approvalId: 'approval-1781475802831-zy1jj0',
+          decision: 'approved',
+          approver: 'Charles',
+        },
+      },
+      { baseDir },
+    );
+
+    const snapshot = getDashboardSnapshot({ baseDir });
+
+    expect(snapshot.approvals).toHaveLength(1);
+    expect(snapshot.approvals[0]).toMatchObject({
+      summary: 'Request approval for README change',
+      approver: 'Charles',
+      reason: 'Need review before commit',
+      status: 'approved',
+    });
+  });
+
   it('starts on a custom port and fails gracefully when the port is already in use', async () => {
     const blocker = createServer();
     const blockerPort = await new Promise<number>((resolve) => {
