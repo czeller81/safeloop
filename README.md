@@ -29,6 +29,8 @@ Built for:
 * Codex
 * Replit Agents
 * Custom agent workflows
+* Scripts
+* Human-operated workflows
 
 ### What Safeloop Provides
 
@@ -154,6 +156,114 @@ It is not a full handoff package yet.
 
 It helps avoid re-explaining context during multi-agent collaboration by capturing the current state, the next owner, required evidence, open risks, pending approvals, recent decisions, and recommended next actions in a small machine-readable form.
 
+#### Agent Adapter Protocol
+
+Safeloop does not need to know which agent you use.
+Any agent can emit lifecycle events into Safeloop.
+Safeloop converts those events into Case Files, attachments, approvals, handoffs, manifests, and reports.
+
+Lifecycle example:
+- task.started
+- context.loaded
+- decision.made
+- risk.detected
+- approval.requested
+- approval.resolved
+- artifact.changed
+- handoff.created
+- task.completed
+- report.generated
+
+```typescript
+import {
+  addParticipant,
+  createAgentSession,
+  createCaseFile,
+  exportAgentSessionJSON,
+  exportAgentSessionMarkdown,
+} from 'safeloop';
+
+let caseFile = createCaseFile({
+  goal: 'Implement the adapter protocol',
+  owner: 'Hermes',
+  project: 'Safeloop',
+});
+
+caseFile = addParticipant(caseFile, {
+  id: 'OpenCode',
+  name: 'OpenCode',
+  type: 'agent',
+  role: 'implementer',
+});
+
+const session = createAgentSession({
+  adapter: {
+    id: 'hermes-1',
+    name: 'Hermes',
+    agentType: 'hermes',
+    capabilities: {
+      canReadFiles: true,
+      canWriteFiles: true,
+      canRequestApproval: true,
+      canHandoff: true,
+      canGenerateReports: true,
+    },
+  },
+  caseFile,
+});
+
+session.emit({
+  id: 'evt-1',
+  type: 'task.started',
+  timestamp: '2026-06-14T00:00:00.000Z',
+  agentId: 'hermes-1',
+  agentName: 'Hermes',
+  participantId: 'Hermes',
+  caseId: caseFile.id,
+  summary: 'Start the adapter protocol work',
+  metadata: {
+    goal: 'Implement the adapter protocol',
+    project: 'Safeloop',
+    owner: 'Hermes',
+  },
+});
+
+session.emit({
+  id: 'evt-2',
+  type: 'decision.made',
+  timestamp: '2026-06-14T00:01:00.000Z',
+  agentId: 'opencode-1',
+  agentName: 'OpenCode',
+  participantId: 'OpenCode',
+  caseId: caseFile.id,
+  summary: 'Use explicit lifecycle events',
+  metadata: {
+    decision: 'Use explicit lifecycle events',
+    rationale: 'Any agent can emit work into Safeloop',
+  },
+});
+
+session.emit({
+  id: 'evt-3',
+  type: 'report.generated',
+  timestamp: '2026-06-14T00:02:00.000Z',
+  agentId: 'hermes-1',
+  agentName: 'Hermes',
+  participantId: 'Hermes',
+  caseId: caseFile.id,
+  summary: 'Generated the session report',
+  metadata: {
+    reportType: 'agent-session',
+    path: 'docs/AGENT_SESSION.md',
+  },
+});
+
+session.complete();
+
+console.log(exportAgentSessionMarkdown(session));
+console.log(JSON.stringify(exportAgentSessionJSON(session), null, 2));
+```
+
 #### Querying Safeloop
 
 Safeloop also includes a lightweight report query layer.
@@ -174,7 +284,6 @@ import {
   addCaseContext,
   addParticipant,
   createCaseFile,
-  exportCaseReportMarkdown,
   createProjectGuardrailReport,
   exportSafeloopQueryMarkdown,
   querySafeloop,
@@ -257,14 +366,13 @@ const projectReport = createProjectGuardrailReport({
   result: 'PASS',
 });
 
-console.log(exportCaseReportMarkdown(caseFile));
 console.log(exportSafeloopQueryMarkdown(queryReport));
-console.log(exportSafeloopQueryMarkdown(projectReport));
+console.log(projectReport.summary);
 ```
 
 ## Install
 
-Safeloop v0.5.0 installs with:
+Safeloop v0.6.0 installs with:
 
 ```bash
 npm install safeloop

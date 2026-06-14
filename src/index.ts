@@ -954,6 +954,12 @@ export {
   exportSafeloopQueryMarkdown,
   exportSafeloopQueryJSON,
 } from './safeloopQuery';
+export {
+  createAgentSession,
+  processAgentEvent,
+  exportAgentSessionMarkdown,
+  exportAgentSessionJSON,
+} from './agentAdapter';
 export type {
   CaseFile,
   CaseFileCreateInput,
@@ -991,6 +997,18 @@ export type {
   ProjectGuardrailReportInput,
   SafeloopCaseLike,
 } from './safeloopQuery';
+export type {
+  AgentAdapter,
+  AgentAdapterEvent,
+  AgentAdapterEventType,
+  AgentCapability,
+  AgentCapabilities,
+  AgentType,
+  AgentSession,
+  AgentSessionJSON,
+  AgentSessionSummary,
+  AgentGeneratedReport,
+} from './agentAdapter';
 
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {
