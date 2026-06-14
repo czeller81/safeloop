@@ -2,6 +2,17 @@
 
 ## Agent Accountability + Handoff SDK
 
+Current release: v0.6.0
+
+### Current architecture
+
+- Case Files
+- Attachments
+- Participants
+- Handoff Manifest
+- Query Reports
+- Agent Adapter Protocol
+
 Safeloop helps AI agents and humans collaborate through portable Case Files.
 
 As teams move from one AI agent to many, the hardest problem is no longer execution—it is continuity. Context gets lost, decisions become unclear, approvals disappear, and work must be repeatedly explained to the next agent or reviewer.
@@ -96,6 +107,15 @@ No database required.
 No hosted platform.
 
 Your Case Files remain under your control.
+
+Safeloop does not:
+
+- run agents
+- execute shell commands
+- collect telemetry
+- capture conversations
+- send network data
+- replace human approval
 
 ## Why this exists
 
@@ -270,6 +290,13 @@ Safeloop also includes a lightweight report query layer.
 These reports are generated from explicit local inputs such as Case Files, ledgers, handoff manifests, and project guardrail summaries.
 They are not telemetry.
 Safeloop does not automatically collect personal data, conversations, or model output.
+
+Use `querySafeloop()` to generate:
+
+- safety-summary
+- release-readiness
+- governance-audit
+- evidence-summary
 
 Use it when you want to ask:
 - What was checked?

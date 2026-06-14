@@ -6,11 +6,11 @@
 * ✓ v0.2 Attachments
 * ✓ v0.3 Agent Identity
 * ✓ v0.4 Handoff Manifest
+* ✓ v0.5 Query Layer
+* ✓ v0.6 Agent Adapter Protocol
 
 ## Planned
 
-* □ v0.5 Handoff Packages
-* □ v0.6 Agent Lineage
 * □ v0.7 Multi-Agent Workflow Graphs
 * □ v1.0 Agent Collaboration Protocol
 

@@ -38,4 +38,5 @@ The reports query layer should answer:
 - what failed
 - what risks remain
 - what evidence supports the result
+- whether the case passes governance-audit review
 - whether a handoff or release is ready

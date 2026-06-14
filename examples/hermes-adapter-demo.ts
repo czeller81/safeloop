@@ -14,13 +14,6 @@ function main(): void {
   });
 
   caseFile = addParticipant(caseFile, {
-    id: 'Hermes',
-    name: 'Hermes',
-    type: 'agent',
-    role: 'owner',
-  });
-
-  caseFile = addParticipant(caseFile, {
     id: 'OpenCode',
     name: 'OpenCode',
     type: 'agent',

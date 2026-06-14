@@ -1,12 +1,12 @@
 {
   "name": "safeloop",
   "version": "0.6.0",
-  "description": "Safeloop is a lightweight governance SDK for local AI agent loops with policy gates, circuit breakers, action ledgers, markdown reports, and live simulations.",
+  "description": "Safeloop v0.6.0 is a lightweight Agent Accountability + Handoff SDK for local AI agent loops with Case Files, attachments, participants, handoff manifests, query reports, and an agent adapter protocol.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/czeller81/safeloop.git"
+    "url": "https://github.com/czeller81/safeloop"
   },
   "bugs": {
     "url": "https://github.com/czeller81/safeloop/issues"
@@ -23,17 +23,17 @@
     "prepare": "npm run build"
   },
   "keywords": [
-    "ai-agents",
-    "agentic-ai",
-    "ai-governance",
-    "circuit-breaker",
-    "policy-gate",
-    "agent-ops",
-    "local-ai",
-    "observability",
-    "audit-trail",
+    "ai",
+    "agents",
+    "governance",
+    "accountability",
+    "handoff",
+    "workflow",
+    "audit",
+    "safety",
     "typescript"
   ],
+  "author": "Charles Zeller <charleszeller@gmail.com>",
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.12",
