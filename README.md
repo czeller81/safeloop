@@ -146,6 +146,15 @@ Each Case File can also attribute records to participants so you can see who cre
 
 The Case File layer stays local-first and standalone. It can reference existing Safeloop artifacts like ledger entries or markdown reports, but it does not depend on them.
 
+#### Handoff Manifest
+
+The Handoff Manifest is a compact summary of a Case File for the next agent or human.
+
+It is not a full handoff package yet.
+
+It helps avoid re-explaining context during multi-agent collaboration by capturing the current state, the next owner, required evidence, open risks, pending approvals, recent decisions, and recommended next actions in a small machine-readable form.
+
+
 ```typescript
 import {
   addCaseContext,

@@ -235,3 +235,38 @@ export interface CaseReportJSON {
 export interface CaseReportMarkdownOptions {
   includeEmptySections?: boolean;
 }
+
+export interface HandoffManifestSourceCase {
+  id: string;
+  goal: string;
+  owner: string;
+  project: string;
+  status: CaseFileStatus;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  participantIds: string[];
+  attachmentIds: string[];
+  decisionIds: string[];
+  openRiskIds: string[];
+  pendingApprovalIds: string[];
+  handoffIds: string[];
+  latestHandoffId: string | null;
+}
+
+export interface HandoffManifest {
+  caseId: string;
+  generatedAt: string;
+  currentOwner: string;
+  nextOwner: string;
+  status: CaseFileStatus;
+  summary: string;
+  participants: Participant[];
+  requiredAttachments: CaseAttachment[];
+  openRisks: CaseRiskEntry[];
+  pendingApprovals: CaseApprovalRecord[];
+  recentDecisions: CaseDecisionEntry[];
+  recommendedActions: string[];
+  handoffNotes: string;
+  sourceCase: HandoffManifestSourceCase;
+}

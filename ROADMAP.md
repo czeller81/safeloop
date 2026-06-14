@@ -1,25 +1,35 @@
-# Roadmap
+# Safeloop Roadmap
 
-This roadmap is exploratory. Items may change based on real usage and feedback.
+## Completed
 
-## v0.1.1 possible patch items
+* ✓ v0.1 Case Files
+* ✓ v0.2 Attachments
+* ✓ v0.3 Agent Identity
 
-- documentation refinements
-- examples cleanup
-- small API polish based on user feedback
-- README/logo/assets polish
-- install/test guidance
+## Planned
 
-## v0.2.0 possible feature ideas
+* □ v0.4 Handoff Manifest
+* □ v0.5 Handoff Packages
+* □ v0.6 Agent Lineage
+* □ v0.7 Multi-Agent Workflow Graphs
+* □ v1.0 Agent Collaboration Protocol
 
-- Showcase Mode / Quiet Operator Mode
-- Control Tower wrapper
-- Tool registry
-- Command risk classifier
-- Memory governance policy
-- Run report files
-- Hermes/OpenCode integration guide
-- GitHub Action sample
-- package exports field
-- Node engines field
-- docs site
+## Product Direction
+
+Safeloop is evolving from a local governance SDK into a local-first Agent Accountability + Handoff SDK.
+
+It should remain:
+
+* lightweight
+* local-first
+* file-based
+* TypeScript-native
+* compatible with Hermes, OpenCode, Claude Code, Codex, Replit Agents, and custom workflows
+
+Do not add:
+
+* cloud services
+* auth
+* dashboards
+* databases
+* hosted observability

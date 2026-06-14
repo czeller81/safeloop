@@ -943,6 +943,11 @@ export {
   hasParticipant,
 } from './caseFile';
 export { exportCaseReportMarkdown, exportCaseReportJSON } from './caseReport';
+export {
+  generateHandoffManifest,
+  exportHandoffManifestMarkdown,
+  exportHandoffManifestJSON,
+} from './handoffManifest';
 export type {
   CaseFile,
   CaseFileCreateInput,
@@ -970,6 +975,8 @@ export type {
   ParticipantInput,
   ParticipantType,
   ParticipantRole,
+  HandoffManifest,
+  HandoffManifestSourceCase,
 } from './caseTypes';
 
 function extractTokenCost(value: unknown): number {
