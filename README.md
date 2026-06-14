@@ -226,7 +226,7 @@ console.log(exportCaseReportMarkdown(caseFile));
 
 ## Install
 
-Safeloop v0.1.0 is published on npm. Install it with:
+Safeloop v0.4.0 installs with:
 
 ```bash
 npm install safeloop

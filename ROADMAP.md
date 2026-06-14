@@ -5,10 +5,10 @@
 * ✓ v0.1 Case Files
 * ✓ v0.2 Attachments
 * ✓ v0.3 Agent Identity
+* ✓ v0.4 Handoff Manifest
 
 ## Planned
 
-* □ v0.4 Handoff Manifest
 * □ v0.5 Handoff Packages
 * □ v0.6 Agent Lineage
 * □ v0.7 Multi-Agent Workflow Graphs
