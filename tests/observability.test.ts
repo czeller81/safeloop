@@ -416,9 +416,12 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toContain('Monitoring:');
     expect(html).toContain('Events:');
     expect(html).toContain('Last Updated:');
+    expect(html).toContain('Cost by agent');
     expect(html).toContain('Cost by task');
-    expect(html).toContain('Total spend by project');
-    expect(html).toContain("fetch('/api/dashboard', { cache: 'no-store' })");
+    expect(html).toContain('Cost by project');
+    expect(html).toContain('Model Usage');
+    expect(html).toContain('Diagnostics');
+    expect(html).toContain("fetch(pollUrl, { cache: 'no-store' })");
     expect(html).toContain('setTimeout(refresh, POLL_MS)');
     expect(html).toContain('No events yet');
   });

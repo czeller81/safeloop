@@ -99,6 +99,14 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       <h2>Cost Dashboard</h2>
       <div id="cost-dashboard" class="cards"></div>
     </section>
+    <section>
+      <h2>Model Usage</h2>
+      <div id="model-usage" class="cards"></div>
+    </section>
+    <section>
+      <h2>Diagnostics</h2>
+      <div id="diagnostics" class="cards"></div>
+    </section>
     <section class="full">
       <h2>Event Timeline</h2>
       <div id="event-timeline"></div>
@@ -130,6 +138,13 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   </main>
   <script>
     const POLL_MS = 2000;
+    const state = {
+      lastPollUrl: '',
+      lastHttpStatus: 'Connecting',
+      lastSuccessfulPollTime: 'Waiting for data',
+      responseKeys: [],
+      lastRenderError: 'None',
+    };
 
     function escapeHtml(value) {
       return String(value)
@@ -141,18 +156,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     }
 
     function card(title, lines) {
-      return '<div class="panel"><div class="label">' + escapeHtml(title) + '</div><div class="value">' + lines.map((line) => escapeHtml(line)).join('<br />') + '</div></div>';
-    }
-
-    function listHtml(items, emptyText) {
-      if (!items.length) {
-        return '<div class="panel muted">' + escapeHtml(emptyText) + '</div>';
-      }
-      return items.map((item) => '<div class="panel">' + item + '</div>').join('');
-    }
-
-    function summaryLines(label, values) {
-      return [label + ': ' + values];
+      const safeLines = Array.isArray(lines) ? lines : [String(lines ?? '')];
+      return '<div class="panel"><div class="label">' + escapeHtml(title) + '</div><div class="value">' + safeLines.map((line) => escapeHtml(line)).join('<br />') + '</div></div>';
     }
 
     function setText(id, value) {
@@ -182,22 +187,72 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       return sign + amount;
     }
 
-    function render(snapshot) {
-      const events = Array.isArray(snapshot.events) ? snapshot.events : [];
-      const activeLoops = Array.isArray(snapshot.activeLoops) ? snapshot.activeLoops : [];
-      const costs = snapshot.costSummary || { currency: 'USD', totalCost: 0, costByModel: {}, costByAgent: {} };
-      const modelUsage = Array.isArray(snapshot.modelUsage) ? snapshot.modelUsage : [];
-      const risks = Array.isArray(snapshot.risks) ? snapshot.risks : [];
-      const approvals = Array.isArray(snapshot.approvals) ? snapshot.approvals : [];
-      const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts : [];
-      const handoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
-      const insights = Array.isArray(snapshot.steeringInsights) ? snapshot.steeringInsights : [];
-      const readiness = snapshot.readiness || { score: 0, status: 'Unknown', blockers: [], recommendations: [] };
+    function listAsLines(items) {
+      const values = Array.isArray(items) ? items : [];
+      if (!values.length) {
+        return ['None'];
+      }
+      return values.map((item) => String(item));
+    }
 
-      setText('monitoring-path', snapshot.monitoredPath || 'Unknown');
-      setText('event-count', String(snapshot.eventCount ?? events.length));
-      setText('last-updated', snapshot.lastUpdated || 'Unknown');
-      setText('monitor-status', 'Live');
+    function renderDiagnostics() {
+      const entries = [
+        card('Last poll URL', [state.lastPollUrl || 'Not polled yet']),
+        card('Last HTTP status', [state.lastHttpStatus || 'Unknown']),
+        card('Last successful poll time', [state.lastSuccessfulPollTime || 'Waiting for data']),
+        card('Response keys received', [state.responseKeys.length ? state.responseKeys.join(', ') : 'None']),
+        card('Last render error', [state.lastRenderError || 'None']),
+      ];
+      document.getElementById('diagnostics').innerHTML = entries.join('');
+    }
+
+    function normalizeList(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function normalizeSnapshot(snapshot) {
+      const data = snapshot || {};
+      const events = normalizeList(data.events).length ? normalizeList(data.events) : normalizeList(data.eventTimeline);
+      const approvals = normalizeList(data.approvals).length ? normalizeList(data.approvals) : normalizeList(data.approvalQueue);
+      const risks = normalizeList(data.risks).length ? normalizeList(data.risks) : normalizeList(data.riskDashboard?.warnings);
+      const costSummary = data.costSummary || data.costDashboard || {};
+      const monitoredPath = data.monitoredPath || data.monitoringPath || 'Unknown';
+      return { data, events, approvals, risks, costSummary, monitoredPath };
+    }
+
+    function renderModelUsage(items, currency) {
+      const entries = normalizeList(items);
+      if (!entries.length) {
+        return card('No model usage', ['Waiting for model usage events']);
+      }
+      return entries.map((entry) => card(entry.model || entry.agent || entry.agentId || 'Model usage', [
+        'Agent: ' + (entry.agent || entry.agentId || 'Unknown'),
+        'Project: ' + (entry.project || 'Unknown'),
+        'Task: ' + (entry.taskName || entry.taskId || 'Unknown'),
+        'Tokens: ' + String(entry.totalTokens ?? 0),
+        'Estimated cost: ' + formatMoney(entry.estimatedCost ?? 0, entry.currency || currency || 'USD'),
+      ])).join('');
+    }
+
+    function render(snapshot, successfulPollTime) {
+      const normalized = normalizeSnapshot(snapshot);
+      const data = normalized.data;
+      const activeLoops = normalizeList(data.activeLoops);
+      const modelUsage = normalizeList(data.modelUsage);
+      const readiness = data.readiness || { score: 0, status: 'Unknown', blockers: [], recommendations: [] };
+      const steeringInsights = normalizeList(data.steeringInsights);
+      const artifacts = normalizeList(data.artifacts);
+      const handoffs = normalizeList(data.handoffs);
+      const costSummary = normalized.costSummary || {};
+      const fallbackRisks = normalized.risks;
+      const approvals = normalized.approvals;
+      const events = normalized.events;
+      const monitoredPath = normalized.monitoredPath;
+
+      setText('monitoring-path', monitoredPath);
+      setText('event-count', String(data.eventCount ?? events.length));
+      setText('last-updated', data.lastUpdated || 'Unknown');
+      setText('monitor-status', 'Connected');
 
       document.getElementById('active-loops').innerHTML = activeLoops.length
         ? activeLoops.map((loop) => card(loop.agent || 'Unknown', [
@@ -210,32 +265,39 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         : card('No active loops', ['Waiting for events']);
 
       document.getElementById('cost-dashboard').innerHTML = [
-        card('Total cost', [formatMoney(costs.totalCost, costs.currency || 'USD')]),
-        card('Token usage', [String(modelUsage.reduce((sum, usage) => sum + Number(usage.totalTokens || 0), 0))]),
-        card('Cost by model', formatBreakdown(costs.costByModel)),
-        card('Cost by agent', formatBreakdown(costs.costByAgent)),
-        card('Cost by task', formatBreakdown(costs.costByTask)),
-        card('Total spend by project', formatBreakdown(costs.costByProject)),
+        card('Total cost', [formatMoney(costSummary.totalCost ?? 0, costSummary.currency || 'USD')]),
+        card('Usage count', [String(costSummary.usageCount ?? modelUsage.length ?? 0)]),
+        card('Cost by model', formatBreakdown(costSummary.costByModel)),
+        card('Cost by agent', formatBreakdown(costSummary.costByAgent)),
+        card('Cost by task', formatBreakdown(costSummary.costByTask)),
+        card('Cost by project', formatBreakdown(costSummary.costByProject)),
       ].join('');
+
+      document.getElementById('model-usage').innerHTML = renderModelUsage(modelUsage, costSummary.currency || 'USD');
+
+      renderDiagnostics();
 
       document.getElementById('event-timeline').innerHTML = events.length
         ? '<ul>' + events.map((event) => '<li><strong>' + escapeHtml(event.type) + '</strong> — ' + escapeHtml(event.summary) + '<div class="muted">' + escapeHtml(event.timestamp) + ' · ' + escapeHtml(event.agentName || event.agentId) + '</div></li>').join('') + '</ul>'
         : '<div class="panel muted">No events yet</div>';
 
-      document.getElementById('steering-dashboard').innerHTML = insights.length
-        ? insights.map((entry) => card(entry.current.steeringProfileId || 'Unknown profile', [
-            'Verdict: ' + entry.verdict,
-            'Token delta: ' + formatDelta(entry.deltas.tokens),
-            'Cost delta: ' + formatDelta(entry.deltas.cost),
-            'Readiness delta: ' + formatDelta(entry.deltas.releaseReadiness),
+      document.getElementById('steering-dashboard').innerHTML = steeringInsights.length
+        ? steeringInsights.map((entry) => card(entry.current?.steeringProfileId || 'Unknown profile', [
+            'Verdict: ' + (entry.verdict || 'unknown'),
+            'Token delta: ' + formatDelta(entry.deltas?.tokens),
+            'Cost delta: ' + formatDelta(entry.deltas?.cost),
+            'Readiness delta: ' + formatDelta(entry.deltas?.releaseReadiness),
           ])).join('')
         : card('No steering data', ['Waiting for steering events']);
 
-      document.getElementById('risk-dashboard').innerHTML = risks.length
-        ? risks.map((risk) => card(risk.summary || 'Risk', [
-            'Severity: ' + (risk.severity || 'unknown'),
-            'Mitigation: ' + (risk.mitigation || 'None'),
-          ])).join('')
+      document.getElementById('risk-dashboard').innerHTML = fallbackRisks.length
+        ? fallbackRisks.map((risk) => {
+            const item = typeof risk === 'string' ? { summary: risk } : risk;
+            return card(item.summary || 'Risk', [
+              'Severity: ' + (item.severity || 'unknown'),
+              'Mitigation: ' + (item.mitigation || 'None'),
+            ]);
+          }).join('')
         : card('No risks', ['Waiting for risk events']);
 
       document.getElementById('approval-queue').innerHTML = approvals.length
@@ -261,22 +323,36 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           ])).join('')
         : card('No handoffs', ['Waiting for handoff events']);
 
-      document.getElementById('readiness').innerHTML = '<div class="panel"><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="label" style="margin-top:12px;">Blockers</div><pre>' + escapeHtml((readiness.blockers || []).length ? readiness.blockers.join('\n') : 'None') + '</pre><div class="label" style="margin-top:12px;">Recommendations</div><pre>' + escapeHtml((readiness.recommendations || []).length ? readiness.recommendations.join('\n') : 'None') + '</pre></div>';
+      document.getElementById('readiness').innerHTML = '<div class="panel"><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="label" style="margin-top:12px;">Blockers</div><pre>' + escapeHtml(listAsLines(readiness.blockers).join('<br />')) + '</pre><div class="label" style="margin-top:12px;">Recommendations</div><pre>' + escapeHtml(listAsLines(readiness.recommendations).join('<br />')) + '</pre></div>';
     }
 
     async function refresh() {
+      const pollUrl = new URL('/api/dashboard', window.location.href).toString();
+      state.lastPollUrl = pollUrl;
+      renderDiagnostics();
       try {
         setText('monitor-status', 'Refreshing…');
-        const response = await fetch('/api/dashboard', { cache: 'no-store' });
+        const response = await fetch(pollUrl, { cache: 'no-store' });
+        state.lastHttpStatus = response.status + ' ' + (response.statusText || 'OK');
         if (!response.ok) {
-          throw new Error('Dashboard request failed with HTTP ' + response.status);
+          state.lastRenderError = 'Dashboard request failed with HTTP ' + response.status;
+          throw new Error(state.lastRenderError);
         }
         const snapshot = await response.json();
-        render(snapshot);
+        state.responseKeys = Object.keys(snapshot || {});
+        state.lastSuccessfulPollTime = new Date().toISOString();
+        state.lastRenderError = 'None';
+        render(snapshot, state.lastSuccessfulPollTime);
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error('Safeloop monitor refresh failed:', error);
+        state.lastRenderError = message;
+        if (!state.lastHttpStatus || state.lastHttpStatus === 'Connecting') {
+          state.lastHttpStatus = 'Error';
+        }
         setText('monitor-status', 'Error');
-        document.getElementById('event-timeline').innerHTML = '<div class="panel error">' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div>';
+        document.getElementById('event-timeline').innerHTML = '<div class="panel error">' + escapeHtml(message) + '</div>';
+        renderDiagnostics();
       } finally {
         setTimeout(refresh, POLL_MS);
       }
