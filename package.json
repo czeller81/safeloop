@@ -1,6 +1,6 @@
 {
   "name": "safeloop",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Safeloop is a lightweight governance SDK for local AI agent loops with policy gates, circuit breakers, action ledgers, markdown reports, and live simulations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -948,6 +948,12 @@ export {
   exportHandoffManifestMarkdown,
   exportHandoffManifestJSON,
 } from './handoffManifest';
+export {
+  querySafeloop,
+  createProjectGuardrailReport,
+  exportSafeloopQueryMarkdown,
+  exportSafeloopQueryJSON,
+} from './safeloopQuery';
 export type {
   CaseFile,
   CaseFileCreateInput,
@@ -978,6 +984,13 @@ export type {
   HandoffManifest,
   HandoffManifestSourceCase,
 } from './caseTypes';
+export type {
+  SafeloopReportQuery,
+  SafeloopQueryResult,
+  SafeloopReportQueryType,
+  ProjectGuardrailReportInput,
+  SafeloopCaseLike,
+} from './safeloopQuery';
 
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {

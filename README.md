@@ -154,17 +154,34 @@ It is not a full handoff package yet.
 
 It helps avoid re-explaining context during multi-agent collaboration by capturing the current state, the next owner, required evidence, open risks, pending approvals, recent decisions, and recommended next actions in a small machine-readable form.
 
+#### Querying Safeloop
+
+Safeloop also includes a lightweight report query layer.
+These reports are generated from explicit local inputs such as Case Files, ledgers, handoff manifests, and project guardrail summaries.
+They are not telemetry.
+Safeloop does not automatically collect personal data, conversations, or model output.
+
+Use it when you want to ask:
+- What was checked?
+- What passed?
+- What failed?
+- What guardrails were enforced?
+- What evidence supports the result?
+- Is this ready for handoff or release?
 
 ```typescript
 import {
   addCaseContext,
   addParticipant,
   createCaseFile,
+  exportCaseReportMarkdown,
+  createProjectGuardrailReport,
+  exportSafeloopQueryMarkdown,
+  querySafeloop,
   recordCaseDecision,
   recordHandoff,
   requestCaseApproval,
   resolveCaseApproval,
-  exportCaseReportMarkdown,
 } from 'safeloop';
 
 let caseFile = createCaseFile({
@@ -221,12 +238,33 @@ caseFile = recordHandoff(caseFile, {
   recommendedNextActions: ['Review context', 'Continue implementation'],
 });
 
+const queryReport = querySafeloop(caseFile, {
+  type: 'release-readiness',
+  includeEvidence: true,
+  includeRisks: true,
+  includeApprovals: true,
+  includeAttachments: true,
+});
+
+const projectReport = createProjectGuardrailReport({
+  projectName: 'PLOTS',
+  policyName: 'plots-safeloop-policy',
+  purpose: 'decision-simulation and perspective-reflection tool',
+  filesChecked: ['README.md', 'docs/PRODUCT_BLUEPRINT.md'],
+  directoriesChecked: ['agents', 'docs', 'prompts'],
+  guardrails: ['no diagnosis', 'no telemetry'],
+  validationCommands: ['npm run safeloop'],
+  result: 'PASS',
+});
+
 console.log(exportCaseReportMarkdown(caseFile));
+console.log(exportSafeloopQueryMarkdown(queryReport));
+console.log(exportSafeloopQueryMarkdown(projectReport));
 ```
 
 ## Install
 
-Safeloop v0.4.0 installs with:
+Safeloop v0.5.0 installs with:
 
 ```bash
 npm install safeloop
