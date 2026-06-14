@@ -22,6 +22,7 @@ import type {
 } from './caseTypes';
 import { generateHandoffManifest } from './handoffManifest';
 import type { HandoffManifest } from './caseTypes';
+import { appendEvent } from './eventStream';
 import {
   exportSafeloopQueryJSON,
   exportSafeloopQueryMarkdown,
@@ -65,6 +66,9 @@ export type AgentAdapterEventType =
   | 'approval.requested'
   | 'approval.resolved'
   | 'artifact.changed'
+  | 'model.usage'
+  | 'steering.applied'
+  | 'test.completed'
   | 'handoff.created'
   | 'task.completed'
   | 'report.generated';
@@ -128,6 +132,34 @@ export interface ArtifactChangedMetadata {
   description?: string;
 }
 
+export interface ModelUsageMetadata {
+  provider?: string;
+  model?: string;
+  modelArchitecture?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  estimatedCost?: number;
+  activeParameters?: string;
+  totalParameters?: string;
+}
+
+export interface SteeringAppliedMetadata {
+  steeringProfileId?: string;
+  promptVersion?: string;
+  instructionVersion?: string;
+  model?: string;
+  tokens?: number;
+  cost?: number;
+  releaseReadiness?: number;
+}
+
+export interface TestCompletedMetadata {
+  name?: string;
+  status?: 'passed' | 'failed' | 'skipped';
+  durationMs?: number;
+}
+
 export interface HandoffCreatedMetadata {
   from?: string;
   to?: string;
@@ -153,6 +185,9 @@ export interface AgentAdapterEventMap {
   'approval.requested': AgentAdapterEventBase<'approval.requested', ApprovalRequestedMetadata>;
   'approval.resolved': AgentAdapterEventBase<'approval.resolved', ApprovalResolvedMetadata>;
   'artifact.changed': AgentAdapterEventBase<'artifact.changed', ArtifactChangedMetadata>;
+  'model.usage': AgentAdapterEventBase<'model.usage', ModelUsageMetadata>;
+  'steering.applied': AgentAdapterEventBase<'steering.applied', SteeringAppliedMetadata>;
+  'test.completed': AgentAdapterEventBase<'test.completed', TestCompletedMetadata>;
   'handoff.created': AgentAdapterEventBase<'handoff.created', HandoffCreatedMetadata>;
   'task.completed': AgentAdapterEventBase<'task.completed', TaskCompletedMetadata>;
   'report.generated': AgentAdapterEventBase<'report.generated', ReportGeneratedMetadata>;
@@ -335,6 +370,17 @@ function updateSummary(session: AgentSession): void {
 
 export function processAgentEvent(caseFile: CaseFile, event: AgentAdapterEvent): CaseFile {
   validateCaseId(caseFile, event);
+  appendEvent({
+    id: event.id,
+    type: event.type,
+    timestamp: event.timestamp,
+    agentId: event.agentId,
+    agentName: event.agentName,
+    participantId: event.participantId,
+    caseId: event.caseId ?? caseFile.id,
+    summary: event.summary,
+    metadata: event.metadata ? { ...(event.metadata as Record<string, unknown>) } : undefined,
+  });
 
   const participantId = resolveKnownParticipantId(caseFile, event.participantId ?? event.agentId ?? event.agentName);
   const agentName = requireNonEmpty(event.agentName ?? event.agentId, 'agentName/agentId');
@@ -425,6 +471,11 @@ export function processAgentEvent(caseFile: CaseFile, event: AgentAdapterEvent):
       });
     }
 
+    case 'model.usage':
+    case 'steering.applied':
+    case 'test.completed':
+      return caseFile;
+
     case 'handoff.created': {
       const metadata = (event.metadata ?? {}) as HandoffCreatedMetadata;
       return recordHandoff(caseFile, {
@@ -464,8 +515,7 @@ export function processAgentEvent(caseFile: CaseFile, event: AgentAdapterEvent):
     }
 
     default: {
-      const exhaustiveCheck: never = event;
-      return exhaustiveCheck;
+      return caseFile;
     }
   }
 }

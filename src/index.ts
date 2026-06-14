@@ -960,6 +960,27 @@ export {
   exportAgentSessionMarkdown,
   exportAgentSessionJSON,
 } from './agentAdapter';
+export { appendEvent, readEvents, streamEvents } from './eventStream';
+export { recordModelUsage, readModelUsage } from './modelUsage';
+export {
+  setModelPricing,
+  calculateCost,
+  getCaseCostSummary,
+  readModelPricing,
+} from './costTracker';
+export {
+  recordSteeringProfile,
+  compareSteeringRuns,
+  readSteeringProfiles,
+} from './steeringTracker';
+export { detectGoalDrift } from './driftDetection';
+export { calculateReadinessScore } from './readinessScore';
+export {
+  getDashboardSnapshot,
+  createMonitorServer,
+  startMonitorServer,
+  renderMonitorHtml,
+} from './monitor';
 export type {
   CaseFile,
   CaseFileCreateInput,
@@ -1009,6 +1030,36 @@ export type {
   AgentSessionSummary,
   AgentGeneratedReport,
 } from './agentAdapter';
+export type {
+  SafeloopStreamEvent,
+  SafeloopStreamEventType,
+  SafeloopStreamEventInput,
+} from './eventStream';
+export type {
+  ModelUsageRecord,
+  ModelUsageInput,
+  ModelArchitecture,
+} from './modelUsage';
+export type {
+  ModelPricingDefinition,
+  CostCalculationResult,
+  CaseCostSummary,
+} from './costTracker';
+export type {
+  SteeringProfileInput,
+  SteeringProfileRecord,
+  SteeringComparison,
+} from './steeringTracker';
+export type {
+  GoalDriftInput,
+  GoalDriftResult,
+  GoalDriftStatus,
+} from './driftDetection';
+export type {
+  ReadinessScoreInput,
+  ReadinessScoreResult,
+  ReadinessRiskInput,
+} from './readinessScore';
 
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {

@@ -8,10 +8,11 @@
 * ✓ v0.4 Handoff Manifest
 * ✓ v0.5 Query Layer
 * ✓ v0.6 Agent Adapter Protocol
+* ✓ v0.7 Live Loop Monitor + Cost & Steering Intelligence
 
 ## Planned
 
-* □ v0.7 Multi-Agent Workflow Graphs
+* □ v0.8 Multi-Agent Workflow Graphs
 * □ v1.0 Agent Collaboration Protocol
 
 ## Product Direction

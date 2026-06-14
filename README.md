@@ -2,7 +2,7 @@
 
 ## Agent Accountability + Handoff SDK
 
-Current release: v0.6.0
+Current release: v0.7.0
 
 ### Current architecture
 
@@ -12,6 +12,12 @@ Current release: v0.6.0
 - Handoff Manifest
 - Query Reports
 - Agent Adapter Protocol
+- Event Stream
+- Live Loop Monitor
+- Cost Intelligence
+- Steering Intelligence
+- Goal Drift Detection
+- Release Readiness
 
 Safeloop helps AI agents and humans collaborate through portable Case Files.
 
@@ -305,6 +311,44 @@ Use it when you want to ask:
 - What guardrails were enforced?
 - What evidence supports the result?
 - Is this ready for handoff or release?
+
+## Live Loop Monitor
+
+Safeloop v0.7 adds a local live monitor for explicit agent events.
+
+Use it when you want to watch:
+
+- active loops
+- event timelines
+- cost and token use
+- steering comparisons
+- risk queues
+- approval queues
+- artifact timelines
+- handoff queues
+- release readiness
+
+Commands:
+
+```bash
+npm run monitor
+npx safeloop monitor
+```
+
+Local URL:
+
+```text
+http://localhost:3777
+```
+
+Safeloop still does not:
+
+- collect telemetry
+- store chain-of-thought
+- capture conversations
+- send data externally
+
+Use explicit events only.
 
 ```typescript
 import {

@@ -2,9 +2,9 @@
 
 ## Supported Versions
 
-This project currently supports the v0.6.x line.
+This project currently supports the v0.7.x line.
 
-Security fixes will be backported to the latest published v0.6 release where practical.
+Security fixes will be backported to the latest published v0.7 release where practical.
 
 ## Reporting a Vulnerability
 

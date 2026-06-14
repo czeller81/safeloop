@@ -2,9 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.6.0 - Current
+## v0.7.0 - Current
 
-Safeloop v0.6.0 introduces the Agent Adapter Protocol and the current accountability + handoff surface.
+Safeloop v0.7.0 adds the local live loop monitor, event stream, cost tracking, steering intelligence, goal drift detection, and release readiness scoring.
+
+### Added
+
+- `appendEvent`
+- `readEvents`
+- `streamEvents`
+- `recordModelUsage`
+- `setModelPricing`
+- `calculateCost`
+- `getCaseCostSummary`
+- `recordSteeringProfile`
+- `compareSteeringRuns`
+- `detectGoalDrift`
+- `calculateReadinessScore`
+- live monitor CLI and dashboard API
+
+### Notes
+
+- Safeloop remains local-first and file-based
+- Safeloop still records only explicit events
+- No telemetry, conversation capture, or remote control was added
+
+## v0.6.0 - Previous
+
+Safeloop v0.6.0 introduced the Agent Adapter Protocol and the current accountability + handoff surface.
 
 ### Added
 

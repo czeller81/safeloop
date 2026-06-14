@@ -25,6 +25,9 @@ Typical lifecycle:
 - approval.requested
 - approval.resolved
 - artifact.changed
+- model.usage
+- steering.applied
+- test.completed
 - handoff.created
 - task.completed
 - report.generated

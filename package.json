@@ -1,9 +1,12 @@
 {
   "name": "safeloop",
-  "version": "0.6.0",
-  "description": "Safeloop v0.6.0 is a lightweight Agent Accountability + Handoff SDK for local AI agent loops with Case Files, attachments, participants, handoff manifests, query reports, and an agent adapter protocol.",
+  "version": "0.7.0",
+  "description": "Safeloop v0.7.0 is a local-first Agent Accountability + Live Loop Monitor SDK for AI-assisted work with Case Files, event streams, cost tracking, steering intelligence, goal drift detection, and release readiness.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "safeloop": "dist/cli.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/czeller81/safeloop"
@@ -18,6 +21,8 @@
   "scripts": {
     "build": "tsc",
     "test": "jest --config jest.config.js",
+    "monitor": "ts-node src/cli.ts monitor",
+    "safeloop": "ts-node src/cli.ts",
     "example": "ts-node examples/wrap-agent.ts",
     "example:live-simulation": "ts-node examples/breaker-live-simulation.ts",
     "prepare": "npm run build"
@@ -31,7 +36,11 @@
     "workflow",
     "audit",
     "safety",
-    "typescript"
+    "typescript",
+    "monitor",
+    "cost",
+    "steering",
+    "drift"
   ],
   "author": "Charles Zeller <charleszeller@gmail.com>",
   "license": "MIT",
