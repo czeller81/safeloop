@@ -982,6 +982,9 @@ export {
   renderMonitorHtml,
 } from './monitor';
 export type {
+  MonitorServerOptions,
+} from './monitor';
+export type {
   CaseFile,
   CaseFileCreateInput,
   CaseFileStatus,

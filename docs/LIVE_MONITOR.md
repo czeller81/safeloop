@@ -28,13 +28,15 @@ It does not collect telemetry, conversation text, chain-of-thought, or remote si
 
 ```bash
 npm run monitor
+npm run monitor -- --port 3778
 npx safeloop monitor
+npx safeloop monitor --port 3778
 ```
 
 ## URL
 
 ```text
-http://localhost:3777
+http://127.0.0.1:3777
 ```
 
 ## Dashboard data API

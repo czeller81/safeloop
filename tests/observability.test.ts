@@ -1,3 +1,4 @@
+import { createServer } from 'http';
 import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -13,6 +14,7 @@ import {
   recordSteeringProfile,
   readEvents,
   setModelPricing,
+  startMonitorServer,
   streamEvents,
 } from '../src/index';
 
@@ -330,5 +332,25 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(snapshot.readiness.status).toBe('Ready with review');
     expect(snapshot.steeringInsights).toHaveLength(1);
     expect(snapshot.steeringInsights[0].verdict).toBe('baseline');
+  });
+
+  it('starts on a custom port and fails gracefully when the port is already in use', async () => {
+    const blocker = createServer();
+    const blockerPort = await new Promise<number>((resolve) => {
+      blocker.listen(0, '127.0.0.1', () => {
+        const address = blocker.address();
+        resolve(typeof address === 'object' && address ? address.port : 0);
+      });
+    });
+
+    const customServer = await startMonitorServer({ baseDir, port: blockerPort + 1 });
+    expect(customServer.port).toBe(blockerPort + 1);
+    await customServer.close();
+
+    await expect(startMonitorServer({ baseDir, port: blockerPort })).rejects.toMatchObject({
+      code: 'EADDRINUSE',
+    });
+
+    blocker.close();
   });
 });

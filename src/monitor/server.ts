@@ -2,6 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { getDashboardSnapshot } from './dashboardData';
 import type { SafeloopStorageOptions } from '../localStorage';
 
+export interface MonitorServerOptions extends SafeloopStorageOptions {
+  port?: number;
+}
+
+const DEFAULT_MONITOR_PORT = 3777;
+
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
   res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload, null, 2));
@@ -154,15 +160,16 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
   return server;
 }
 
-export function startMonitorServer(options: SafeloopStorageOptions = {}): Promise<{ port: number; close: () => Promise<void> }> {
+export function startMonitorServer(options: MonitorServerOptions = {}): Promise<{ port: number; close: () => Promise<void> }> {
   const server = createMonitorServer(options);
+  const port = options.port ?? DEFAULT_MONITOR_PORT;
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(3777, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 3777;
+      const resolvedPort = typeof address === 'object' && address ? address.port : port;
       resolve({
-        port,
+        port: resolvedPort,
         close: () =>
           new Promise<void>((closeResolve, closeReject) => {
             server.close((error) => {
