@@ -1,3 +1,4 @@
+import { resolve } from 'path';
 import { calculateReadinessScore, type ReadinessScoreResult } from '../readinessScore';
 import { getCaseCostSummary } from '../costTracker';
 import { readEvents, type SafeloopStreamEvent } from '../eventStream';
@@ -23,6 +24,9 @@ export interface ActiveLoopSnapshot {
 export interface DashboardSnapshot {
   activeLoops: ActiveLoopSnapshot[];
   events: SafeloopStreamEvent[];
+  eventCount: number;
+  monitoredPath: string;
+  lastUpdated: string;
   costSummary: ReturnType<typeof getCaseCostSummary>;
   modelUsage: ModelUsageRecord[];
   risks: Array<{ id: string; summary: string; severity?: string; mitigation?: string }>;
@@ -241,10 +245,15 @@ export function getDashboardSnapshot(options: SafeloopStorageOptions = {}): Dash
   const events = readEvents(options);
   const modelUsage = deriveModelUsage(events);
   const steeringProfiles = readSteeringProfiles(options);
+  const monitoredPath = resolve(options.baseDir ?? process.cwd(), '.safeloop');
+  const lastUpdated = events.length > 0 ? events[events.length - 1].timestamp : new Date().toISOString();
 
   return {
     activeLoops: deriveActiveLoops(events),
     events,
+    eventCount: events.length,
+    monitoredPath,
+    lastUpdated,
     costSummary: getCaseCostSummary(undefined, options),
     modelUsage,
     risks: deriveRiskSummary(events),

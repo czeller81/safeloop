@@ -13,6 +13,7 @@ import {
   recordModelUsage,
   recordSteeringProfile,
   readEvents,
+  renderMonitorHtml,
   setModelPricing,
   startMonitorServer,
   streamEvents,
@@ -332,6 +333,20 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(snapshot.readiness.status).toBe('Ready with review');
     expect(snapshot.steeringInsights).toHaveLength(1);
     expect(snapshot.steeringInsights[0].verdict).toBe('baseline');
+    expect(snapshot.eventCount).toBe(7);
+    expect(snapshot.lastUpdated).toBe('2026-06-14T11:06:00.000Z');
+    expect(snapshot.monitoredPath).toBe(join(baseDir, '.safeloop'));
+  });
+
+  it('renders live monitor metadata and polling controls in the html shell', () => {
+    const html = renderMonitorHtml();
+
+    expect(html).toContain('Monitoring:');
+    expect(html).toContain('Events:');
+    expect(html).toContain('Last Updated:');
+    expect(html).toContain("fetch('/api/dashboard', { cache: 'no-store' })");
+    expect(html).toContain('setTimeout(refresh, POLL_MS)');
+    expect(html).toContain('No events yet');
   });
 
   it('marks resolved approvals as approved instead of leaving them pending', () => {

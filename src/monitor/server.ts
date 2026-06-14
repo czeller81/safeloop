@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { resolve } from 'path';
 import { getDashboardSnapshot } from './dashboardData';
 import type { SafeloopStorageOptions } from '../localStorage';
 
@@ -23,7 +24,17 @@ function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.end(text);
 }
 
-export function renderMonitorHtml(): string {
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string {
+  const monitoredPath = resolve(options.baseDir ?? process.cwd(), '.safeloop');
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -36,59 +47,81 @@ export function renderMonitorHtml(): string {
     header { padding: 20px 24px; border-bottom: 1px solid #26304d; background: #0f1630; }
     h1 { margin: 0 0 6px; font-size: 24px; }
     .subtle { color: #9aa7d6; }
+    .grid { display: grid; gap: 10px; }
+    .status-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 16px; }
+    .status-item, .panel { background: #111a36; border: 1px solid #26304d; border-radius: 12px; padding: 14px; }
+    .panel { height: 100%; }
+    .label { color: #9aa7d6; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .value { font-size: 15px; margin-top: 4px; word-break: break-word; }
+    .muted { color: #8c97bf; }
     main { padding: 20px 24px 32px; display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     section { background: #111a36; border: 1px solid #26304d; border-radius: 12px; padding: 16px; }
     section.full { grid-column: 1 / -1; }
     h2 { margin: 0 0 12px; font-size: 16px; }
-    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-    .card { padding: 10px 12px; background: #0d142c; border-radius: 10px; border: 1px solid #223055; }
-    .label { color: #9aa7d6; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .value { font-size: 16px; margin-top: 4px; }
-    .muted { color: #8c97bf; }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     ul { margin: 0; padding-left: 18px; }
-    li { margin-bottom: 6px; }
-    .score { font-size: 36px; font-weight: 700; }
+    li { margin-bottom: 8px; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; }
+    .score { font-size: 36px; font-weight: 700; margin-bottom: 4px; }
     .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #1b2a57; font-size: 12px; margin-left: 8px; }
+    .error { color: #ffb5b5; }
   </style>
 </head>
 <body>
   <header>
     <h1>Safeloop Live Loop Monitor <span class="pill">local-only</span></h1>
     <div class="subtle">Git tracks code. OpenTelemetry tracks runtime. Safeloop tracks agent work.</div>
+    <div class="status-grid">
+      <div class="status-item">
+        <div class="label">Monitoring:</div>
+        <div class="value" id="monitoring-path">${escapeHtmlText(monitoredPath)}</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Events:</div>
+        <div class="value" id="event-count">0</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Last Updated:</div>
+        <div class="value" id="last-updated">Waiting for data</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Connection:</div>
+        <div class="value" id="monitor-status">Connecting…</div>
+      </div>
+    </div>
   </header>
   <main>
     <section>
       <h2>Active Loops</h2>
-      <div id="active-loops" class="grid"></div>
+      <div id="active-loops" class="cards"></div>
     </section>
     <section>
       <h2>Cost Dashboard</h2>
-      <div id="cost-dashboard" class="grid"></div>
+      <div id="cost-dashboard" class="cards"></div>
     </section>
     <section class="full">
       <h2>Event Timeline</h2>
-      <pre id="event-timeline"></pre>
+      <div id="event-timeline"></div>
     </section>
     <section>
       <h2>Steering Dashboard</h2>
-      <pre id="steering-dashboard"></pre>
+      <div id="steering-dashboard" class="cards"></div>
     </section>
     <section>
       <h2>Risk Dashboard</h2>
-      <pre id="risk-dashboard"></pre>
+      <div id="risk-dashboard" class="cards"></div>
     </section>
     <section>
       <h2>Approval Queue</h2>
-      <pre id="approval-queue"></pre>
+      <div id="approval-queue" class="cards"></div>
     </section>
     <section>
       <h2>Artifact Timeline</h2>
-      <pre id="artifact-timeline"></pre>
+      <div id="artifact-timeline" class="cards"></div>
     </section>
     <section>
       <h2>Handoff Queue</h2>
-      <pre id="handoff-queue"></pre>
+      <div id="handoff-queue" class="cards"></div>
     </section>
     <section class="full">
       <h2>Release Readiness</h2>
@@ -96,44 +129,162 @@ export function renderMonitorHtml(): string {
     </section>
   </main>
   <script>
-    async function refresh() {
-      const response = await fetch('/api/dashboard');
-      const snapshot = await response.json();
-      render(snapshot);
+    const POLL_MS = 2000;
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
-    function card(label, value) {
-      return '<div class="card"><div class="label">' + label + '</div><div class="value">' + value + '</div></div>';
+    function card(title, lines) {
+      return '<div class="panel"><div class="label">' + escapeHtml(title) + '</div><div class="value">' + lines.map((line) => escapeHtml(line)).join('<br />') + '</div></div>';
     }
 
-    function list(items) {
-      if (!items.length) return 'None';
-      return items.map((item) => '- ' + item).join('\n');
+    function listHtml(items, emptyText) {
+      if (!items.length) {
+        return '<div class="panel muted">' + escapeHtml(emptyText) + '</div>';
+      }
+      return items.map((item) => '<div class="panel">' + item + '</div>').join('');
+    }
+
+    function summaryLines(label, values) {
+      return [label + ': ' + values];
+    }
+
+    function setText(id, value) {
+      const node = document.getElementById(id);
+      if (node) {
+        node.textContent = value;
+      }
+    }
+
+    function formatMoney(value, currency) {
+      const amount = Number(value);
+      const safeAmount = Number.isFinite(amount) ? amount.toFixed(4) : '0.0000';
+      return currency + ' ' + safeAmount;
+    }
+
+    function formatBreakdown(map) {
+      const entries = Object.entries(map || {});
+      if (!entries.length) {
+        return ['None'];
+      }
+      return entries.map(([key, value]) => key + ': ' + Number(value).toFixed(4));
+    }
+
+    function formatDelta(value) {
+      const amount = Number(value || 0);
+      const sign = amount > 0 ? '+' : '';
+      return sign + amount;
     }
 
     function render(snapshot) {
-      document.getElementById('active-loops').innerHTML = snapshot.activeLoops.map((loop) =>
-        card(loop.agent, loop.task + ' · ' + loop.status + ' · ' + loop.durationSeconds + 's · ' + (loop.currentModel || 'No model'))
-      ).join('') || card('No active loops', 'Waiting for events');
+      const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+      const activeLoops = Array.isArray(snapshot.activeLoops) ? snapshot.activeLoops : [];
+      const costs = snapshot.costSummary || { currency: 'USD', totalCost: 0, costByModel: {}, costByAgent: {} };
+      const modelUsage = Array.isArray(snapshot.modelUsage) ? snapshot.modelUsage : [];
+      const risks = Array.isArray(snapshot.risks) ? snapshot.risks : [];
+      const approvals = Array.isArray(snapshot.approvals) ? snapshot.approvals : [];
+      const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts : [];
+      const handoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
+      const insights = Array.isArray(snapshot.steeringInsights) ? snapshot.steeringInsights : [];
+      const readiness = snapshot.readiness || { score: 0, status: 'Unknown', blockers: [], recommendations: [] };
+
+      setText('monitoring-path', snapshot.monitoredPath || 'Unknown');
+      setText('event-count', String(snapshot.eventCount ?? events.length));
+      setText('last-updated', snapshot.lastUpdated || 'Unknown');
+      setText('monitor-status', 'Live');
+
+      document.getElementById('active-loops').innerHTML = activeLoops.length
+        ? activeLoops.map((loop) => card(loop.agent || 'Unknown', [
+            'Agent: ' + (loop.agent || 'Unknown'),
+            'Task: ' + (loop.task || 'Unknown task'),
+            'Status: ' + (loop.status || 'unknown'),
+            'Model: ' + (loop.currentModel || 'No model'),
+            'Case: ' + (loop.caseId || 'Unknown'),
+          ])).join('')
+        : card('No active loops', ['Waiting for events']);
 
       document.getElementById('cost-dashboard').innerHTML = [
-        card('Total cost', snapshot.costSummary.currency + ' ' + snapshot.costSummary.totalCost.toFixed(4)),
-        card('Model usage', String(snapshot.modelUsage.length)),
-        card('Cases', String(Object.keys(snapshot.costSummary.costByCase).length)),
-        card('Agents', String(Object.keys(snapshot.costSummary.costByAgent).length))
+        card('Total cost', [formatMoney(costs.totalCost, costs.currency || 'USD')]),
+        card('Token usage', [String(modelUsage.reduce((sum, usage) => sum + Number(usage.totalTokens || 0), 0))]),
+        card('Cost by model', formatBreakdown(costs.costByModel)),
+        card('Cost by agent', formatBreakdown(costs.costByAgent)),
       ].join('');
 
-      document.getElementById('event-timeline').textContent = list(snapshot.events.map((event) => event.timestamp + ' · ' + event.type + ' · ' + event.summary));
-      document.getElementById('steering-dashboard').textContent = list(snapshot.steeringInsights.map((entry) => entry.current.steeringProfileId + ' · ' + entry.verdict + ' · ' + entry.insights.join(', ')));
-      document.getElementById('risk-dashboard').textContent = list(snapshot.risks.map((risk) => risk.summary + ' · ' + (risk.severity || 'unknown')));
-      document.getElementById('approval-queue').textContent = list(snapshot.approvals.map((approval) => approval.summary + ' · ' + approval.reason));
-      document.getElementById('artifact-timeline').textContent = list(snapshot.artifacts.map((artifact) => artifact.summary + (artifact.path ? ' · ' + artifact.path : '')));
-      document.getElementById('handoff-queue').textContent = list(snapshot.handoffs.map((handoff) => (handoff.currentOwner || 'Unknown') + ' → ' + (handoff.nextOwner || 'Unknown')));
-      document.getElementById('readiness').innerHTML = '<div class="score">' + snapshot.readiness.score + '/100</div><div class="subtle">' + snapshot.readiness.status + '</div><pre>' + list(snapshot.readiness.blockers) + '\n\n' + list(snapshot.readiness.recommendations) + '</pre>';
+      document.getElementById('event-timeline').innerHTML = events.length
+        ? '<ul>' + events.map((event) => '<li><strong>' + escapeHtml(event.type) + '</strong> — ' + escapeHtml(event.summary) + '<div class="muted">' + escapeHtml(event.timestamp) + ' · ' + escapeHtml(event.agentName || event.agentId) + '</div></li>').join('') + '</ul>'
+        : '<div class="panel muted">No events yet</div>';
+
+      document.getElementById('steering-dashboard').innerHTML = insights.length
+        ? insights.map((entry) => card(entry.current.steeringProfileId || 'Unknown profile', [
+            'Verdict: ' + entry.verdict,
+            'Token delta: ' + formatDelta(entry.deltas.tokens),
+            'Cost delta: ' + formatDelta(entry.deltas.cost),
+            'Readiness delta: ' + formatDelta(entry.deltas.releaseReadiness),
+          ])).join('')
+        : card('No steering data', ['Waiting for steering events']);
+
+      document.getElementById('risk-dashboard').innerHTML = risks.length
+        ? risks.map((risk) => card(risk.summary || 'Risk', [
+            'Severity: ' + (risk.severity || 'unknown'),
+            'Mitigation: ' + (risk.mitigation || 'None'),
+          ])).join('')
+        : card('No risks', ['Waiting for risk events']);
+
+      document.getElementById('approval-queue').innerHTML = approvals.length
+        ? approvals.map((approval) => card(approval.summary || 'Approval', [
+            'Approver: ' + (approval.approver || 'Unknown'),
+            'Reason: ' + (approval.reason || 'None'),
+            'Status: ' + (approval.status || 'pending'),
+          ])).join('')
+        : card('No approvals', ['Waiting for approval events']);
+
+      document.getElementById('artifact-timeline').innerHTML = artifacts.length
+        ? artifacts.map((artifact) => card(artifact.summary || 'Artifact', [
+            'File path: ' + (artifact.path || 'Unknown'),
+            'Change summary: ' + (artifact.summary || 'None'),
+          ])).join('')
+        : card('No artifacts', ['Waiting for artifact events']);
+
+      document.getElementById('handoff-queue').innerHTML = handoffs.length
+        ? handoffs.map((handoff) => card(handoff.summary || 'Handoff', [
+            'Current owner: ' + (handoff.currentOwner || 'Unknown'),
+            'Next owner: ' + (handoff.nextOwner || 'Unknown'),
+            'Recommended actions: ' + (handoff.summary || 'None'),
+          ])).join('')
+        : card('No handoffs', ['Waiting for handoff events']);
+
+      document.getElementById('readiness').innerHTML = '<div class="panel"><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="label" style="margin-top:12px;">Blockers</div><pre>' + escapeHtml((readiness.blockers || []).length ? readiness.blockers.join('\n') : 'None') + '</pre><div class="label" style="margin-top:12px;">Recommendations</div><pre>' + escapeHtml((readiness.recommendations || []).length ? readiness.recommendations.join('\n') : 'None') + '</pre></div>';
     }
 
-    refresh();
-    setInterval(refresh, 2000);
+    async function refresh() {
+      try {
+        setText('monitor-status', 'Refreshing…');
+        const response = await fetch('/api/dashboard', { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error('Dashboard request failed with HTTP ' + response.status);
+        }
+        const snapshot = await response.json();
+        render(snapshot);
+      } catch (error) {
+        console.error('Safeloop monitor refresh failed:', error);
+        setText('monitor-status', 'Error');
+        document.getElementById('event-timeline').innerHTML = '<div class="panel error">' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div>';
+      } finally {
+        setTimeout(refresh, POLL_MS);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', refresh, { once: true });
+    } else {
+      refresh();
+    }
   </script>
 </body>
 </html>`;
@@ -151,7 +302,7 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
       return;
     }
     if (url === '/' || url.startsWith('/?')) {
-      sendHtml(res, renderMonitorHtml());
+      sendHtml(res, renderMonitorHtml(options));
       return;
     }
     sendText(res, 404, 'Not found');

@@ -9,12 +9,14 @@ Current release: v0.7.0
 - Case Files
 - Attachments
 - Participants
+- Agent Identity
 - Handoff Manifest
-- Query Reports
+- Report Query Layer
 - Agent Adapter Protocol
 - Event Stream
 - Live Loop Monitor
-- Cost Intelligence
+- Cost Tracking
+- Model Usage Tracking
 - Steering Intelligence
 - Goal Drift Detection
 - Release Readiness
