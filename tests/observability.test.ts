@@ -410,20 +410,29 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(snapshot.monitoredPath).toBe(join(baseDir, '.safeloop'));
   });
 
-  it('renders live monitor metadata and polling controls in the html shell', () => {
+  it('renders an executive-style live monitor shell with compact sections', () => {
     const html = renderMonitorHtml();
 
-    expect(html).toContain('Monitoring:');
-    expect(html).toContain('Events:');
-    expect(html).toContain('Last Updated:');
-    expect(html).toContain('Cost by agent');
-    expect(html).toContain('Cost by task');
-    expect(html).toContain('Cost by project');
-    expect(html).toContain('Model Usage');
+    expect(html).toContain('Connection status');
+    expect(html).toContain('Event count');
+    expect(html).toContain('Active agent count');
+    expect(html).toContain('Total cost');
+    expect(html).toContain('Usage count');
+    expect(html).toContain('High risk count');
+    expect(html).toContain('Pending approval count');
+    expect(html).toContain('Last updated');
+    expect(html).toContain('Spend Overview');
+    expect(html).toContain('Token Usage');
+    expect(html).toContain('Active Agent Work');
+    expect(html).toContain('Activity Timeline');
+    expect(html).toContain('Risk &amp; Guardrails');
+    expect(html).toContain('Human Review');
+    expect(html).toContain('Work Products');
+    expect(html).toContain('Agent Handoffs');
+    expect(html).toContain('Show all');
     expect(html).toContain('Diagnostics');
     expect(html).toContain("fetch(pollUrl, { cache: 'no-store' })");
     expect(html).toContain('setTimeout(refresh, POLL_MS)');
-    expect(html).toContain('No events yet');
   });
 
   it('marks resolved approvals as approved instead of leaving them pending', () => {
