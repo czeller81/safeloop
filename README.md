@@ -316,13 +316,13 @@ Use it when you want to ask:
 
 ## Live Loop Monitor
 
-Safeloop v0.7 adds a local live monitor for explicit agent events.
+Safeloop v0.7 adds a local live monitor for explicit agent cost/accountability records and token/cost records.
 
 Use it when you want to watch:
 
 - active loops
 - event timelines
-- cost and token use
+- cost, token use, and spend by agent/task/project
 - steering comparisons
 - risk queues
 - approval queues

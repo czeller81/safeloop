@@ -961,7 +961,7 @@ export {
   exportAgentSessionJSON,
 } from './agentAdapter';
 export { appendEvent, readEvents, streamEvents } from './eventStream';
-export { recordModelUsage, readModelUsage } from './modelUsage';
+export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
   setModelPricing,
   calculateCost,
@@ -1041,6 +1041,8 @@ export type {
 export type {
   ModelUsageRecord,
   ModelUsageInput,
+  TokenCostRecord,
+  TokenCostInput,
   ModelArchitecture,
 } from './modelUsage';
 export type {

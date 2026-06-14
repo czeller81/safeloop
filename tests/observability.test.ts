@@ -10,7 +10,9 @@ import {
   detectGoalDrift,
   getCaseCostSummary,
   getDashboardSnapshot,
+  readTokenCosts,
   recordModelUsage,
+  recordTokenCost,
   recordSteeringProfile,
   readEvents,
   renderMonitorHtml,
@@ -113,6 +115,71 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(summary.costByModel['gpt-5-mini']).toBeCloseTo(0.0066, 6);
     expect(summary.costByCase['case-1']).toBeCloseTo(0.0066, 6);
     expect(summary.currency).toBe('USD');
+  });
+
+  it('records token/cost events and aggregates costs by agent, task, and project', () => {
+    setModelPricing(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        inputPerMillion: 0.25,
+        outputPerMillion: 2.0,
+        currency: 'USD',
+      },
+      { baseDir },
+    );
+
+    const first = recordTokenCost(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 10000,
+        outputTokens: 2000,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        caseId: 'case-1',
+        project: 'Safeloop',
+        taskId: 'task-monitor',
+        taskName: 'Build the live monitor',
+        timestamp: '2026-06-14T10:10:00.000Z',
+      },
+      { baseDir },
+    );
+
+    const second = recordTokenCost(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 5000,
+        outputTokens: 500,
+        agentId: 'opencode-1',
+        caseId: 'case-2',
+        project: 'PLOTS',
+        taskId: 'task-dogfood',
+        taskName: 'Run dogfood validation',
+        timestamp: '2026-06-14T10:11:00.000Z',
+      },
+      { baseDir },
+    );
+
+    const tokenEvents = readTokenCosts({ baseDir });
+    const summary = getCaseCostSummary(undefined, { baseDir });
+
+    expect(first.totalTokens).toBe(12000);
+    expect(second.totalTokens).toBe(5500);
+    expect(tokenEvents).toHaveLength(2);
+    expect(tokenEvents[0].agent).toBe('Hermes');
+    expect(tokenEvents.map((event) => event.project)).toEqual(['Safeloop', 'PLOTS']);
+    expect(summary.totalCost).toBeCloseTo(0.00875, 6);
+    expect(summary.costByAgent['Hermes']).toBeCloseTo(0.0065, 6);
+    expect(summary.costByAgent['opencode-1']).toBeCloseTo(0.00225, 6);
+    expect(summary.costByTask['Build the live monitor']).toBeCloseTo(0.0065, 6);
+    expect(summary.costByTask['Run dogfood validation']).toBeCloseTo(0.00225, 6);
+    expect(summary.costByProject['Safeloop']).toBeCloseTo(0.0065, 6);
+    expect(summary.costByProject['PLOTS']).toBeCloseTo(0.00225, 6);
+    expect(summary.usageCount).toBe(2);
   });
 
   it('compares steering runs, detects drift, and scores readiness', () => {
@@ -236,6 +303,9 @@ describe('Safeloop v0.7 observability layer', () => {
         outputTokens: 1200,
         agentId: 'hermes-1',
         caseId: 'case-1',
+        project: 'Safeloop',
+        taskId: 'task-monitor-demo',
+        taskName: 'Build the loop monitor demo',
         timestamp: '2026-06-14T11:01:00.000Z',
       },
       { baseDir },
@@ -324,7 +394,9 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(snapshot.activeLoops[0].currentModel).toBe('gpt-5-mini');
     expect(snapshot.events).toHaveLength(7);
     expect(snapshot.costSummary.totalCost).toBeGreaterThan(0);
-    expect(snapshot.modelUsage).toHaveLength(1);
+    expect(snapshot.costSummary.costByAgent['hermes-1']).toBeGreaterThan(0);
+    expect(snapshot.costSummary.costByTask['Build the loop monitor demo']).toBeGreaterThan(0);
+    expect(snapshot.costSummary.costByProject['Safeloop']).toBeGreaterThan(0);
     expect(snapshot.risks).toHaveLength(1);
     expect(snapshot.approvals).toHaveLength(1);
     expect(snapshot.artifacts).toHaveLength(1);
@@ -344,6 +416,8 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toContain('Monitoring:');
     expect(html).toContain('Events:');
     expect(html).toContain('Last Updated:');
+    expect(html).toContain('Cost by task');
+    expect(html).toContain('Total spend by project');
     expect(html).toContain("fetch('/api/dashboard', { cache: 'no-store' })");
     expect(html).toContain('setTimeout(refresh, POLL_MS)');
     expect(html).toContain('No events yet');

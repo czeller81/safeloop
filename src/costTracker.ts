@@ -1,5 +1,5 @@
 import type { SafeloopStorageOptions } from './localStorage';
-import { readModelUsage } from './modelUsage';
+import { readTokenCosts } from './modelUsage';
 import {
   calculateUsageCost,
   lookupPricing,
@@ -18,6 +18,8 @@ export interface CaseCostSummary {
   totalCost: number;
   currency: string;
   costByAgent: Record<string, number>;
+  costByTask: Record<string, number>;
+  costByProject: Record<string, number>;
   costByModel: Record<string, number>;
   costByCase: Record<string, number>;
   usageCount: number;
@@ -36,7 +38,7 @@ export function calculateCost(
 }
 
 export function getCaseCostSummary(caseId: string | undefined = undefined, options: SafeloopStorageOptions = {}): CaseCostSummary {
-  const allUsages = readModelUsage(options);
+  const allUsages = readTokenCosts(options);
   const usages: ModelUsageRecord[] = [];
   for (const entry of allUsages) {
     if (!caseId || entry.caseId === caseId) {
@@ -55,12 +57,19 @@ export function getCaseCostSummary(caseId: string | undefined = undefined, optio
   }
   const currency = calculations[0]?.currency ?? 'USD';
   const costByAgent: Record<string, number> = {};
+  const costByTask: Record<string, number> = {};
+  const costByProject: Record<string, number> = {};
   const costByModel: Record<string, number> = {};
   const costByCase: Record<string, number> = {};
 
   usages.forEach((entry: ModelUsageRecord, index: number) => {
     const cost = calculations[index]?.totalCost ?? 0;
-    costByAgent[entry.agentId] = (costByAgent[entry.agentId] ?? 0) + cost;
+    const taskKey = entry.taskName?.trim() || entry.taskId?.trim() || entry.caseId;
+    const projectKey = entry.project?.trim() || entry.caseId;
+    const agentKey = entry.agent?.trim() || entry.agentId;
+    costByAgent[agentKey] = (costByAgent[agentKey] ?? 0) + cost;
+    costByTask[taskKey] = (costByTask[taskKey] ?? 0) + cost;
+    costByProject[projectKey] = (costByProject[projectKey] ?? 0) + cost;
     costByModel[entry.model] = (costByModel[entry.model] ?? 0) + cost;
     costByCase[entry.caseId] = (costByCase[entry.caseId] ?? 0) + cost;
   });
@@ -70,6 +79,8 @@ export function getCaseCostSummary(caseId: string | undefined = undefined, optio
     totalCost,
     currency,
     costByAgent,
+    costByTask,
+    costByProject,
     costByModel,
     costByCase,
     usageCount: usages.length,

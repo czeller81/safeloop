@@ -26,6 +26,7 @@ Typical lifecycle:
 - approval.resolved
 - artifact.changed
 - model.usage
+- token.cost
 - steering.applied
 - test.completed
 - handoff.created
@@ -72,6 +73,41 @@ Examples:
 - handoff.created: from, to, notes, recommendedNextActions
 - task.completed: result, outputSummary
 - report.generated: reportType, path
+
+## Token / cost event example
+
+External agents should emit a token.cost event when they have explicit token and spend data.
+
+Example payload:
+
+```json
+{
+  "id": "token-cost-2026-06-14T11:01:00.000Z",
+  "type": "token.cost",
+  "timestamp": "2026-06-14T11:01:00.000Z",
+  "agentId": "hermes-1",
+  "caseId": "case-1",
+  "summary": "Token cost recorded for gpt-5-mini",
+  "metadata": {
+    "provider": "OpenAI",
+    "model": "gpt-5-mini",
+    "modelArchitecture": "hosted",
+    "inputTokens": 8000,
+    "outputTokens": 1200,
+    "totalTokens": 9200,
+    "estimatedCost": 0.0065,
+    "timestamp": "2026-06-14T11:01:00.000Z",
+    "agentId": "hermes-1",
+    "agent": "Hermes",
+    "caseId": "case-1",
+    "project": "Safeloop",
+    "taskId": "task-monitor-demo",
+    "taskName": "Build the loop monitor demo"
+  }
+}
+```
+
+Safeloop accepts the same metadata shape for model.usage for backward compatibility, but token.cost is the preferred explicit schema.
 
 ## Adapter schema
 

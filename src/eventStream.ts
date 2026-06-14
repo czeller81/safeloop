@@ -9,6 +9,7 @@ export type SafeloopStreamEventType =
   | 'approval.resolved'
   | 'artifact.changed'
   | 'model.usage'
+  | 'token.cost'
   | 'steering.applied'
   | 'test.completed'
   | 'handoff.created'

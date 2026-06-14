@@ -214,6 +214,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         card('Token usage', [String(modelUsage.reduce((sum, usage) => sum + Number(usage.totalTokens || 0), 0))]),
         card('Cost by model', formatBreakdown(costs.costByModel)),
         card('Cost by agent', formatBreakdown(costs.costByAgent)),
+        card('Cost by task', formatBreakdown(costs.costByTask)),
+        card('Total spend by project', formatBreakdown(costs.costByProject)),
       ].join('');
 
       document.getElementById('event-timeline').innerHTML = events.length

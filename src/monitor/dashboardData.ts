@@ -2,7 +2,7 @@ import { resolve } from 'path';
 import { calculateReadinessScore, type ReadinessScoreResult } from '../readinessScore';
 import { getCaseCostSummary } from '../costTracker';
 import { readEvents, type SafeloopStreamEvent } from '../eventStream';
-import { readModelUsage, type ModelUsageRecord } from '../modelUsage';
+import { readTokenCosts, type ModelUsageRecord } from '../modelUsage';
 import {
   compareSteeringRuns,
   readSteeringProfiles,
@@ -66,7 +66,7 @@ function deriveActiveLoops(events: SafeloopStreamEvent[]): ActiveLoopSnapshot[] 
       continue;
     }
     const latest = bucket[bucket.length - 1];
-    const model = [...bucket].reverse().find((event) => event.type === 'model.usage');
+    const model = [...bucket].reverse().find((event) => event.type === 'token.cost' || event.type === 'model.usage');
     const status = latest?.type === 'task.completed' ? 'completed' : 'running';
     activeLoops.push({
       key,
@@ -172,15 +172,8 @@ function deriveHandoffs(events: SafeloopStreamEvent[]): DashboardSnapshot['hando
     }));
 }
 
-function deriveModelUsage(events: SafeloopStreamEvent[]): ModelUsageRecord[] {
-  return readModelUsageFromEvents(events);
-}
-
-function readModelUsageFromEvents(events: SafeloopStreamEvent[]): ModelUsageRecord[] {
-  return events
-    .filter((event) => event.type === 'model.usage')
-    .map((event) => ({ ...(event.metadata ?? {}) } as unknown as ModelUsageRecord))
-    .filter((entry) => Boolean(entry.provider) && Boolean(entry.model) && Boolean(entry.caseId));
+function deriveModelUsage(options: SafeloopStorageOptions): ModelUsageRecord[] {
+  return readTokenCosts(options);
 }
 
 function deriveReadiness(events: SafeloopStreamEvent[], modelUsage: ModelUsageRecord[]): ReadinessScoreResult {
@@ -243,7 +236,7 @@ function buildSteeringInsights(records: SteeringProfileRecord[]): SteeringCompar
 
 export function getDashboardSnapshot(options: SafeloopStorageOptions = {}): DashboardSnapshot {
   const events = readEvents(options);
-  const modelUsage = deriveModelUsage(events);
+  const modelUsage = deriveModelUsage(options);
   const steeringProfiles = readSteeringProfiles(options);
   const monitoredPath = resolve(options.baseDir ?? process.cwd(), '.safeloop');
   const lastUpdated = events.length > 0 ? events[events.length - 1].timestamp : new Date().toISOString();

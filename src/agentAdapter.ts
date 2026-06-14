@@ -67,6 +67,7 @@ export type AgentAdapterEventType =
   | 'approval.resolved'
   | 'artifact.changed'
   | 'model.usage'
+  | 'token.cost'
   | 'steering.applied'
   | 'test.completed'
   | 'handoff.created'
@@ -140,6 +141,9 @@ export interface ModelUsageMetadata {
   outputTokens?: number;
   totalTokens?: number;
   estimatedCost?: number;
+  project?: string;
+  taskId?: string;
+  taskName?: string;
   activeParameters?: string;
   totalParameters?: string;
 }
@@ -186,6 +190,7 @@ export interface AgentAdapterEventMap {
   'approval.resolved': AgentAdapterEventBase<'approval.resolved', ApprovalResolvedMetadata>;
   'artifact.changed': AgentAdapterEventBase<'artifact.changed', ArtifactChangedMetadata>;
   'model.usage': AgentAdapterEventBase<'model.usage', ModelUsageMetadata>;
+  'token.cost': AgentAdapterEventBase<'token.cost', ModelUsageMetadata>;
   'steering.applied': AgentAdapterEventBase<'steering.applied', SteeringAppliedMetadata>;
   'test.completed': AgentAdapterEventBase<'test.completed', TestCompletedMetadata>;
   'handoff.created': AgentAdapterEventBase<'handoff.created', HandoffCreatedMetadata>;
@@ -472,6 +477,7 @@ export function processAgentEvent(caseFile: CaseFile, event: AgentAdapterEvent):
     }
 
     case 'model.usage':
+    case 'token.cost':
     case 'steering.applied':
     case 'test.completed':
       return caseFile;
