@@ -125,7 +125,7 @@ Safeloop does not:
 - send network data
 - replace human approval
 
-## Oversight Intelligence (v0.8.0)
+## Oversight Intelligence (next: v0.8.0)
 
 Version 0.8.0 adds an Oversight Intelligence layer that analyzes complete agent loops (Case File → Task → Events → Model Usage → Outcomes) and derives proactive warnings, anomalies, explainability coverage, and an oversight score per loop. Safeloop remains runtime-agnostic: agents emit events, Safeloop derives oversight intelligence.
 

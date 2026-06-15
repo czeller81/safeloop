@@ -1,6 +1,6 @@
 {
   "name": "safeloop",
-  "version": "0.8.0",
+  "version": "0.7.0",
   "description": "Safeloop v0.7.0 is a local-first Agent Accountability + Live Loop Monitor SDK for AI-assisted work with Case Files, event streams, cost tracking, steering intelligence, goal drift detection, and release readiness.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
