@@ -351,7 +351,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
 
   * { box-sizing: border-box; }
   html, body { min-height: 100%; }
-  html { scroll-padding-top: 160px; }
+  html { scroll-padding-top: 140px; }
   body {
     margin: 0;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -435,6 +435,38 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     gap: var(--sl-space-4);
   }
   .hero-copy { max-width: 760px; }
+  .hero-brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .sl-brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 86px;
+    height: 86px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 50% 38%, rgba(183, 140, 255, 0.24), transparent 28%),
+      radial-gradient(circle at 50% 52%, rgba(120, 231, 255, 0.08), transparent 46%),
+      linear-gradient(180deg, rgba(16, 13, 33, 0.80), rgba(5, 5, 12, 0.95));
+    border: 1px solid rgba(183, 140, 255, 0.28);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.03),
+      0 0 24px rgba(157, 105, 255, 0.16),
+      0 0 60px rgba(120, 231, 255, 0.05);
+  }
+  .sl-brand-mark svg {
+    display: block;
+    width: 72px;
+    height: 72px;
+  }
+  .hero-brand-copy {
+    min-width: 0;
+  }
   .eyebrow {
     display: inline-flex;
     align-items: center;
@@ -557,30 +589,80 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     color: var(--sl-cyan);
     font-size: 12px;
   }
-  .sl-sticky-nav {
+  .sl-layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+    gap: var(--sl-space-5);
+    align-items: start;
+  }
+  .sl-sidebar {
     position: sticky;
     top: 24px;
-    z-index: 8;
-    margin: var(--sl-space-4) 0 var(--sl-space-5);
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: var(--sl-space-4);
+    align-self: start;
+  }
+  .sl-sidebar-card {
+    padding: 18px;
+    border-radius: var(--sl-radius-lg);
+    background: linear-gradient(180deg, rgba(17, 13, 40, 0.92), rgba(10, 8, 25, 0.92));
+    border: 1px solid rgba(157, 105, 255, 0.22);
+    box-shadow: var(--sl-shadow-panel), 0 0 24px rgba(157, 105, 255, 0.08);
+  }
+  .sl-sidebar-kicker {
+    color: var(--sl-text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-bottom: 6px;
+  }
+  .sl-sidebar-title {
+    margin: 0;
+    font-size: 16px;
+    letter-spacing: -0.02em;
+  }
+  .sl-sidebar-copy {
+    margin: 8px 0 0;
+    color: var(--sl-text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .sl-content {
+    min-width: 0;
+    display: grid;
+    gap: var(--sl-space-5);
+  }
+  .sl-sticky-nav {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
-    padding: 10px;
-    border-radius: 999px;
+    padding: 14px;
+    border-radius: var(--sl-radius-xl);
     background: rgba(8, 7, 21, 0.78);
     border: 1px solid rgba(157, 105, 255, 0.18);
     box-shadow: var(--sl-shadow-panel), 0 0 30px rgba(157, 105, 255, 0.08);
     backdrop-filter: blur(18px);
   }
   .sl-sticky-nav a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     color: var(--sl-text-muted);
     text-decoration: none;
     font-size: 12px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    padding: 8px 12px;
-    border-radius: 999px;
+    padding: 12px 14px;
+    border-radius: 16px;
     border: 1px solid transparent;
+    background: rgba(255,255,255,0.02);
+  }
+  .sl-sticky-nav a::after {
+    content: '↗';
+    color: rgba(255,255,255,0.35);
+    font-size: 10px;
   }
   .sl-sticky-nav a:hover,
   .sl-sticky-nav a:focus-visible,
@@ -590,6 +672,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     background: rgba(157, 105, 255, 0.10);
     outline: none;
   }
+
   .section-hint::before {
     content: '';
   }
@@ -651,7 +734,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   section {
     padding: var(--sl-space-5);
     overflow: hidden;
-    scroll-margin-top: 160px;
+    scroll-margin-top: 140px;
   }
   section:not(.full) { grid-column: span 6; }
   section.full { grid-column: 1 / -1; }
@@ -733,6 +816,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   @media (max-width: 1200px) {
     .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     section:not(.full) { grid-column: 1 / -1; }
+    .sl-layout { grid-template-columns: 1fr; }
+    .sl-sidebar { position: static; }
   }
   @media (max-width: 760px) {
     .sl-shell { padding: 18px 14px 28px; }
@@ -740,16 +825,76 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hero-meta { justify-content: flex-start; }
     .cards, .mini-grid, .diagnostics { grid-template-columns: 1fr; }
+    .sl-sticky-nav { padding: 12px; }
+    .sl-sticky-nav a { width: 100%; }
   }
 </style>
 </head>
 <body>
   <div class="sl-shell">
+    <div class="sl-layout">
+      <aside class="sl-sidebar" aria-label="Quick navigation">
+        <div class="sl-sidebar-card">
+          <div class="sl-sidebar-kicker">Monitor navigation</div>
+          <h2 class="sl-sidebar-title">Live loop operations</h2>
+          <p class="sl-sidebar-copy">Jump between current runs, spend, risks, review, and diagnostics without covering the hero.</p>
+        </div>
+        <nav class="sl-sticky-nav" aria-label="Quick navigation">
+          <a href="#overview">Overview</a>
+          <a href="#loops">Loops</a>
+          <a href="#spend">Spend</a>
+          <a href="#risks">Risks</a>
+          <a href="#human-review">Human Review</a>
+          <a href="#diagnostics">Diagnostics</a>
+        </nav>
+      </aside>
+      <div class="sl-content">
     <header class="sl-hero sl-panel-glow" id="overview">
       <div class="hero-top">
         <div class="hero-copy">
-          <div class="eyebrow">Safeloop v0.7.0 · live monitor</div>
-          <h1>Safeloop</h1>
+          <div class="hero-brand">
+            <div class="sl-brand-mark" aria-hidden="true">
+              <svg id="safeloop-logo" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <defs>
+                  <linearGradient id="slLogoShell" x1="18%" y1="8%" x2="82%" y2="92%">
+                    <stop offset="0%" stop-color="#ffffff"/>
+                    <stop offset="55%" stop-color="#ede2ff"/>
+                    <stop offset="100%" stop-color="#c6a8ff"/>
+                  </linearGradient>
+                  <linearGradient id="slLogoCore" x1="50%" y1="0%" x2="50%" y2="100%">
+                    <stop offset="0%" stop-color="#120f20"/>
+                    <stop offset="100%" stop-color="#05060b"/>
+                  </linearGradient>
+                  <linearGradient id="slLogoCheck" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#ffffff"/>
+                    <stop offset="100%" stop-color="#f0e8ff"/>
+                  </linearGradient>
+                  <filter id="slLogoGlow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="3.1" result="blur"/>
+                    <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.49 0 1 0 0 0.28 0 0 1 0 1 0 0 0 0.58 0" result="purpleBlur"/>
+                    <feMerge>
+                      <feMergeNode in="purpleBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+                <circle cx="48" cy="48" r="45" fill="#060610" opacity="0.96"/>
+                <circle cx="48" cy="48" r="38" fill="none" stroke="rgba(183,140,255,0.16)" stroke-width="2"/>
+                <path d="M48 11L73 22V46C73 61 62 73 48 84C34 73 23 61 23 46V22L48 11Z" fill="url(#slLogoShell)" filter="url(#slLogoGlow)"/>
+                <path d="M48 18L67 26V46C67 58 58 67 48 75C38 67 29 58 29 46V26L48 18Z" fill="url(#slLogoCore)"/>
+                <path d="M48 21L63 28V45C63 55 56 63 48 70C40 63 33 55 33 45V28L48 21Z" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"/>
+                <rect x="39" y="34.5" width="7" height="16.5" rx="3.5" fill="#ffffff"/>
+                <rect x="50" y="34.5" width="7" height="16.5" rx="3.5" fill="#ffffff"/>
+                <path d="M53 55L59 61L68.5 52" fill="none" stroke="url(#slLogoCheck)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M41 30.5C44 29 52 29 55 30.5" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M41.5 71.5C44.5 73.5 51.5 73.5 54.5 71.5" fill="none" stroke="rgba(183,140,255,0.24)" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="hero-brand-copy">
+              <div class="eyebrow">Safeloop v0.7.0 · live monitor</div>
+              <h1>Safeloop</h1>
+            </div>
+          </div>
           <p class="hero-subtitle">Agent Cost, Control & Accountability Monitor</p>
           <div class="hero-path">Monitored path: <span id="monitoring-path">${escapeHtmlText(monitoredPath)}</span></div>
         </div>
@@ -876,6 +1021,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         <div class="diagnostics" id="diagnostics-panel"></div>
       </section>
     </main>
+      </div>
+    </div>
   </div>
   <script>
     const POLL_MS = 2000;
