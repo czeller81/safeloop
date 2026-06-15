@@ -16,7 +16,7 @@ export function renderHero(viewModel: MonitorViewModel): string {
               </svg>
             </div>
             <div class="hero-brand-copy">
-              <div class="eyebrow">Safeloop v0.7.0 · live monitor</div>
+              <div class="eyebrow">Safeloop v0.8.0 · live monitor</div>
               <h1>Safeloop</h1>
               <p class="hero-subtitle">Agent Cost, Control &amp; Accountability Monitor</p>
               <p class="hero-subtitle">Clear loop accountability, cleaner release readiness, and a monitor view that separates the active run from the historical ledger.</p>
@@ -26,7 +26,7 @@ export function renderHero(viewModel: MonitorViewModel): string {
         </div>
         <div class="hero-meta">
           <span class="sl-meta-pill">Local-only</span>
-          <span class="sl-meta-pill">Version v0.7.0</span>
+          <span class="sl-meta-pill">Version v0.8.0</span>
           <span class="sl-meta-pill">${escapeHtml(viewModel.status.connection)}</span>
           <span class="sl-meta-pill">Updated ${escapeHtml(formatTimestamp(viewModel.status.lastUpdated))}</span>
           <span class="sl-meta-pill">Events ${escapeHtml(String(viewModel.status.eventCount))}</span>

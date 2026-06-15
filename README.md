@@ -2,7 +2,7 @@
 
 ## Agent Accountability + Live Loop Monitor SDK
 
-Current release: v0.7.0
+Current release: v0.8.0
 
 ### Current architecture
 
