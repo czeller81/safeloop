@@ -1,13 +1,16 @@
-import { spawn, ChildProcess } from 'child_process';
 import * as http from 'http';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { startMonitorServer } from '../src/monitor/server';
 
-const MONITOR_URL = 'http://127.0.0.1:3777/api/dashboard';
+const MONITOR_PATH = '/api/dashboard';
 
-function waitForDashboard(timeout = 60000): Promise<any> {
+function waitForDashboard(url: string, timeout = 60000): Promise<any> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const attempt = () => {
-      http.get(MONITOR_URL, (res) => {
+      http.get(url, (res) => {
         const { statusCode } = res;
         let data = '';
         res.setEncoding('utf8');
@@ -34,43 +37,69 @@ function waitForDashboard(timeout = 60000): Promise<any> {
   });
 }
 
-function startMonitor(): Promise<ChildProcess> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('npm', ['run', 'monitor'], { stdio: 'ignore', shell: true, cwd: process.cwd() });
-    // Give it a moment then resolve; waitForDashboard will poll until ready
-    setTimeout(() => resolve(proc), 1000);
-    // If the process exits early, detect and fail
-    proc.on('exit', (code, sig) => {
-      if (code !== 0) reject(new Error(`monitor process exited early: ${code}/${sig}`));
-    });
-  });
-}
-
-function stopMonitor(proc: ChildProcess) {
-  try {
-    proc.kill('SIGTERM');
-  } catch (e) {
-    // ignore
-  }
-}
-
 jest.setTimeout(120000);
 
-describe('Dashboard /api/dashboard integration', () => {
-  let proc: ChildProcess | null = null;
+describe('Dashboard /api/dashboard integration (deterministic fixtures)', () => {
+  let serverHandle: { port: number; close: () => Promise<void> } | null = null;
+  let baseDir = '';
+  const port = 38888; // test port
 
   beforeAll(async () => {
-    proc = await startMonitor();
-    // wait for dashboard JSON
-    await waitForDashboard(60000);
+    // create temp base dir and write .safeloop/events.jsonl from fixtures
+    baseDir = mkdtempSync(join(tmpdir(), 'safeloop-test-'));
+    const safeloopDir = join(baseDir, '.safeloop');
+    mkdirSync(safeloopDir, { recursive: true });
+
+    const healthyRaw = readFileSync(join(process.cwd(), 'tests', 'fixtures', 'oversight-healthy-loop.jsonl'), 'utf8');
+    const problematicRaw = readFileSync(join(process.cwd(), 'tests', 'fixtures', 'oversight-problematic-loop.jsonl'), 'utf8');
+
+    // timestamping strategy:
+    // - problematic events put ~90 minutes ago (stale window)
+    // - healthy events put ~30 seconds ago so they are the latest
+    const nowMs = Date.now();
+    const staleOffsetMs = 90 * 60 * 1000; // 90 minutes
+    const baseProblemTs = new Date(nowMs - staleOffsetMs);
+    const baseHealthyTs = new Date(nowMs - 30 * 1000); // 30s ago
+
+    const problematicLines = problematicRaw
+      .split(/\r?\n/)
+      .map((line) => (line.trim() ? JSON.parse(line) : null))
+      .filter(Boolean)
+      .map((obj: any, idx: number) => {
+        const ts = new Date(baseProblemTs.getTime() + idx * 1000).toISOString();
+        obj.timestamp = ts;
+        return JSON.stringify(obj);
+      });
+
+    const healthyLines = healthyRaw
+      .split(/\r?\n/)
+      .map((line) => (line.trim() ? JSON.parse(line) : null))
+      .filter(Boolean)
+      .map((obj: any, idx: number) => {
+        const ts = new Date(baseHealthyTs.getTime() + idx * 1000).toISOString();
+        obj.timestamp = ts;
+        return JSON.stringify(obj);
+      });
+
+    // healthy first so latestLoop is healthy
+    writeFileSync(join(safeloopDir, 'events.jsonl'), `${healthyLines.join('\n')}\n${problematicLines.join('\n')}\n`, 'utf8');
+
+    // start monitor server programmatically with baseDir
+    serverHandle = await startMonitorServer({ port, baseDir });
+    const url = `http://127.0.0.1:${serverHandle.port}${MONITOR_PATH}`;
+    await waitForDashboard(url, 60000);
   });
 
-  afterAll(() => {
-    if (proc) stopMonitor(proc);
+  afterAll(async () => {
+    if (serverHandle) {
+      await serverHandle.close();
+    }
   });
 
-  test('exposes oversight keys and completed-loop invariant', async () => {
-    const json = await waitForDashboard(60000);
+  test('exposes oversight keys and enforces completed-loop invariant (strict)', async () => {
+    if (!serverHandle) throw new Error('server not started');
+    const url = `http://127.0.0.1:${serverHandle.port}${MONITOR_PATH}`;
+    const json = await waitForDashboard(url, 60000);
     expect(json).toBeDefined();
     expect(json.oversight).toBeDefined();
 
@@ -104,33 +133,29 @@ describe('Dashboard /api/dashboard integration', () => {
       expect(json[k] !== undefined).toBe(true);
     }
 
-    // Completed healthy loop invariant
+    // Strict: healthy completed loop invariant
     const latest = oversight.latestLoop;
     expect(latest.status).toBe('completed');
-    // No stale warning
     const staleWarning = (latest.warnings || []).find((w: any) => w.code === 'stale_loop');
     expect(staleWarning).toBeUndefined();
-    // recommendedAction is not investigate_stale_loop
     expect(latest.recommendedAction).not.toBe('investigate_stale_loop');
 
-    // Problematic loop invariant (look for a case named 'case-problem' or similar)
-    const problematic = (oversight.loopTimecards || []).find((l: any) => String(l.caseId).startsWith('case-problem') || String(l.key).includes('problem'));
-    if (problematic) {
-      expect(['needs_review', 'critical']).toContain(problematic.oversightLevel);
-      // unresolved approval detection
-      const unresolved = problematic.approvalsStatus === 'pending' || (problematic.anomalies || []).some((a: any) => a.code === 'unresolved_approval');
-      expect(unresolved).toBeTruthy();
-      // missing attribution if present in fixture
-      const hasMissingAttribution = (problematic.anomalies || []).some((a: any) => a.code === 'missing_attribution');
-      expect(hasMissingAttribution || true).toBeTruthy(); // if fixture doesn't include, we don't fail CI; keep flexible
-    }
-
-    // If fixtures include an old running loop, it should be detected as stale \u2014 optional check
-    const runningOld = (oversight.loopTimecards || []).find((l: any) => l.status === 'stale' || l.status === 'running' && new Date(l.lastTimestamp) < new Date(Date.now() - 24 * 60 * 60 * 1000));
-    // If present, ensure stale warning exists
-    if (runningOld) {
-      const w = (runningOld.warnings || []).find((x: any) => x.code === 'stale_loop');
-      expect(w).toBeDefined();
-    }
+    // Problematic loop checks - deterministic
+    const problematic = (oversight.loopTimecards || []).find((l: any) => l.caseId === 'case-problem');
+    expect(problematic).toBeDefined();
+    expect(['needs_review', 'critical']).toContain(problematic.oversightLevel);
+    // unresolved approval
+    expect(problematic.approvalsStatus === 'pending' || (problematic.anomalies || []).some((a: any) => a.code === 'unresolved_approval')).toBeTruthy();
+    // missing attribution (fixture lacks project/taskName on model usage)
+    expect((problematic.anomalies || []).some((a: any) => a.code === 'missing_attribution')).toBeTruthy();
+    // stale warning should exist for old incomplete loop
+    expect((problematic.warnings || []).some((w: any) => w.code === 'stale_loop')).toBeTruthy();
+    // missing explainability
+    expect((problematic.warnings || []).some((w: any) => w.code === 'missing_explanation')).toBeTruthy();
+    // explainability coverage calculated
+    expect(oversight.explainability).toBeDefined();
+    // feedback summary calculated (healthy has feedback)
+    expect(oversight.feedback).toBeDefined();
+    expect(oversight.feedback.feedbackCount).toBeGreaterThanOrEqual(1);
   });
 });
