@@ -2,6 +2,7 @@ import { calculateReadinessScore, type ReadinessScoreResult } from '../readiness
 import type { DashboardSnapshot } from './dashboardData';
 import type { SafeloopStreamEvent } from '../eventStream';
 import type { ModelUsageRecord } from '../modelUsage';
+import { analyzeLoopOversight as analyzeLoopOversightImpl } from '../oversightAnalyzer';
 
 export type LoopStatus = 'running' | 'completed' | 'stale' | 'historical';
 
@@ -539,7 +540,7 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
 
   const decoratedAll = all.map((loop) => ({
     ...loop,
-    ...analyzeLoopOversight(loop, bareCollection),
+    ...analyzeLoopOversightImpl(loop, bareCollection),
   })) as InternalLoopTimecard[];
   const decoratedCurrent = decoratedAll.filter((summary) => bareCollection.current.some((item) => item.key === summary.key));
   const decoratedHistorical = decoratedAll.filter((summary) => bareCollection.historical.some((item) => item.key === summary.key));
