@@ -413,7 +413,10 @@ describe('Safeloop v0.7 observability layer', () => {
   it('renders an executive-style live monitor shell with compact sections', () => {
     const html = renderMonitorHtml();
 
-    expect(html).toContain('Connection status');
+    expect(html).toContain('Safeloop v0.7.0 · live monitor');
+    expect(html).toContain('Agent Cost, Control & Accountability Monitor');
+    expect(html).toContain('Local-only');
+    expect(html).toContain('Version v0.7.0');
     expect(html).toContain('Event count');
     expect(html).toContain('Active agent count');
     expect(html).toContain('Total cost');
@@ -429,8 +432,20 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toContain('Human Review');
     expect(html).toContain('Work Products');
     expect(html).toContain('Agent Handoffs');
-    expect(html).toContain('Show all');
+    expect(html).toContain('Steering Insights');
+    expect(html).toContain('Show raw event ledger');
+    expect(html).toContain('Show raw approvals');
     expect(html).toContain('Diagnostics');
+    expect(html).toContain('script loaded');
+    expect(html).toContain('poll started');
+    expect(html).toContain('last poll URL');
+    expect(html).toContain('last HTTP status');
+    expect(html).toContain('last poll latency');
+    expect(html).toContain('last fetch error');
+    expect(html).toContain('last render error');
+    expect(html).toContain('window.onerror');
+    expect(html).toContain('unhandledrejection');
+    expect(html).toContain('steering-dashboard');
     expect(html).toContain("fetch(pollUrl, { cache: 'no-store' })");
     expect(html).toContain('setTimeout(refresh, POLL_MS)');
   });

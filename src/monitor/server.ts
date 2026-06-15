@@ -42,150 +42,427 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Safeloop Live Loop Monitor</title>
 <style>
-  :root { color-scheme: dark; }
-  body { font-family: Inter, Arial, sans-serif; margin: 0; background: #0b1020; color: #e8ecff; }
-  header { padding: 20px 24px 18px; border-bottom: 1px solid #26304d; background: linear-gradient(180deg, #101938 0%, #0b1020 100%); }
-  h1 { margin: 0 0 6px; font-size: 24px; }
-  .subtle { color: #9aa7d6; }
-  .kpi-grid { display: grid; gap: 10px; grid-template-columns: repeat(8, minmax(0, 1fr)); margin-top: 16px; }
-  .kpi-card, .panel, .status-item { background: #111a36; border: 1px solid #26304d; border-radius: 12px; padding: 14px; }
-  .kpi-card { min-height: 86px; display: flex; flex-direction: column; justify-content: space-between; }
-  .kpi-label { color: #9aa7d6; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .kpi-value { font-size: 22px; font-weight: 700; margin-top: 6px; word-break: break-word; }
-  .kpi-subvalue { color: #8c97bf; font-size: 12px; margin-top: 4px; }
-  .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-  .status-pill.connected { background: rgba(65, 195, 128, 0.16); color: #78f0c2; }
-  .status-pill.connecting { background: rgba(255, 203, 96, 0.16); color: #ffd36a; }
-  .status-pill.error { background: rgba(255, 113, 113, 0.16); color: #ffb5b5; }
-  main { padding: 20px 24px 32px; display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  section { background: #111a36; border: 1px solid #26304d; border-radius: 12px; padding: 16px; }
+  :root {
+    color-scheme: dark;
+    --sl-bg: #05030d;
+    --sl-bg-soft: #09071a;
+    --sl-panel: rgba(15, 12, 35, 0.82);
+    --sl-panel-strong: rgba(22, 17, 50, 0.92);
+    --sl-border: rgba(157, 105, 255, 0.28);
+    --sl-border-strong: rgba(176, 125, 255, 0.58);
+    --sl-purple: #9d69ff;
+    --sl-purple-bright: #b78cff;
+    --sl-purple-soft: #6d46d9;
+    --sl-pink: #ff4fd8;
+    --sl-cyan: #78e7ff;
+    --sl-green: #39ff88;
+    --sl-yellow: #ffd166;
+    --sl-red: #ff4d6d;
+    --sl-text: #f7f3ff;
+    --sl-text-muted: #b8add8;
+    --sl-text-dim: #786f9b;
+    --sl-radius-sm: 10px;
+    --sl-radius-md: 16px;
+    --sl-radius-lg: 24px;
+    --sl-radius-xl: 32px;
+    --sl-glow-purple: 0 0 28px rgba(157, 105, 255, 0.35);
+    --sl-glow-strong: 0 0 45px rgba(157, 105, 255, 0.55);
+    --sl-shadow-panel: 0 24px 80px rgba(0, 0, 0, 0.45);
+    --sl-space-1: 4px;
+    --sl-space-2: 8px;
+    --sl-space-3: 12px;
+    --sl-space-4: 16px;
+    --sl-space-5: 24px;
+    --sl-space-6: 32px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--sl-text);
+    background:
+      radial-gradient(circle at 18% 16%, rgba(157, 105, 255, 0.18), transparent 24%),
+      radial-gradient(circle at 80% 8%, rgba(255, 79, 216, 0.10), transparent 20%),
+      radial-gradient(circle at 50% 50%, rgba(120, 231, 255, 0.06), transparent 28%),
+      linear-gradient(180deg, #020108 0%, var(--sl-bg) 100%);
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), transparent 22%),
+      radial-gradient(circle at 50% 0%, rgba(157, 105, 255, 0.12), transparent 28%);
+    mix-blend-mode: screen;
+  }
+  .sl-shell {
+    position: relative;
+    z-index: 1;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: var(--sl-space-6) var(--sl-space-5) calc(var(--sl-space-6) * 1.5);
+  }
+  .sl-hero,
+  section,
+  .panel,
+  .kpi-card,
+  .metric-row,
+  .status-item {
+    position: relative;
+    background: linear-gradient(180deg, rgba(22, 17, 50, 0.92), rgba(10, 8, 25, 0.92));
+    border: 1px solid var(--sl-border);
+    border-radius: var(--sl-radius-xl);
+    box-shadow: var(--sl-shadow-panel);
+    backdrop-filter: blur(18px);
+  }
+  .sl-panel-glow,
+  .sl-hero::after,
+  section::after,
+  .panel::after,
+  .kpi-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 0 0 1px rgba(255,255,255,0.02), 0 0 50px rgba(157, 105, 255, 0.08);
+  }
+  .sl-hero {
+    overflow: hidden;
+    padding: var(--sl-space-6);
+    background:
+      radial-gradient(circle at 18% 12%, rgba(157, 105, 255, 0.34), transparent 24%),
+      radial-gradient(circle at 82% 10%, rgba(255, 79, 216, 0.13), transparent 18%),
+      linear-gradient(180deg, rgba(18, 14, 41, 0.96), rgba(6, 5, 15, 0.96));
+    margin-bottom: var(--sl-space-5);
+  }
+  .sl-hero::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(120deg, rgba(157,105,255,0.65), rgba(120,231,255,0.18), rgba(255,79,216,0.25));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+  }
+  .sl-hero > * { position: relative; z-index: 1; }
+  .hero-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sl-space-4);
+  }
+  .hero-copy { max-width: 760px; }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    color: #f8f3ff;
+    background: rgba(157, 105, 255, 0.16);
+    border: 1px solid rgba(157, 105, 255, 0.24);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: var(--sl-glow-purple);
+  }
+  h1 {
+    margin: 14px 0 10px;
+    font-size: clamp(36px, 4vw, 62px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+  }
+  .hero-subtitle {
+    margin: 0;
+    max-width: 58ch;
+    color: var(--sl-text-muted);
+    font-size: 17px;
+    line-height: 1.55;
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: var(--sl-space-4);
+  }
+  .sl-meta-pill,
+  .sl-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(157, 105, 255, 0.24);
+    background: rgba(9, 7, 26, 0.78);
+    color: var(--sl-text);
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .sl-status-chip.connected { color: var(--sl-green); border-color: rgba(57, 255, 136, 0.34); box-shadow: 0 0 0 1px rgba(57,255,136,0.08), 0 0 24px rgba(57,255,136,0.12); }
+  .sl-status-chip.connecting { color: var(--sl-yellow); border-color: rgba(255, 209, 102, 0.34); box-shadow: 0 0 0 1px rgba(255,209,102,0.08), 0 0 24px rgba(255,209,102,0.12); }
+  .sl-status-chip.error { color: #ffb5b5; border-color: rgba(255, 77, 109, 0.34); box-shadow: 0 0 0 1px rgba(255,77,109,0.08), 0 0 24px rgba(255,77,109,0.12); }
+  .hero-path {
+    margin-top: 14px;
+    color: var(--sl-text-dim);
+    font-size: 12px;
+    word-break: break-word;
+  }
+  .kpi-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    margin-top: var(--sl-space-5);
+  }
+  .kpi-card {
+    min-height: 108px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 18px;
+    border-radius: var(--sl-radius-lg);
+    background: linear-gradient(180deg, rgba(17, 13, 40, 0.92), rgba(10, 8, 25, 0.92));
+  }
+  .kpi-label {
+    color: var(--sl-text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .kpi-value {
+    font-size: 28px;
+    font-weight: 800;
+    margin-top: 10px;
+    letter-spacing: -0.04em;
+    word-break: break-word;
+  }
+  .kpi-subvalue {
+    color: var(--sl-text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .sl-main {
+    display: grid;
+    gap: var(--sl-space-5);
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: start;
+  }
+  section {
+    padding: var(--sl-space-5);
+    overflow: hidden;
+  }
+  section:not(.full) { grid-column: span 6; }
   section.full { grid-column: 1 / -1; }
-  h2 { margin: 0 0 12px; font-size: 16px; }
-  .section-hint { color: #9aa7d6; font-size: 12px; margin: -4px 0 12px; }
-  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  section h2 {
+    margin: 0 0 10px;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+  }
+  .section-hint {
+    color: var(--sl-text-muted);
+    font-size: 12px;
+    margin: -4px 0 14px;
+    line-height: 1.5;
+  }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .cards.compact { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
-  .bar-chart { display: grid; gap: 10px; }
-  .bar-row { display: grid; gap: 6px; }
-  .bar-label { display: flex; justify-content: space-between; gap: 10px; color: #d8e0ff; font-size: 12px; }
-  .bar-track { height: 10px; background: #1b2444; border-radius: 999px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #6aa8ff 0%, #78f0c2 100%); }
-  .metric-list { display: grid; gap: 8px; }
-  .metric-row { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: #0e1730; border: 1px solid #243254; }
+  .mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .bar-chart { display: grid; gap: 12px; }
+  .bar-row { display: grid; gap: 7px; }
+  .bar-label { display: flex; justify-content: space-between; gap: 10px; color: var(--sl-text); font-size: 12px; }
+  .bar-track { height: 10px; background: rgba(40, 33, 74, 0.88); border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.35); }
+  .bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--sl-purple) 0%, var(--sl-cyan) 100%); box-shadow: var(--sl-glow-purple); }
+  .metric-list { display: grid; gap: 10px; }
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 14px 16px;
+    border-radius: var(--sl-radius-md);
+    background: rgba(8, 7, 21, 0.62);
+    border: 1px solid rgba(157, 105, 255, 0.18);
+  }
   .metric-row .left { min-width: 0; }
-  .metric-row .title { font-weight: 600; margin-bottom: 2px; word-break: break-word; }
-  .metric-row .meta { color: #8c97bf; font-size: 12px; }
+  .metric-row .title { font-weight: 700; margin-bottom: 3px; word-break: break-word; }
+  .metric-row .meta { color: var(--sl-text-muted); font-size: 12px; line-height: 1.45; }
   .metric-row .badge { white-space: nowrap; }
-  .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: #1b2a57; font-size: 12px; }
-  .muted { color: #8c97bf; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(157, 105, 255, 0.18);
+    color: var(--sl-text);
+    border: 1px solid rgba(157, 105, 255, 0.25);
+    font-size: 12px;
+    box-shadow: 0 0 22px rgba(157, 105, 255, 0.10);
+  }
+  .muted { color: var(--sl-text-muted); }
   ul { margin: 0; padding-left: 18px; }
   li { margin-bottom: 8px; }
-  pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; }
-  details { margin-top: 12px; }
-  details summary { cursor: pointer; color: #9aa7d6; font-size: 12px; }
-  .score { font-size: 36px; font-weight: 700; margin-bottom: 4px; }
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--sl-text-muted);
+  }
+  details { margin-top: 14px; }
+  details summary { cursor: pointer; color: var(--sl-purple-bright); font-size: 12px; letter-spacing: 0.02em; }
+  .score { font-size: 36px; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.04em; }
   .error { color: #ffb5b5; }
-  .diagnostics { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .diagnostics { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .panel { padding: 14px 16px; border-radius: var(--sl-radius-lg); background: rgba(8, 7, 21, 0.62); border: 1px solid rgba(157, 105, 255, 0.18); }
+  .sl-diagnostics { margin-top: var(--sl-space-2); }
+  @media (max-width: 1200px) {
+    .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    section:not(.full) { grid-column: 1 / -1; }
+  }
+  @media (max-width: 760px) {
+    .sl-shell { padding: 18px 14px 28px; }
+    .sl-hero { padding: 22px 18px; }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hero-meta { justify-content: flex-start; }
+    .cards, .mini-grid, .diagnostics { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
-  <header>
-    <h1>Safeloop Live Loop Monitor <span class="badge">local-only</span></h1>
-    <div class="subtle">Executive control tower for agent work, spend, review, and risk.</div>
-    <div class="kpi-grid" id="kpi-grid">
-      <div class="kpi-card"><div class="kpi-label">Connection status</div><div class="kpi-value" id="kpi-connection">Connecting…</div><div class="kpi-subvalue" id="monitoring-path">${escapeHtmlText(monitoredPath)}</div></div>
-      <div class="kpi-card"><div class="kpi-label">Event count</div><div class="kpi-value" id="kpi-event-count">0</div><div class="kpi-subvalue">Total events in the local stream</div></div>
-      <div class="kpi-card"><div class="kpi-label">Active agent count</div><div class="kpi-value" id="kpi-active-agents">0</div><div class="kpi-subvalue">Unique active agents</div></div>
-      <div class="kpi-card"><div class="kpi-label">Total cost</div><div class="kpi-value" id="kpi-total-cost">USD 0.0000</div><div class="kpi-subvalue">Local accountability record</div></div>
-      <div class="kpi-card"><div class="kpi-label">Usage count</div><div class="kpi-value" id="kpi-usage-count">0</div><div class="kpi-subvalue">Token / cost records</div></div>
-      <div class="kpi-card"><div class="kpi-label">High risk count</div><div class="kpi-value" id="kpi-high-risk">0</div><div class="kpi-subvalue">Unique high-severity risks</div></div>
-      <div class="kpi-card"><div class="kpi-label">Pending approval count</div><div class="kpi-value" id="kpi-pending-approval">0</div><div class="kpi-subvalue">Human review waiting</div></div>
-      <div class="kpi-card"><div class="kpi-label">Last updated</div><div class="kpi-value" id="kpi-last-updated">Waiting for data</div><div class="kpi-subvalue" id="kpi-last-success">No successful poll yet</div></div>
-    </div>
-  </header>
-  <main>
-    <section>
-      <h2>Spend Overview</h2>
-      <div class="section-hint">Cost is summarized as explicit accountability, not hidden telemetry.</div>
-      <div class="mini-grid" id="spend-overview"></div>
-    </section>
-    <section>
-      <h2>Token Usage</h2>
-      <div class="section-hint">Latest token / cost records with project and task context.</div>
-      <div class="cards compact" id="model-usage"></div>
-    </section>
-    <section>
-      <h2>Active Agent Work</h2>
-      <div class="section-hint">Grouped by agent + task + status. Latest 8 groups by default.</div>
-      <div class="metric-list" id="active-loops"></div>
-      <details class="raw-details" id="active-loops-raw-details">
-        <summary>Show all raw agent work records</summary>
-        <div class="metric-list" id="active-loops-raw"></div>
-      </details>
-    </section>
-    <section class="full">
-      <h2>Activity Timeline</h2>
-      <div class="section-hint">Latest 20 events by default, plus a raw drilldown for the full stream.</div>
-      <div class="mini-grid" id="events-by-type"></div>
-      <div class="metric-list" id="event-timeline"></div>
-      <details class="raw-details">
-        <summary>Show all raw events</summary>
-        <div class="metric-list" id="event-timeline-raw"></div>
-      </details>
-    </section>
-    <section>
-      <h2>Risk &amp; Guardrails</h2>
-      <div class="section-hint">Grouped by summary + severity and sorted by severity first.</div>
-      <div class="mini-grid" id="risks-by-severity"></div>
-      <div class="metric-list" id="risk-dashboard"></div>
-      <details class="raw-details">
-        <summary>Show all raw risks</summary>
-        <div class="metric-list" id="risk-dashboard-raw"></div>
-      </details>
-    </section>
-    <section>
-      <h2>Human Review</h2>
-      <div class="section-hint">Pending approvals first; approved items are grouped and collapsed.</div>
-      <div class="mini-grid" id="approvals-by-status"></div>
-      <div class="metric-list" id="approval-queue"></div>
-      <details class="raw-details">
-        <summary>Show all raw approvals</summary>
-        <div class="metric-list" id="approval-queue-raw"></div>
-      </details>
-    </section>
-    <section>
-      <h2>Work Products</h2>
-      <div class="section-hint">Artifacts grouped by file path. Latest 10 groups by default.</div>
-      <div class="metric-list" id="artifact-timeline"></div>
-      <details class="raw-details">
-        <summary>Show all raw work products</summary>
-        <div class="metric-list" id="artifact-timeline-raw"></div>
-      </details>
-    </section>
-    <section>
-      <h2>Agent Handoffs</h2>
-      <div class="section-hint">Grouped by from + to + summary. Latest 10 groups by default.</div>
-      <div class="metric-list" id="handoff-queue"></div>
-      <details class="raw-details">
-        <summary>Show all raw handoffs</summary>
-        <div class="metric-list" id="handoff-queue-raw"></div>
-      </details>
-    </section>
-    <section class="full">
-      <h2>Release Readiness</h2>
-      <div id="readiness"></div>
-    </section>
-    <section class="full">
-      <h2>Diagnostics</h2>
-      <div class="section-hint">Compact runtime checks and response metadata.</div>
-      <div class="diagnostics" id="diagnostics"></div>
-    </section>
-  </main>
+  <div class="sl-shell">
+    <header class="sl-hero sl-panel-glow">
+      <div class="hero-top">
+        <div class="hero-copy">
+          <div class="eyebrow">Safeloop v0.7.0 · live monitor</div>
+          <h1>Safeloop</h1>
+          <p class="hero-subtitle">Agent Cost, Control & Accountability Monitor</p>
+          <div class="hero-path">Monitored path: <span id="monitoring-path">${escapeHtmlText(monitoredPath)}</span></div>
+        </div>
+        <div class="hero-status-row">
+          <div class="hero-meta">
+            <span class="sl-status-chip connecting" id="kpi-connection">Connecting…</span>
+            <span class="sl-meta-pill">Local-only</span>
+            <span class="sl-meta-pill">Version v0.7.0</span>
+            <span class="sl-meta-pill">Last updated: <span id="kpi-last-updated">Waiting for data</span></span>
+            <span class="sl-meta-pill">Last success: <span id="kpi-last-success">No successful poll yet</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Event count</div><div class="kpi-value" id="kpi-event-count">0</div><div class="kpi-subvalue">Total events in the local stream</div></div>
+        <div class="kpi-card"><div class="kpi-label">Active agent count</div><div class="kpi-value" id="kpi-active-agents">0</div><div class="kpi-subvalue">Unique active agents</div></div>
+        <div class="kpi-card"><div class="kpi-label">Total cost</div><div class="kpi-value" id="kpi-total-cost">USD 0.0000</div><div class="kpi-subvalue">Local accountability record</div></div>
+        <div class="kpi-card"><div class="kpi-label">Usage count</div><div class="kpi-value" id="kpi-usage-count">0</div><div class="kpi-subvalue">Token / cost records</div></div>
+        <div class="kpi-card"><div class="kpi-label">High risk count</div><div class="kpi-value" id="kpi-high-risk">0</div><div class="kpi-subvalue">Unique high-severity risks</div></div>
+        <div class="kpi-card"><div class="kpi-label">Pending approval count</div><div class="kpi-value" id="kpi-pending-approval">0</div><div class="kpi-subvalue">Human review waiting</div></div>
+      </div>
+    </header>
+    <main class="sl-main">
+      <section>
+        <h2>Spend Overview</h2>
+        <div class="section-hint">Cost is summarized as explicit accountability, not hidden telemetry.</div>
+        <div class="mini-grid" id="spend-overview"></div>
+      </section>
+      <section>
+        <h2>Token Usage</h2>
+        <div class="section-hint">Latest token / cost records with project and task context.</div>
+        <div class="cards compact" id="model-usage"></div>
+      </section>
+      <section>
+        <h2>Active Agent Work</h2>
+        <div class="section-hint">Grouped by agent + task + status. Latest 8 groups by default.</div>
+        <div class="metric-list" id="active-loops"></div>
+        <details class="raw-details" id="active-loops-raw-details">
+          <summary>Show raw agent work records</summary>
+          <div class="metric-list" id="active-loops-raw"></div>
+        </details>
+      </section>
+      <section>
+        <h2>Activity Timeline</h2>
+        <div class="section-hint">Latest 20 events by default, plus a raw drilldown for the full stream.</div>
+        <div class="mini-grid" id="events-by-type"></div>
+        <div class="metric-list" id="event-timeline"></div>
+        <details class="raw-details">
+          <summary>Show raw event ledger</summary>
+          <div class="metric-list" id="event-timeline-raw"></div>
+        </details>
+      </section>
+      <section>
+        <h2>Risk &amp; Guardrails</h2>
+        <div class="section-hint">Grouped by summary + severity and sorted by severity first.</div>
+        <div class="mini-grid" id="risks-by-severity"></div>
+        <div class="metric-list" id="risk-dashboard"></div>
+        <details class="raw-details">
+          <summary>Show raw risk ledger</summary>
+          <div class="metric-list" id="risk-dashboard-raw"></div>
+        </details>
+      </section>
+      <section>
+        <h2>Human Review</h2>
+        <div class="section-hint">Pending approvals first; approved items are grouped and collapsed.</div>
+        <div class="mini-grid" id="approvals-by-status"></div>
+        <div class="metric-list" id="approval-queue"></div>
+        <details class="raw-details">
+          <summary>Show raw approvals</summary>
+          <div class="metric-list" id="approval-queue-raw"></div>
+        </details>
+      </section>
+      <section>
+        <h2>Work Products</h2>
+        <div class="section-hint">Artifacts grouped by file path. Latest 10 groups by default.</div>
+        <div class="metric-list" id="artifact-timeline"></div>
+        <details class="raw-details">
+          <summary>Show raw work products</summary>
+          <div class="metric-list" id="artifact-timeline-raw"></div>
+        </details>
+      </section>
+      <section>
+        <h2>Agent Handoffs</h2>
+        <div class="section-hint">Grouped by from + to + summary. Latest 10 groups by default.</div>
+        <div class="metric-list" id="handoff-queue"></div>
+        <details class="raw-details">
+          <summary>Show raw handoffs</summary>
+          <div class="metric-list" id="handoff-queue-raw"></div>
+        </details>
+      </section>
+      <section>
+        <h2>Steering Insights</h2>
+        <div class="section-hint">Comparative run-to-run steering deltas and verdicts.</div>
+        <div class="metric-list" id="steering-dashboard"></div>
+      </section>
+      <section class="full">
+        <h2>Release Readiness</h2>
+        <div id="readiness"></div>
+      </section>
+      <section class="full sl-diagnostics">
+        <h2>Diagnostics</h2>
+        <div class="section-hint">Compact runtime checks and response metadata.</div>
+        <div class="diagnostics" id="diagnostics"></div>
+      </section>
+    </main>
+  </div>
   <script>
     const POLL_MS = 2000;
     const state = {
+      scriptLoaded: 'yes',
+      pollStarted: 'no',
       lastPollUrl: '',
       lastHttpStatus: 'Connecting',
+      lastFetchError: 'None',
+      lastPollLatency: 'N/A',
       lastSuccessfulPollTime: 'Waiting for data',
       responseKeys: [],
       lastRenderError: 'None',
@@ -212,6 +489,13 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       }
     }
 
+    function setConnectionChip(text, tone) {
+      const node = document.getElementById('kpi-connection');
+      if (node) {
+        node.textContent = text;
+        node.className = 'sl-status-chip ' + tone;
+      }
+    }
     function formatMoney(value, currency) {
       const amount = Number(value);
       const safeAmount = Number.isFinite(amount) ? amount.toFixed(4) : '0.0000';
@@ -219,7 +503,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     }
 
     function formatBreakdown(map) {
-      const entries = Object.entries(map || {});
+      const entries = map instanceof Map ? Array.from(map.entries()) : Object.entries(map || {});
       if (!entries.length) {
         return ['None'];
       }
@@ -316,7 +600,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     }
 
     function renderChartFromMap(title, map) {
-      return renderChart(title, Object.entries(map || {}), (label) => label);
+      const entries = map instanceof Map ? Array.from(map.entries()) : Object.entries(map || {});
+      return renderChart(title, entries, (label) => label);
     }
 
     function renderKpiCards(snapshot) {
@@ -432,17 +717,22 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         renderChartFromMap('Cost by agent', costSummary.costByAgent),
         renderChartFromMap('Cost by model', costSummary.costByModel),
         renderChartFromMap('Cost by project', costSummary.costByProject),
+        renderChartFromMap('Cost by task', costSummary.costByTask),
       ];
       document.getElementById('spend-overview').innerHTML = cards.join('');
     }
 
     function renderDiagnostics(snapshot) {
       const entries = [
-        card('Last poll URL', [state.lastPollUrl || 'Not polled yet']),
-        card('HTTP status', [state.lastHttpStatus || 'Unknown']),
+        card('script loaded', [state.scriptLoaded || 'no']),
+        card('poll started', [state.pollStarted || 'no']),
+        card('last poll URL', [state.lastPollUrl || 'Not polled yet']),
+        card('last HTTP status', [state.lastHttpStatus || 'Unknown']),
+        card('last poll latency', [state.lastPollLatency || 'N/A']),
+        card('last fetch error', [state.lastFetchError || 'None']),
         card('Response keys', [state.responseKeys.length ? state.responseKeys.join(', ') : 'None']),
         card('Last successful poll', [state.lastSuccessfulPollTime || 'Waiting for data']),
-        card('Last render error', [state.lastRenderError || 'None']),
+        card('last render error', [state.lastRenderError || 'None']),
       ];
       document.getElementById('diagnostics').innerHTML = entries.join('');
     }
@@ -463,7 +753,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
 
       state.lastSuccessfulPollTime = successfulPollTime || state.lastSuccessfulPollTime;
       state.lastRenderError = 'None';
-      setText('kpi-connection', 'Connected');
+      setConnectionChip('Connected', 'connected');
       setText('kpi-event-count', String(data.eventCount ?? events.length));
       setText('kpi-active-agents', String(new Set(activeLoops.map((item) => item.agent || item.agentId || 'Unknown')).size));
       setText('kpi-total-cost', formatMoney(costSummary.totalCost ?? 0, costSummary.currency || 'USD'));
@@ -484,9 +774,9 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       renderHandoffs(handoffs);
       renderDiagnostics(snapshot);
 
-      document.getElementById('readiness').innerHTML = '<div class="panel"><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="kpi-subvalue" style="margin-top:12px;">Blockers</div><pre>' + escapeHtml(listAsLines(readiness.blockers).join('
-')) + '</pre><div class="kpi-subvalue" style="margin-top:12px;">Recommendations</div><pre>' + escapeHtml(listAsLines(readiness.recommendations).join('
-')) + '</pre></div>';
+      const readinessBlockers = escapeHtml(listAsLines(readiness.blockers).join('\\n'));
+      const readinessRecommendations = escapeHtml(listAsLines(readiness.recommendations).join('\\n'));
+      document.getElementById('readiness').innerHTML = '<div class="panel"><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="kpi-subvalue" style="margin-top:12px;">Blockers</div><pre>' + readinessBlockers + '</pre><div class="kpi-subvalue" style="margin-top:12px;">Recommendations</div><pre>' + readinessRecommendations + '</pre></div>';
 
       document.getElementById('steering-dashboard').innerHTML = steeringInsights.length
         ? steeringInsights.map((entry) => card(entry.current?.steeringProfileId || 'Unknown profile', [
@@ -501,9 +791,12 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     async function refresh() {
       const pollUrl = new URL('/api/dashboard', window.location.href).toString();
       state.lastPollUrl = pollUrl;
+      state.pollStarted = 'yes';
+      state.lastFetchError = 'None';
+      const startedAt = Date.now();
       renderDiagnostics({});
       try {
-        setText('kpi-connection', 'Refreshing…');
+        setConnectionChip('Refreshing…', 'connecting');
         const response = await fetch(pollUrl, { cache: 'no-store' });
         state.lastHttpStatus = response.status + ' ' + (response.statusText || 'OK');
         if (!response.ok) {
@@ -514,21 +807,42 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         state.responseKeys = Object.keys(snapshot || {});
         state.lastSuccessfulPollTime = new Date().toISOString();
         state.lastRenderError = 'None';
+        state.lastPollLatency = (Date.now() - startedAt) + ' ms';
         render(snapshot, state.lastSuccessfulPollTime);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('Safeloop monitor refresh failed:', error);
+        state.lastFetchError = message;
         state.lastRenderError = message;
+        state.lastPollLatency = (Date.now() - startedAt) + ' ms';
         if (!state.lastHttpStatus || state.lastHttpStatus === 'Connecting') {
           state.lastHttpStatus = 'Error';
         }
-        setText('kpi-connection', 'Error');
+        setConnectionChip('Error', 'error');
         document.getElementById('event-timeline').innerHTML = '<div class="panel error">' + escapeHtml(message) + '</div>';
         renderDiagnostics({});
       } finally {
         setTimeout(refresh, POLL_MS);
       }
     }
+
+    function reportRuntimeError(message) {
+      state.lastRenderError = message;
+      renderDiagnostics({});
+    }
+
+    window.onerror = function (_event, _source, _line, _column, error) {
+      reportRuntimeError(error instanceof Error ? error.message : String(error || 'Unknown runtime error'));
+      return false;
+    };
+
+    window.onunhandledrejection = function (event) {
+      const reason = event && 'reason' in event ? (event.reason instanceof Error ? event.reason.message : String(event.reason || 'Unknown rejection')) : 'Unknown rejection';
+      reportRuntimeError(reason);
+      return false;
+    };
+
+    renderDiagnostics({});
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', refresh, { once: true });
