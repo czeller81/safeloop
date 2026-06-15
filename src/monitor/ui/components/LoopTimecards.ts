@@ -21,6 +21,11 @@ function renderLoopCard(loop: LoopTimecard, currency: string): string {
         <div><span>Approval</span><strong>${escapeHtml(loop.approvalsStatus)}</strong></div>
         <div><span>Risks</span><strong>${escapeHtml(formatNumber(loop.risksCount))}</strong></div>
       </div>
+      <div class="timecard-oversight">
+        <span>Oversight</span>
+        <strong>${escapeHtml(formatNumber(loop.oversightScore))}/100</strong>
+        <em>${escapeHtml(loop.oversightLevel)} · ${escapeHtml(loop.recommendedAction)}</em>
+      </div>
       <div class="timecard-footer">
         <span>${escapeHtml(formatTimestamp(loop.firstTimestamp))}</span>
         <span>${escapeHtml(formatTimestamp(loop.lastTimestamp))}</span>

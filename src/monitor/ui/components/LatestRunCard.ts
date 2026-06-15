@@ -51,6 +51,11 @@ export function renderLatestRunCard(viewModel: MonitorViewModel): string {
           <div class="run-item-value">${escapeHtml(formatList(latest.models))}</div>
         </div>
       </div>
+      <div class="run-oversight">
+        <span>Oversight</span>
+        <strong>${escapeHtml(formatNumber(latest.oversightScore))}/100</strong>
+        <em>${escapeHtml(latest.oversightLevel)} · ${escapeHtml(latest.recommendedAction)}</em>
+      </div>
       <div class="run-footer">
         <span>${escapeHtml(latest.approvalsStatus)}</span>
         <span>${escapeHtml(formatNumber(latest.risksCount))} risks</span>
