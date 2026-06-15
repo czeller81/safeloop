@@ -33,8 +33,77 @@ function escapeHtmlText(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function formatCurrency(value: number, currency: string): string {
+  const amount = Number(value);
+  const safeAmount = Number.isFinite(amount) ? amount.toFixed(4) : '0.0000';
+  return `${currency} ${safeAmount}`;
+}
+
+function pickLatestDogfoodRunForCard(snapshot: ReturnType<typeof getDashboardSnapshot>) {
+  const records = Array.isArray(snapshot.modelUsage) ? snapshot.modelUsage : [];
+  if (!records.length) {
+    return null;
+  }
+
+  const sorted = [...records].sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+  const targeted = sorted.find((record) => {
+    const taskName = String(record.taskName || record.taskId || '');
+    return /dogfood live monitor cost accountability/i.test(taskName) || /dogfood/i.test(taskName);
+  });
+  const latest = targeted ?? sorted[0];
+  const latestCaseId = latest.caseId ?? '';
+  const relatedEvents = Array.isArray(snapshot.events)
+    ? snapshot.events.filter((event) => latestCaseId && event.caseId === latestCaseId)
+    : [];
+  const completed = relatedEvents.some((event) => event.type === 'task.completed' || event.type === 'report.generated');
+  const pendingReview = relatedEvents.some((event) => event.type === 'approval.requested') && !relatedEvents.some((event) => event.type === 'approval.resolved');
+  const status = completed ? 'Completed' : pendingReview ? 'Waiting for review' : 'Running';
+
+  return { latest, status };
+}
+
+function renderLatestDogfoodRunCard(snapshot: ReturnType<typeof getDashboardSnapshot>): string {
+  const result = pickLatestDogfoodRunForCard(snapshot);
+  if (!result) {
+    return `
+          <div class="latest-run-card sl-panel-glow" id="latest-dogfood-run">
+            <div class="run-label">Latest Dogfood Run</div>
+            <div class="muted">Waiting for the latest local run to load.</div>
+          </div>`;
+  }
+
+  const { latest, status } = result;
+  const totalTokens = Number(latest.totalTokens ?? Number(latest.inputTokens ?? 0) + Number(latest.outputTokens ?? 0));
+  const currency = snapshot.costSummary?.currency || 'USD';
+  const metrics = [
+    ['taskName', latest.taskName || latest.taskId || 'Unknown task'],
+    ['project', latest.project || 'Unknown project'],
+    ['agent', latest.agent || latest.agentId || 'Unknown agent'],
+    ['estimated cost', formatCurrency(latest.estimatedCost ?? 0, currency)],
+    ['tokens', Number.isFinite(totalTokens) ? String(totalTokens) : '0'],
+  ];
+
+  return `
+          <div class="latest-run-card sl-panel-glow" id="latest-dogfood-run">
+            <div class="run-label">Latest Dogfood Run</div>
+            <div class="run-title">${escapeHtmlText(latest.taskName || 'Dogfood run')}</div>
+            <div class="run-grid">
+              ${metrics
+                .map(([label, value]) => `
+                <div class="run-item">
+                  <div class="run-item-label">${escapeHtmlText(label)}</div>
+                  <div class="run-item-value">${escapeHtmlText(String(value))}</div>
+                </div>`)
+                .join('')}
+            </div>
+            <div class="run-status">Status: ${escapeHtmlText(status)}</div>
+          </div>`;
+}
+
 export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string {
   const monitoredPath = resolve(options.baseDir ?? process.cwd(), '.safeloop');
+  const snapshot = getDashboardSnapshot(options);
+  const latestDogfoodRunHtml = renderLatestDogfoodRunCard(snapshot);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -219,6 +288,120 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     font-size: 12px;
     word-break: break-word;
   }
+  .hero-bottom {
+    margin-top: var(--sl-space-4);
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .latest-run-card {
+    padding: 18px;
+    border-radius: var(--sl-radius-lg);
+    background:
+      radial-gradient(circle at 12% 0%, rgba(120, 231, 255, 0.12), transparent 28%),
+      linear-gradient(180deg, rgba(17, 13, 40, 0.96), rgba(8, 7, 21, 0.96));
+    border: 1px solid rgba(120, 231, 255, 0.24);
+    box-shadow: var(--sl-shadow-panel), 0 0 0 1px rgba(120, 231, 255, 0.05), 0 0 28px rgba(120, 231, 255, 0.08);
+  }
+  .latest-run-card .run-label {
+    color: var(--sl-cyan);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-bottom: 10px;
+  }
+  .latest-run-card .run-title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin: 0 0 10px;
+  }
+  .latest-run-card .run-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 16px;
+  }
+  .latest-run-card .run-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .latest-run-card .run-item-label {
+    color: var(--sl-text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .latest-run-card .run-item-value {
+    color: var(--sl-text);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+  .latest-run-card .run-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    margin-top: 14px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(120, 231, 255, 0.12);
+    border: 1px solid rgba(120, 231, 255, 0.25);
+    color: var(--sl-cyan);
+    font-size: 12px;
+  }
+  .sl-sticky-nav {
+    position: sticky;
+    top: 12px;
+    z-index: 4;
+    margin: var(--sl-space-4) 0 var(--sl-space-5);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 999px;
+    background: rgba(8, 7, 21, 0.78);
+    border: 1px solid rgba(157, 105, 255, 0.18);
+    box-shadow: var(--sl-shadow-panel), 0 0 30px rgba(157, 105, 255, 0.08);
+    backdrop-filter: blur(18px);
+  }
+  .sl-sticky-nav a {
+    color: var(--sl-text-muted);
+    text-decoration: none;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+  }
+  .sl-sticky-nav a:hover,
+  .sl-sticky-nav a:focus-visible {
+    color: var(--sl-text);
+    border-color: rgba(157, 105, 255, 0.25);
+    background: rgba(157, 105, 255, 0.10);
+    outline: none;
+  }
+  .section-hint::before {
+    content: '';
+  }
+  .historical-section .section-hint::before {
+    content: 'Historical ledger';
+    display: inline-flex;
+    align-items: center;
+    margin-right: 10px;
+    margin-bottom: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(157, 105, 255, 0.14);
+    border: 1px solid rgba(157, 105, 255, 0.18);
+    color: var(--sl-purple-bright);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
   .kpi-grid {
     display: grid;
     gap: 12px;
@@ -262,9 +445,11 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   section {
     padding: var(--sl-space-5);
     overflow: hidden;
+    scroll-margin-top: 88px;
   }
   section:not(.full) { grid-column: span 6; }
   section.full { grid-column: 1 / -1; }
+
   section h2 {
     margin: 0 0 10px;
     font-size: 16px;
@@ -343,7 +528,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
 </head>
 <body>
   <div class="sl-shell">
-    <header class="sl-hero sl-panel-glow">
+    <header class="sl-hero sl-panel-glow" id="overview">
       <div class="hero-top">
         <div class="hero-copy">
           <div class="eyebrow">Safeloop v0.7.0 · live monitor</div>
@@ -361,6 +546,9 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           </div>
         </div>
       </div>
+      <div class="hero-bottom">
+        ${latestDogfoodRunHtml}
+      </div>
       <div class="kpi-grid" id="kpi-grid">
         <div class="kpi-card"><div class="kpi-label">Event count</div><div class="kpi-value" id="kpi-event-count">0</div><div class="kpi-subvalue">Total events in the local stream</div></div>
         <div class="kpi-card"><div class="kpi-label">Active agent count</div><div class="kpi-value" id="kpi-active-agents">0</div><div class="kpi-subvalue">Unique active agents</div></div>
@@ -370,18 +558,26 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         <div class="kpi-card"><div class="kpi-label">Pending approval count</div><div class="kpi-value" id="kpi-pending-approval">0</div><div class="kpi-subvalue">Human review waiting</div></div>
       </div>
     </header>
+    <nav class="sl-sticky-nav" aria-label="Quick navigation">
+      <a href="#overview">Overview</a>
+      <a href="#spend">Spend</a>
+      <a href="#activity">Activity</a>
+      <a href="#risks">Risks</a>
+      <a href="#human-review">Human Review</a>
+      <a href="#diagnostics">Diagnostics</a>
+    </nav>
     <main class="sl-main">
-      <section>
+      <section class="historical-section" id="spend">
         <h2>Spend Overview</h2>
         <div class="section-hint">Cost is summarized as explicit accountability, not hidden telemetry.</div>
         <div class="mini-grid" id="spend-overview"></div>
       </section>
-      <section>
+      <section class="historical-section">
         <h2>Token Usage</h2>
         <div class="section-hint">Latest token / cost records with project and task context.</div>
         <div class="cards compact" id="model-usage"></div>
       </section>
-      <section>
+      <section class="historical-section" id="activity">
         <h2>Active Agent Work</h2>
         <div class="section-hint">Grouped by agent + task + status. Latest 8 groups by default.</div>
         <div class="metric-list" id="active-loops"></div>
@@ -390,7 +586,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           <div class="metric-list" id="active-loops-raw"></div>
         </details>
       </section>
-      <section>
+      <section class="historical-section">
         <h2>Activity Timeline</h2>
         <div class="section-hint">Latest 20 events by default, plus a raw drilldown for the full stream.</div>
         <div class="mini-grid" id="events-by-type"></div>
@@ -400,7 +596,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           <div class="metric-list" id="event-timeline-raw"></div>
         </details>
       </section>
-      <section>
+      <section class="historical-section" id="risks">
         <h2>Risk &amp; Guardrails</h2>
         <div class="section-hint">Grouped by summary + severity and sorted by severity first.</div>
         <div class="mini-grid" id="risks-by-severity"></div>
@@ -410,7 +606,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           <div class="metric-list" id="risk-dashboard-raw"></div>
         </details>
       </section>
-      <section>
+      <section class="historical-section" id="human-review">
         <h2>Human Review</h2>
         <div class="section-hint">Pending approvals first; approved items are grouped and collapsed.</div>
         <div class="mini-grid" id="approvals-by-status"></div>
@@ -420,7 +616,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           <div class="metric-list" id="approval-queue-raw"></div>
         </details>
       </section>
-      <section>
+      <section class="historical-section">
         <h2>Work Products</h2>
         <div class="section-hint">Artifacts grouped by file path. Latest 10 groups by default.</div>
         <div class="metric-list" id="artifact-timeline"></div>
@@ -429,7 +625,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           <div class="metric-list" id="artifact-timeline-raw"></div>
         </details>
       </section>
-      <section>
+      <section class="historical-section">
         <h2>Agent Handoffs</h2>
         <div class="section-hint">Grouped by from + to + summary. Latest 10 groups by default.</div>
         <div class="metric-list" id="handoff-queue"></div>
@@ -438,19 +634,19 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           <div class="metric-list" id="handoff-queue-raw"></div>
         </details>
       </section>
-      <section>
+      <section class="historical-section">
         <h2>Steering Insights</h2>
         <div class="section-hint">Comparative run-to-run steering deltas and verdicts.</div>
         <div class="metric-list" id="steering-dashboard"></div>
       </section>
-      <section class="full">
+      <section class="full historical-section">
         <h2>Release Readiness</h2>
         <div id="readiness"></div>
       </section>
-      <section class="full sl-diagnostics">
+      <section class="full sl-diagnostics historical-section" id="diagnostics">
         <h2>Diagnostics</h2>
         <div class="section-hint">Compact runtime checks and response metadata.</div>
-        <div class="diagnostics" id="diagnostics"></div>
+        <div class="diagnostics" id="diagnostics-panel"></div>
       </section>
     </main>
   </div>
@@ -722,6 +918,49 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       document.getElementById('spend-overview').innerHTML = cards.join('');
     }
 
+    function pickLatestDogfoodRun(items, events) {
+      const records = normalizeList(items);
+      if (!records.length) {
+        return null;
+      }
+      const sorted = [...records].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+      const targeted = sorted.find((record) => {
+        const taskName = String(record.taskName || record.taskId || '');
+        return /dogfood live monitor cost accountability/i.test(taskName) || /dogfood/i.test(taskName);
+      });
+      const latest = targeted || sorted[0];
+      const relatedEvents = normalizeList(events).filter((event) => latest.caseId && event.caseId === latest.caseId);
+      const completed = relatedEvents.some((event) => event.type === 'task.completed' || event.type === 'report.generated');
+      const pendingReview = relatedEvents.some((event) => event.type === 'approval.requested') && !relatedEvents.some((event) => event.type === 'approval.resolved');
+      const status = completed ? 'Completed' : pendingReview ? 'Waiting for review' : 'Running';
+      return {
+        ...latest,
+        status,
+      };
+    }
+
+    function renderLatestDogfoodRun(items, events, currency) {
+      const container = document.getElementById('latest-dogfood-run');
+      if (!container) {
+        return;
+      }
+      const latest = pickLatestDogfoodRun(items, events);
+      if (!latest) {
+        container.innerHTML = '<div class="run-label">Latest Dogfood Run</div><div class="muted">No dogfood run has been recorded yet.</div>';
+        return;
+      }
+      const totalTokens = Number(latest.totalTokens ?? (Number(latest.inputTokens ?? 0) + Number(latest.outputTokens ?? 0)));
+      const tokens = Number.isFinite(totalTokens) ? totalTokens : 0;
+      const metricItems = [
+        ['taskName', latest.taskName || latest.taskId || 'Unknown task'],
+        ['project', latest.project || 'Unknown project'],
+        ['agent', latest.agent || latest.agentId || 'Unknown agent'],
+        ['estimated cost', formatMoney(latest.estimatedCost ?? 0, latest.currency || currency || 'USD')],
+        ['tokens', String(tokens)],
+      ];
+      container.innerHTML = '<div class="run-label">Latest Dogfood Run</div><div class="run-title">' + escapeHtml(latest.taskName || 'Dogfood run') + '</div><div class="run-grid">' + metricItems.map(([label, value]) => '<div class="run-item"><div class="run-item-label">' + escapeHtml(label) + '</div><div class="run-item-value">' + escapeHtml(value) + '</div></div>').join('') + '</div><div class="run-status">Status: ' + escapeHtml(latest.status || 'Running') + '</div>';
+    }
+
     function renderDiagnostics(snapshot) {
       const entries = [
         card('script loaded', [state.scriptLoaded || 'no']),
@@ -734,7 +973,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         card('Last successful poll', [state.lastSuccessfulPollTime || 'Waiting for data']),
         card('last render error', [state.lastRenderError || 'None']),
       ];
-      document.getElementById('diagnostics').innerHTML = entries.join('');
+      document.getElementById('diagnostics-panel').innerHTML = entries.join('');
     }
 
     function render(snapshot, successfulPollTime) {
@@ -765,6 +1004,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       setText('monitoring-path', data.monitoredPath || 'Unknown');
 
       renderSpendOverview(costSummary);
+      renderLatestDogfoodRun(modelUsage, events, costSummary.currency || 'USD');
       renderModelUsage(modelUsage, costSummary.currency || 'USD');
       renderActiveAgentWork(activeLoops);
       renderTimeline(events);

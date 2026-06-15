@@ -417,6 +417,16 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toContain('Agent Cost, Control & Accountability Monitor');
     expect(html).toContain('Local-only');
     expect(html).toContain('Version v0.7.0');
+    expect(html).toContain('Overview');
+    expect(html).toContain('Spend');
+    expect(html).toContain('Activity');
+    expect(html).toContain('Risks');
+    expect(html).toContain('Human Review');
+    expect(html).toContain('Diagnostics');
+    expect(html).toContain('Latest Dogfood Run');
+    expect(html).toContain('taskName');
+    expect(html).toContain('Dogfood live monitor cost accountability');
+    expect(html).toContain('Historical ledger');
     expect(html).toContain('Event count');
     expect(html).toContain('Active agent count');
     expect(html).toContain('Total cost');
