@@ -35,58 +35,262 @@ function escapeHtmlText(value: string): string {
 
 function formatCurrency(value: number, currency: string): string {
   const amount = Number(value);
-  const safeAmount = Number.isFinite(amount) ? amount.toFixed(4) : '0.0000';
-  return `${currency} ${safeAmount}`;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency || 'USD',
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(safeAmount);
 }
 
-function pickLatestDogfoodRunForCard(snapshot: ReturnType<typeof getDashboardSnapshot>) {
+function formatInteger(value: number): string {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round(amount).toString() : '0';
+}
+
+function formatCompactNumber(value: number): string {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    return '0';
+  }
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    compactDisplay: 'short',
+    maximumFractionDigits: 1,
+  }).format(amount);
+}
+
+function formatDuration(value: number): string {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return '0m';
+  }
+  const totalMinutes = Math.round(amount / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+export interface LoopSummary {
+  key: string;
+  caseId: string;
+  taskId?: string;
+  taskName: string;
+  project?: string;
+  agentId?: string;
+  agent?: string;
+  status: 'running' | 'completed' | 'stale' | 'historical';
+  eventCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+  durationMs: number;
+  approvalsCount: number;
+  approvalsStatus: 'none' | 'pending' | 'approved' | 'rejected';
+  risksCount: number;
+  artifactsCount: number;
+  handoffsCount: number;
+  firstTimestamp: string;
+  lastTimestamp: string;
+}
+
+export interface LoopSummaryCollection {
+  all: LoopSummary[];
+  current: LoopSummary[];
+  historical: LoopSummary[];
+  latest: LoopSummary | null;
+}
+
+const LOOP_LIFECYCLE_TYPES = new Set([
+  'task.started',
+  'context.loaded',
+  'decision.made',
+  'risk.detected',
+  'approval.requested',
+  'approval.resolved',
+  'artifact.changed',
+  'handoff.created',
+  'task.completed',
+  'report.generated',
+  'test.completed',
+]);
+const LOOP_RECENT_MS = 30 * 60 * 1000;
+const LOOP_STALE_MS = 2 * 60 * 60 * 1000;
+const LOOP_HISTORICAL_MS = 24 * 60 * 60 * 1000;
+
+function toTimestamp(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function summarizeLoopSummaries(snapshot: ReturnType<typeof getDashboardSnapshot>): LoopSummaryCollection {
   const records = Array.isArray(snapshot.modelUsage) ? snapshot.modelUsage : [];
-  if (!records.length) {
-    return null;
+  const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+  const byCaseId = new Map<string, LoopSummary[]>();
+  const all = new Map<string, LoopSummary>();
+
+  for (const record of records) {
+    const caseId = String(record.caseId || '').trim();
+    if (!caseId) {
+      continue;
+    }
+    const key = [caseId, record.taskId || '', record.taskName || '', record.project || '', record.agentId || record.agent || ''].join('::');
+    const existing = all.get(key);
+    if (existing) {
+      existing.inputTokens += Number(record.inputTokens || 0);
+      existing.outputTokens += Number(record.outputTokens || 0);
+      existing.totalTokens += Number(record.totalTokens || 0);
+      existing.estimatedCost += Number(record.estimatedCost || 0);
+      if (toTimestamp(record.timestamp) < toTimestamp(existing.firstTimestamp) || !existing.firstTimestamp) {
+        existing.firstTimestamp = record.timestamp;
+      }
+      if (toTimestamp(record.timestamp) > toTimestamp(existing.lastTimestamp)) {
+        existing.lastTimestamp = record.timestamp;
+      }
+      continue;
+    }
+
+    const summary: LoopSummary = {
+      key,
+      caseId,
+      taskId: record.taskId,
+      taskName: record.taskName || record.taskId || 'Unnamed loop',
+      project: record.project,
+      agentId: record.agentId,
+      agent: record.agent || record.agentId,
+      status: 'historical',
+      eventCount: 0,
+      inputTokens: Number(record.inputTokens || 0),
+      outputTokens: Number(record.outputTokens || 0),
+      totalTokens: Number(record.totalTokens || Number(record.inputTokens || 0) + Number(record.outputTokens || 0)),
+      estimatedCost: Number(record.estimatedCost || 0),
+      durationMs: 0,
+      approvalsCount: 0,
+      approvalsStatus: 'none',
+      risksCount: 0,
+      artifactsCount: 0,
+      handoffsCount: 0,
+      firstTimestamp: record.timestamp,
+      lastTimestamp: record.timestamp,
+    };
+    all.set(key, summary);
+    const list = byCaseId.get(caseId) ?? [];
+    list.push(summary);
+    byCaseId.set(caseId, list);
   }
 
-  const sorted = [...records].sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
-  const targeted = sorted.find((record) => {
-    const taskName = String(record.taskName || record.taskId || '');
-    return /dogfood live monitor cost accountability/i.test(taskName) || /dogfood/i.test(taskName);
-  });
-  const latest = targeted ?? sorted[0];
-  const latestCaseId = latest.caseId ?? '';
-  const relatedEvents = Array.isArray(snapshot.events)
-    ? snapshot.events.filter((event) => latestCaseId && event.caseId === latestCaseId)
-    : [];
-  const completed = relatedEvents.some((event) => event.type === 'task.completed' || event.type === 'report.generated');
-  const pendingReview = relatedEvents.some((event) => event.type === 'approval.requested') && !relatedEvents.some((event) => event.type === 'approval.resolved');
-  const status = completed ? 'Completed' : pendingReview ? 'Waiting for review' : 'Running';
+  for (const event of events) {
+    const caseId = String(event.caseId || '').trim();
+    if (!caseId) {
+      continue;
+    }
+    const summaries = byCaseId.get(caseId);
+    if (!summaries || !summaries.length) {
+      continue;
+    }
+    for (const summary of summaries) {
+      const eventTime = toTimestamp(event.timestamp);
+      if (eventTime && (toTimestamp(summary.firstTimestamp) === 0 || eventTime < toTimestamp(summary.firstTimestamp))) {
+        summary.firstTimestamp = event.timestamp;
+      }
+      if (eventTime > toTimestamp(summary.lastTimestamp)) {
+        summary.lastTimestamp = event.timestamp;
+      }
+      if (LOOP_LIFECYCLE_TYPES.has(event.type)) {
+        summary.eventCount += 1;
+      }
+      if (event.type === 'approval.requested' || event.type === 'approval.resolved') {
+        summary.approvalsCount += 1;
+      }
+      if (event.type === 'approval.resolved') {
+        const decision = String(event.metadata?.decision || '').toLowerCase();
+        summary.approvalsStatus = decision === 'rejected' ? 'rejected' : 'approved';
+      } else if (event.type === 'approval.requested' && summary.approvalsStatus === 'none') {
+        summary.approvalsStatus = 'pending';
+      }
+      if (event.type === 'risk.detected') {
+        summary.risksCount += 1;
+      }
+      if (event.type === 'artifact.changed') {
+        summary.artifactsCount += 1;
+      }
+      if (event.type === 'handoff.created') {
+        summary.handoffsCount += 1;
+      }
+    }
+  }
 
-  return { latest, status };
+  const nowMs = Date.now();
+  const summaries = Array.from(all.values()).map((summary) => {
+    const startedAt = toTimestamp(summary.firstTimestamp);
+    const lastAt = toTimestamp(summary.lastTimestamp);
+    const hasStarted = events.some((event) => event.caseId === summary.caseId && event.type === 'task.started');
+    const hasCompleted = events.some((event) => event.caseId === summary.caseId && event.type === 'task.completed');
+    const ageMs = lastAt ? Math.max(0, nowMs - lastAt) : Number.POSITIVE_INFINITY;
+    let status: LoopSummary['status'] = 'historical';
+    if (hasCompleted && ageMs <= LOOP_HISTORICAL_MS) {
+      status = 'completed';
+    } else if (hasStarted && ageMs <= LOOP_RECENT_MS && !hasCompleted) {
+      status = 'running';
+    } else if (hasStarted && ageMs <= LOOP_STALE_MS && !hasCompleted) {
+      status = 'stale';
+    }
+    if (!hasCompleted && ageMs > LOOP_HISTORICAL_MS) {
+      status = 'historical';
+    }
+    const durationMs = startedAt && lastAt ? Math.max(0, lastAt - startedAt) : 0;
+    return {
+      ...summary,
+      status,
+      durationMs,
+    };
+  });
+
+  const sorted = [...summaries].sort((a, b) => toTimestamp(b.lastTimestamp) - toTimestamp(a.lastTimestamp));
+  const latest = sorted.find((summary) => /dogfood/i.test(summary.taskName)) ?? sorted[0] ?? null;
+  const current = sorted.filter((summary) => summary.status === 'running' || summary.status === 'completed');
+  const historical = sorted.filter((summary) => summary.status === 'stale' || summary.status === 'historical');
+
+  return { all: sorted, current, historical, latest };
 }
 
 function renderLatestDogfoodRunCard(snapshot: ReturnType<typeof getDashboardSnapshot>): string {
-  const result = pickLatestDogfoodRunForCard(snapshot);
-  if (!result) {
+  const summaries = summarizeLoopSummaries(snapshot);
+  const latest = summaries.latest;
+  if (!latest) {
     return `
           <div class="latest-run-card sl-panel-glow" id="latest-dogfood-run">
-            <div class="run-label">Latest Dogfood Run</div>
+            <div class="run-label">Latest Run</div>
             <div class="muted">Waiting for the latest local run to load.</div>
           </div>`;
   }
 
-  const { latest, status } = result;
-  const totalTokens = Number(latest.totalTokens ?? Number(latest.inputTokens ?? 0) + Number(latest.outputTokens ?? 0));
   const currency = snapshot.costSummary?.currency || 'USD';
   const metrics = [
-    ['taskName', latest.taskName || latest.taskId || 'Unknown task'],
-    ['project', latest.project || 'Unknown project'],
-    ['agent', latest.agent || latest.agentId || 'Unknown agent'],
-    ['estimated cost', formatCurrency(latest.estimatedCost ?? 0, currency)],
-    ['tokens', Number.isFinite(totalTokens) ? String(totalTokens) : '0'],
+    ['Agent', latest.agent || latest.agentId || 'Unknown agent'],
+    ['Project', latest.project || 'Unknown project'],
+    ['Status', latest.status],
+    ['Cost', formatCurrency(latest.estimatedCost, currency)],
+    ['Tokens', formatCompactNumber(latest.totalTokens)],
+    ['Duration', formatDuration(latest.durationMs)],
+    ['Approvals', `${formatInteger(latest.approvalsCount)} · ${latest.approvalsStatus}`],
+    ['Risks', formatInteger(latest.risksCount)],
+    ['Artifacts', formatInteger(latest.artifactsCount)],
+    ['Handoffs', formatInteger(latest.handoffsCount)],
   ];
 
   return `
           <div class="latest-run-card sl-panel-glow" id="latest-dogfood-run">
-            <div class="run-label">Latest Dogfood Run</div>
-            <div class="run-title">${escapeHtmlText(latest.taskName || 'Dogfood run')}</div>
+            <div class="run-label">Latest Run</div>
+            <div class="run-title">${escapeHtmlText(latest.taskName || 'Loop')}</div>
             <div class="run-grid">
               ${metrics
                 .map(([label, value]) => `
@@ -96,7 +300,7 @@ function renderLatestDogfoodRunCard(snapshot: ReturnType<typeof getDashboardSnap
                 </div>`)
                 .join('')}
             </div>
-            <div class="run-status">Status: ${escapeHtmlText(status)}</div>
+            <div class="run-status">Status: ${escapeHtmlText(latest.status)} · Events: ${formatInteger(latest.eventCount)}</div>
           </div>`;
 }
 
@@ -147,6 +351,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
 
   * { box-sizing: border-box; }
   html, body { min-height: 100%; }
+  html { scroll-padding-top: 160px; }
   body {
     margin: 0;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -354,8 +559,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   }
   .sl-sticky-nav {
     position: sticky;
-    top: 12px;
-    z-index: 4;
+    top: 24px;
+    z-index: 8;
     margin: var(--sl-space-4) 0 var(--sl-space-5);
     display: flex;
     flex-wrap: wrap;
@@ -378,7 +583,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     border: 1px solid transparent;
   }
   .sl-sticky-nav a:hover,
-  .sl-sticky-nav a:focus-visible {
+  .sl-sticky-nav a:focus-visible,
+  .sl-sticky-nav a.active {
     color: var(--sl-text);
     border-color: rgba(157, 105, 255, 0.25);
     background: rgba(157, 105, 255, 0.10);
@@ -445,7 +651,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   section {
     padding: var(--sl-space-5);
     overflow: hidden;
-    scroll-margin-top: 88px;
+    scroll-margin-top: 160px;
   }
   section:not(.full) { grid-column: span 6; }
   section.full { grid-column: 1 / -1; }
@@ -512,6 +718,17 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
   .error { color: #ffb5b5; }
   .diagnostics { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
   .panel { padding: 14px 16px; border-radius: var(--sl-radius-lg); background: rgba(8, 7, 21, 0.62); border: 1px solid rgba(157, 105, 255, 0.18); }
+  .diag-details { min-height: 118px; display: flex; flex-direction: column; justify-content: space-between; }
+  .diag-summary { cursor: pointer; color: var(--sl-purple-bright); font-size: 12px; letter-spacing: 0.02em; }
+  .diag-detail { margin-top: 10px; color: var(--sl-text-muted); word-break: break-word; line-height: 1.45; }
+  .loop-highlight-card { padding: 18px 20px; border-radius: var(--sl-radius-lg); border: 1px solid rgba(157, 105, 255, 0.22); background: rgba(10, 8, 24, 0.78); box-shadow: var(--sl-shadow-panel); }
+  .latest-run-frame { margin: 14px 0 16px; }
+  .loop-card { min-height: 110px; }
+  .loop-card .meta { line-height: 1.45; }
+  .loop-card.emphasis { border-color: rgba(157, 105, 255, 0.28); background: rgba(13, 10, 30, 0.88); }
+  .loop-card.status-completed { box-shadow: inset 0 0 0 1px rgba(57, 255, 136, 0.08); }
+  .loop-card.status-running { box-shadow: inset 0 0 0 1px rgba(120, 231, 255, 0.10); }
+  .loop-card.status-stale { opacity: 0.86; }
   .sl-diagnostics { margin-top: var(--sl-space-2); }
   @media (max-width: 1200px) {
     .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -560,13 +777,23 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
     </header>
     <nav class="sl-sticky-nav" aria-label="Quick navigation">
       <a href="#overview">Overview</a>
+      <a href="#loops">Loops</a>
       <a href="#spend">Spend</a>
-      <a href="#activity">Activity</a>
       <a href="#risks">Risks</a>
       <a href="#human-review">Human Review</a>
       <a href="#diagnostics">Diagnostics</a>
     </nav>
     <main class="sl-main">
+      <section class="historical-section" id="loops">
+        <h2>Loop Timecards</h2>
+        <div class="section-hint">Latest run first. Current work stays visible; historical ledger stays collapsed.</div>
+        <div class="latest-run-frame" id="latest-loop-timecard"></div>
+        <div class="mini-grid" id="current-loop-timecards"></div>
+        <details class="raw-details" id="historical-loop-ledger-details">
+          <summary>Show historical loop ledger</summary>
+          <div class="metric-list" id="historical-loop-timecards"></div>
+        </details>
+      </section>
       <section class="historical-section" id="spend">
         <h2>Spend Overview</h2>
         <div class="section-hint">Cost is summarized as explicit accountability, not hidden telemetry.</div>
@@ -692,10 +919,108 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
         node.className = 'sl-status-chip ' + tone;
       }
     }
-    function formatMoney(value, currency) {
+    function formatCurrency(value, currency) {
       const amount = Number(value);
-      const safeAmount = Number.isFinite(amount) ? amount.toFixed(4) : '0.0000';
-      return currency + ' ' + safeAmount;
+      const safeAmount = Number.isFinite(amount) ? amount : 0;
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency || 'USD',
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 4,
+      }).format(safeAmount);
+    }
+
+    function formatInteger(value) {
+      const amount = Number(value);
+      return Number.isFinite(amount) ? Math.round(amount).toString() : '0';
+    }
+
+    function formatCompactNumber(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) {
+        return '0';
+      }
+      return new Intl.NumberFormat('en-US', {
+        notation: 'compact',
+        compactDisplay: 'short',
+        maximumFractionDigits: 1,
+      }).format(amount);
+    }
+
+    function formatDuration(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return '0m';
+      }
+      const totalMinutes = Math.round(amount / 60000);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      if (hours > 0) {
+        return hours + 'h ' + minutes + 'm';
+      }
+      return minutes + 'm';
+    }
+
+    function formatInteger(value) {
+      const amount = Number(value);
+      return Number.isFinite(amount) ? Math.round(amount).toString() : '0';
+    }
+
+    function formatCompactNumber(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) {
+        return '0';
+      }
+      return new Intl.NumberFormat('en-US', {
+        notation: 'compact',
+        compactDisplay: 'short',
+        maximumFractionDigits: 1,
+      }).format(amount);
+    }
+
+    function formatDuration(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return '0m';
+      }
+      const totalMinutes = Math.round(amount / 60000);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      if (hours > 0) {
+        return hours + 'h ' + minutes + 'm';
+      }
+      return minutes + 'm';
+    }
+
+    function formatPercent(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) {
+        return '0%';
+      }
+      return amount.toFixed(0) + '%';
+    }
+
+    function truncateMiddle(value, maxLength) {
+      const text = String(value ?? '');
+      const limit = Number(maxLength) || 48;
+      if (text.length <= limit) {
+        return text;
+      }
+      const front = Math.ceil(limit / 2) - 2;
+      const back = Math.floor(limit / 2) - 2;
+      return text.slice(0, front) + '…' + text.slice(text.length - back);
+    }
+
+    function formatCount(value) {
+      return formatInteger(value);
+    }
+
+    function formatTokens(value) {
+      return formatCompactNumber(value);
+    }
+
+    function formatCost(value, currency) {
+      return formatCurrency(value, currency || 'USD');
     }
 
     function formatBreakdown(map) {
@@ -703,7 +1028,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       if (!entries.length) {
         return ['None'];
       }
-      return entries.map(([key, value]) => key + ': ' + Number(value).toFixed(4));
+      return entries.map(([key, value]) => key + ': ' + formatCurrency(value, 'USD'));
     }
 
     function formatDelta(value) {
@@ -735,6 +1060,159 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       const costSummary = data.costSummary || data.costDashboard || {};
       const monitoredPath = data.monitoredPath || data.monitoringPath || 'Unknown';
       return { data, events, approvals, risks, artifacts, handoffs, activeLoops, costSummary, monitoredPath };
+    }
+
+    const LOOP_LIFECYCLE_TYPES = new Set([
+      'task.started',
+      'context.loaded',
+      'decision.made',
+      'risk.detected',
+      'approval.requested',
+      'approval.resolved',
+      'artifact.changed',
+      'handoff.created',
+      'task.completed',
+      'report.generated',
+      'test.completed',
+    ]);
+    const LOOP_RECENT_MS = 30 * 60 * 1000;
+    const LOOP_STALE_MS = 2 * 60 * 60 * 1000;
+    const LOOP_HISTORICAL_MS = 24 * 60 * 60 * 1000;
+
+    function toTimestamp(value) {
+      const parsed = Date.parse(String(value || ''));
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    function summarizeLoopSummaries(snapshot) {
+      const usageRecords = normalizeList(snapshot.modelUsage);
+      const events = normalizeList(snapshot.events);
+      const byCaseId = new Map();
+      const all = new Map();
+
+      for (const record of usageRecords) {
+        const caseId = String(record.caseId || '').trim();
+        if (!caseId) {
+          continue;
+        }
+        const key = [caseId, record.taskId || '', record.taskName || '', record.project || '', record.agentId || record.agent || ''].join('::');
+        const existing = all.get(key);
+        if (existing) {
+          existing.inputTokens += Number(record.inputTokens || 0);
+          existing.outputTokens += Number(record.outputTokens || 0);
+          existing.totalTokens += Number(record.totalTokens || 0);
+          existing.estimatedCost += Number(record.estimatedCost || 0);
+          if (toTimestamp(record.timestamp) < toTimestamp(existing.firstTimestamp) || !existing.firstTimestamp) {
+            existing.firstTimestamp = record.timestamp;
+          }
+          if (toTimestamp(record.timestamp) > toTimestamp(existing.lastTimestamp)) {
+            existing.lastTimestamp = record.timestamp;
+          }
+          continue;
+        }
+
+        const summary = {
+          key,
+          caseId,
+          taskId: record.taskId,
+          taskName: record.taskName || record.taskId || 'Unnamed loop',
+          project: record.project,
+          agentId: record.agentId,
+          agent: record.agent || record.agentId,
+          status: 'historical',
+          eventCount: 0,
+          inputTokens: Number(record.inputTokens || 0),
+          outputTokens: Number(record.outputTokens || 0),
+          totalTokens: Number(record.totalTokens || Number(record.inputTokens || 0) + Number(record.outputTokens || 0)),
+          estimatedCost: Number(record.estimatedCost || 0),
+          durationMs: 0,
+          approvalsCount: 0,
+          approvalsStatus: 'none',
+          risksCount: 0,
+          artifactsCount: 0,
+          handoffsCount: 0,
+          firstTimestamp: record.timestamp,
+          lastTimestamp: record.timestamp,
+        };
+        all.set(key, summary);
+        const list = byCaseId.get(caseId) ?? [];
+        list.push(summary);
+        byCaseId.set(caseId, list);
+      }
+
+      for (const event of events) {
+        const caseId = String(event.caseId || '').trim();
+        if (!caseId) {
+          continue;
+        }
+        const summaries = byCaseId.get(caseId);
+        if (!summaries || !summaries.length) {
+          continue;
+        }
+        for (const summary of summaries) {
+          const eventTime = toTimestamp(event.timestamp);
+          if (eventTime && (toTimestamp(summary.firstTimestamp) === 0 || eventTime < toTimestamp(summary.firstTimestamp))) {
+            summary.firstTimestamp = event.timestamp;
+          }
+          if (eventTime > toTimestamp(summary.lastTimestamp)) {
+            summary.lastTimestamp = event.timestamp;
+          }
+          if (LOOP_LIFECYCLE_TYPES.has(event.type)) {
+            summary.eventCount += 1;
+          }
+          if (event.type === 'approval.requested' || event.type === 'approval.resolved') {
+            summary.approvalsCount += 1;
+          }
+          if (event.type === 'approval.resolved') {
+            const decision = String(event.metadata?.decision || '').toLowerCase();
+            summary.approvalsStatus = decision === 'rejected' ? 'rejected' : 'approved';
+          } else if (event.type === 'approval.requested' && summary.approvalsStatus === 'none') {
+            summary.approvalsStatus = 'pending';
+          }
+          if (event.type === 'risk.detected') {
+            summary.risksCount += 1;
+          }
+          if (event.type === 'artifact.changed') {
+            summary.artifactsCount += 1;
+          }
+          if (event.type === 'handoff.created') {
+            summary.handoffsCount += 1;
+          }
+        }
+      }
+
+      const nowMs = Date.now();
+      const summaries = Array.from(all.values()).map((summary) => {
+        const startedAt = toTimestamp(summary.firstTimestamp);
+        const lastAt = toTimestamp(summary.lastTimestamp);
+        const hasStarted = events.some((event) => event.caseId === summary.caseId && event.type === 'task.started');
+        const hasCompleted = events.some((event) => event.caseId === summary.caseId && event.type === 'task.completed');
+        const ageMs = lastAt ? Math.max(0, nowMs - lastAt) : Number.POSITIVE_INFINITY;
+        let status = 'historical';
+        if (hasCompleted && ageMs <= LOOP_HISTORICAL_MS) {
+          status = 'completed';
+        } else if (hasStarted && ageMs <= LOOP_RECENT_MS && !hasCompleted) {
+          status = 'running';
+        } else if (hasStarted && ageMs <= LOOP_STALE_MS && !hasCompleted) {
+          status = 'stale';
+        }
+        if (!hasCompleted && ageMs > LOOP_HISTORICAL_MS) {
+          status = 'historical';
+        }
+        return {
+          ...summary,
+          status,
+          durationMs: startedAt && lastAt ? Math.max(0, lastAt - startedAt) : 0,
+        };
+      });
+
+      const sorted = [...summaries].sort((a, b) => toTimestamp(b.lastTimestamp) - toTimestamp(a.lastTimestamp));
+      return {
+        all: sorted,
+        current: sorted.filter((summary) => summary.status === 'running' || summary.status === 'completed'),
+        historical: sorted.filter((summary) => summary.status === 'stale' || summary.status === 'historical'),
+        latest: sorted.find((summary) => /dogfood/i.test(summary.taskName)) || sorted[0] || null,
+      };
     }
 
     function groupRecords(items, keyFn, sorter) {
@@ -782,7 +1260,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       return 4;
     }
 
-    function renderChart(title, entries, formatLabel) {
+    function renderChart(title, entries, formatLabel, formatValue) {
       const rows = Array.isArray(entries) ? entries : [];
       if (!rows.length) {
         return card(title, ['None']);
@@ -790,14 +1268,20 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       const max = Math.max(...rows.map((row) => Number(row[1]) || 0), 1);
       const bars = rows.slice(0, 6).map(([label, value]) => {
         const ratio = Math.max(0, (Number(value) || 0) / max);
-        return '<div class="bar-row"><div class="bar-label"><span>' + escapeHtml(formatLabel ? formatLabel(label) : label) + '</span><span>' + escapeHtml(String(Number(value).toFixed ? Number(value).toFixed(4) : value)) + '</span></div><div class="bar-track"><div class="bar-fill" style="width:' + (ratio * 100).toFixed(1) + '%"></div></div></div>';
+        const formattedValue = typeof formatValue === 'function'
+          ? formatValue(value, label)
+          : Number.isFinite(Number(value))
+            ? formatInteger(value)
+            : String(value);
+        return '<div class="bar-row"><div class="bar-label"><span>' + escapeHtml(formatLabel ? formatLabel(label) : label) + '</span><span>' + escapeHtml(formattedValue) + '</span></div><div class="bar-track"><div class="bar-fill" style="width:' + (ratio * 100).toFixed(1) + '%"></div></div></div>';
       }).join('');
       return '<div class="panel"><div class="kpi-label">' + escapeHtml(title) + '</div><div class="bar-chart">' + bars + '</div></div>';
     }
 
     function renderChartFromMap(title, map) {
       const entries = map instanceof Map ? Array.from(map.entries()) : Object.entries(map || {});
-      return renderChart(title, entries, (label) => label);
+      const formatter = String(title).toLowerCase().startsWith('cost by') ? (value) => formatCurrency(value, 'USD') : (value) => formatInteger(value);
+      return renderChart(title, entries, (label) => label, formatter);
     }
 
     function renderKpiCards(snapshot) {
@@ -810,7 +1294,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       setText('kpi-connection', 'Connected');
       setText('kpi-event-count', String(data.eventCount ?? snapshot.events.length));
       setText('kpi-active-agents', String(activeAgents.size));
-      setText('kpi-total-cost', formatMoney(totalCost, currency));
+      setText('kpi-total-cost', formatCost(totalCost, currency));
       setText('kpi-usage-count', String(snapshot.costSummary.usageCount ?? snapshot.data.modelUsage?.length ?? 0));
       setText('kpi-high-risk', String(highRisks.length));
       setText('kpi-pending-approval', String(pendingApprovals.length));
@@ -899,7 +1383,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       const grouped = groupRecords(entries, (entry) => [entry.agent || entry.agentId || 'Unknown', entry.project || 'Unknown project', entry.taskName || entry.taskId || 'Unknown task', entry.model || 'Unknown model'].join(' | '), (a, b) => b.count - a.count).slice(0, 10);
       const cards = grouped.map((entry) => {
         const latest = entry.latest;
-        return '<div class="panel"><div class="kpi-label">' + escapeHtml(latest.model || 'Model usage') + '</div><div class="value">' + escapeHtml(latest.agent || latest.agentId || 'Unknown agent') + '</div><div class="kpi-subvalue">' + escapeHtml(latest.project || 'Unknown project') + ' · ' + escapeHtml(latest.taskName || latest.taskId || 'Unknown task') + '</div><div class="kpi-subvalue">Tokens: ' + escapeHtml(String(latest.totalTokens ?? 0)) + ' · Cost: ' + escapeHtml(formatMoney(latest.estimatedCost ?? 0, latest.currency || currency || 'USD')) + ' · ×' + escapeHtml(String(entry.count)) + '</div></div>';
+        return '<div class="panel"><div class="kpi-label">' + escapeHtml(latest.model || 'Model usage') + '</div><div class="value">' + escapeHtml(latest.agent || latest.agentId || 'Unknown agent') + '</div><div class="kpi-subvalue">' + escapeHtml(latest.project || 'Unknown project') + ' · ' + escapeHtml(latest.taskName || latest.taskId || 'Unknown task') + '</div><div class="kpi-subvalue">Tokens: ' + escapeHtml(formatTokens(latest.totalTokens ?? 0)) + ' · Cost: ' + escapeHtml(formatCost(latest.estimatedCost ?? 0, currency || 'USD')) + ' · ×' + escapeHtml(String(entry.count)) + '</div></div>';
       });
       if (!cards.length) {
         document.getElementById('model-usage').innerHTML = '<div class="panel muted">No token usage records yet</div>';
@@ -918,62 +1402,71 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       document.getElementById('spend-overview').innerHTML = cards.join('');
     }
 
-    function pickLatestDogfoodRun(items, events) {
-      const records = normalizeList(items);
-      if (!records.length) {
-        return null;
-      }
-      const sorted = [...records].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
-      const targeted = sorted.find((record) => {
-        const taskName = String(record.taskName || record.taskId || '');
-        return /dogfood live monitor cost accountability/i.test(taskName) || /dogfood/i.test(taskName);
-      });
-      const latest = targeted || sorted[0];
-      const relatedEvents = normalizeList(events).filter((event) => latest.caseId && event.caseId === latest.caseId);
-      const completed = relatedEvents.some((event) => event.type === 'task.completed' || event.type === 'report.generated');
-      const pendingReview = relatedEvents.some((event) => event.type === 'approval.requested') && !relatedEvents.some((event) => event.type === 'approval.resolved');
-      const status = completed ? 'Completed' : pendingReview ? 'Waiting for review' : 'Running';
-      return {
-        ...latest,
-        status,
-      };
+    function renderLoopCard(loop, emphasis) {
+      const statusClass = 'status-' + String(loop.status || 'historical');
+      const title = escapeHtml(loop.taskName || 'Loop');
+      const meta = [
+        'Agent: ' + escapeHtml(loop.agent || loop.agentId || 'Unknown agent'),
+        'Project: ' + escapeHtml(loop.project || 'Unknown project'),
+        'Status: ' + escapeHtml(loop.status || 'historical'),
+        'Cost: ' + escapeHtml(formatCost(loop.estimatedCost ?? 0, 'USD')),
+        'Tokens: ' + escapeHtml(formatTokens(loop.totalTokens ?? 0)),
+        'Duration: ' + escapeHtml(formatDuration(loop.durationMs ?? 0)),
+      ].join(' · ');
+      return '<div class="metric-row loop-card ' + statusClass + (emphasis ? ' emphasis' : '') + '"><div class="left"><div class="title">' + title + '</div><div class="meta">' + meta + '</div><div class="meta">Events: ' + escapeHtml(formatInteger(loop.eventCount ?? 0)) + ' · Approvals: ' + escapeHtml(formatInteger(loop.approvalsCount ?? 0)) + ' · Risks: ' + escapeHtml(formatInteger(loop.risksCount ?? 0)) + ' · Artifacts: ' + escapeHtml(formatInteger(loop.artifactsCount ?? 0)) + ' · Handoffs: ' + escapeHtml(formatInteger(loop.handoffsCount ?? 0)) + '</div></div></div>';
     }
 
-    function renderLatestDogfoodRun(items, events, currency) {
-      const container = document.getElementById('latest-dogfood-run');
-      if (!container) {
-        return;
+    function renderLatestLoopHighlight(loop) {
+      return '<div class="loop-highlight-card"><div class="kpi-label">Latest Run</div><div class="value">' + escapeHtml(loop.taskName || 'Loop') + '</div><div class="kpi-subvalue">Agent: ' + escapeHtml(loop.agent || loop.agentId || 'Unknown') + ' · Project: ' + escapeHtml(loop.project || 'Unknown') + ' · Status: ' + escapeHtml(loop.status || 'historical') + '</div><div class="kpi-subvalue">Cost: ' + escapeHtml(formatCost(loop.estimatedCost ?? 0, 'USD')) + ' · Tokens: ' + escapeHtml(formatTokens(loop.totalTokens ?? 0)) + ' · Duration: ' + escapeHtml(formatDuration(loop.durationMs ?? 0)) + '</div><div class="kpi-subvalue">Approvals: ' + escapeHtml(formatInteger(loop.approvalsCount ?? 0)) + ' · Risks: ' + escapeHtml(formatInteger(loop.risksCount ?? 0)) + ' · Artifacts: ' + escapeHtml(formatInteger(loop.artifactsCount ?? 0)) + ' · Handoffs: ' + escapeHtml(formatInteger(loop.handoffsCount ?? 0)) + ' · Events: ' + escapeHtml(formatInteger(loop.eventCount ?? 0)) + '</div></div>';
+    }
+
+    function renderLoopTimecards(snapshot) {
+      const loopState = summarizeLoopSummaries(snapshot);
+      const latest = loopState.latest;
+      const current = loopState.current.slice(0, 6);
+      const historical = loopState.historical.slice(0, 12);
+      const latestNode = document.getElementById('latest-loop-timecard');
+      if (latestNode) {
+        latestNode.innerHTML = latest ? renderLatestLoopHighlight(latest) : '<div class="panel muted">No loop data yet</div>';
       }
-      const latest = pickLatestDogfoodRun(items, events);
-      if (!latest) {
-        container.innerHTML = '<div class="run-label">Latest Dogfood Run</div><div class="muted">No dogfood run has been recorded yet.</div>';
-        return;
+      const currentNode = document.getElementById('current-loop-timecards');
+      if (currentNode) {
+        currentNode.innerHTML = current.length ? current.map((loop) => renderLoopCard(loop, true)).join('') : '<div class="panel muted">No current loops</div>';
       }
-      const totalTokens = Number(latest.totalTokens ?? (Number(latest.inputTokens ?? 0) + Number(latest.outputTokens ?? 0)));
-      const tokens = Number.isFinite(totalTokens) ? totalTokens : 0;
-      const metricItems = [
-        ['taskName', latest.taskName || latest.taskId || 'Unknown task'],
-        ['project', latest.project || 'Unknown project'],
-        ['agent', latest.agent || latest.agentId || 'Unknown agent'],
-        ['estimated cost', formatMoney(latest.estimatedCost ?? 0, latest.currency || currency || 'USD')],
-        ['tokens', String(tokens)],
-      ];
-      container.innerHTML = '<div class="run-label">Latest Dogfood Run</div><div class="run-title">' + escapeHtml(latest.taskName || 'Dogfood run') + '</div><div class="run-grid">' + metricItems.map(([label, value]) => '<div class="run-item"><div class="run-item-label">' + escapeHtml(label) + '</div><div class="run-item-value">' + escapeHtml(value) + '</div></div>').join('') + '</div><div class="run-status">Status: ' + escapeHtml(latest.status || 'Running') + '</div>';
+      const historicalNode = document.getElementById('historical-loop-timecards');
+      if (historicalNode) {
+        historicalNode.innerHTML = historical.length ? historical.map((loop) => renderLoopCard(loop, false)).join('') : '<div class="panel muted">No historical loops</div>';
+      }
+    }
+
+    function renderTimeline(events) {
+      const latest = events.slice().sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || ''))).slice(0, 20);
+      const timeline = latest.map((event) => '<div class="metric-row"><div class="left"><div class="title">' + escapeHtml(event.type) + ' · ' + escapeHtml(event.summary || 'No summary') + '</div><div class="meta">' + escapeHtml(event.timestamp || 'Unknown time') + ' · ' + escapeHtml(event.agentName || event.agentId || 'Unknown agent') + '</div></div><div class="badge">' + escapeHtml(event.caseId || 'No case') + '</div></div>');
+      const raw = events.slice().sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || ''))).map((event) => '<div class="metric-row"><div class="left"><div class="title">' + escapeHtml(event.type) + ' · ' + escapeHtml(event.summary || 'No summary') + '</div><div class="meta">' + escapeHtml(event.timestamp || 'Unknown time') + ' · ' + escapeHtml(event.agentName || event.agentId || 'Unknown agent') + '</div></div><div class="badge">' + escapeHtml(event.caseId || 'No case') + '</div></div>');
+      document.getElementById('event-timeline').innerHTML = renderMetricsList(timeline, 'No events yet');
+      document.getElementById('event-timeline-raw').innerHTML = renderMetricsList(raw, 'No events yet');
+      document.getElementById('events-by-type').innerHTML = renderChart('Events by type', groupCounts(events.map((event) => event.type)), (label) => label);
     }
 
     function renderDiagnostics(snapshot) {
-      const entries = [
+      const diagnostics = [
         card('script loaded', [state.scriptLoaded || 'no']),
         card('poll started', [state.pollStarted || 'no']),
-        card('last poll URL', [state.lastPollUrl || 'Not polled yet']),
+        card('last poll URL', [truncateMiddle(state.lastPollUrl || 'Not polled yet', 58)]),
         card('last HTTP status', [state.lastHttpStatus || 'Unknown']),
         card('last poll latency', [state.lastPollLatency || 'N/A']),
-        card('last fetch error', [state.lastFetchError || 'None']),
-        card('Response keys', [state.responseKeys.length ? state.responseKeys.join(', ') : 'None']),
-        card('Last successful poll', [state.lastSuccessfulPollTime || 'Waiting for data']),
-        card('last render error', [state.lastRenderError || 'None']),
       ];
-      document.getElementById('diagnostics-panel').innerHTML = entries.join('');
+      if (state.lastFetchError && state.lastFetchError !== 'None') {
+        diagnostics.push(card('last fetch error', [state.lastFetchError]));
+      }
+      diagnostics.push(
+        '<details class="panel diag-details"><summary class="diag-summary">Response Keys</summary><div class="diag-detail">' + escapeHtml(state.responseKeys.length ? state.responseKeys.join(', ') : 'None') + '</div></details>',
+        card('Last successful poll', [state.lastSuccessfulPollTime || 'Waiting for data']),
+      );
+      if (state.lastRenderError && state.lastRenderError !== 'None') {
+        diagnostics.push(card('last render error', [state.lastRenderError]));
+      }
+      document.getElementById('diagnostics-panel').innerHTML = diagnostics.join('');
     }
 
     function render(snapshot, successfulPollTime) {
@@ -983,6 +1476,7 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       const modelUsage = normalizeList(data.modelUsage);
       const readiness = data.readiness || { score: 0, status: 'Unknown', blockers: [], recommendations: [] };
       const steeringInsights = normalizeList(data.steeringInsights);
+      const loopState = summarizeLoopSummaries(data);
       const artifacts = normalized.artifacts;
       const handoffs = normalized.handoffs;
       const costSummary = normalized.costSummary || {};
@@ -994,8 +1488,8 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       state.lastRenderError = 'None';
       setConnectionChip('Connected', 'connected');
       setText('kpi-event-count', String(data.eventCount ?? events.length));
-      setText('kpi-active-agents', String(new Set(activeLoops.map((item) => item.agent || item.agentId || 'Unknown')).size));
-      setText('kpi-total-cost', formatMoney(costSummary.totalCost ?? 0, costSummary.currency || 'USD'));
+      setText('kpi-active-agents', String(new Set(loopState.current.map((item) => item.agent || item.agentId || 'Unknown')).size));
+      setText('kpi-total-cost', formatCost(costSummary.totalCost ?? 0, costSummary.currency || 'USD'));
       setText('kpi-usage-count', String(costSummary.usageCount ?? modelUsage.length ?? 0));
       setText('kpi-high-risk', String(risks.filter((risk) => String(risk?.severity || '').toLowerCase() === 'high' || String(risk?.severity || '').toLowerCase() === 'critical').length));
       setText('kpi-pending-approval', String(approvals.filter((approval) => String(approval?.status || '').toLowerCase() === 'pending').length));
@@ -1004,19 +1498,22 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
       setText('monitoring-path', data.monitoredPath || 'Unknown');
 
       renderSpendOverview(costSummary);
-      renderLatestDogfoodRun(modelUsage, events, costSummary.currency || 'USD');
+      renderLoopTimecards(data);
       renderModelUsage(modelUsage, costSummary.currency || 'USD');
-      renderActiveAgentWork(activeLoops);
       renderTimeline(events);
       renderRisks(risks);
       renderApprovals(approvals);
       renderArtifacts(artifacts);
       renderHandoffs(handoffs);
-      renderDiagnostics(snapshot);
+      renderDiagnostics(data);
 
       const readinessBlockers = escapeHtml(listAsLines(readiness.blockers).join('\\n'));
       const readinessRecommendations = escapeHtml(listAsLines(readiness.recommendations).join('\\n'));
-      document.getElementById('readiness').innerHTML = '<div class="panel"><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="kpi-subvalue" style="margin-top:12px;">Blockers</div><pre>' + readinessBlockers + '</pre><div class="kpi-subvalue" style="margin-top:12px;">Recommendations</div><pre>' + readinessRecommendations + '</pre></div>';
+      const currentRun = loopState.latest || loopState.current[0] || null;
+      const currentRunHtml = currentRun
+        ? '<div class="kpi-label">Current Run Readiness</div><div class="value">' + escapeHtml(currentRun.taskName || 'Loop') + '</div><div class="kpi-subvalue">Agent: ' + escapeHtml(currentRun.agent || currentRun.agentId || 'Unknown') + ' · Project: ' + escapeHtml(currentRun.project || 'Unknown') + ' · Status: ' + escapeHtml(currentRun.status || 'historical') + '</div><div class="kpi-subvalue">Cost: ' + escapeHtml(formatCost(currentRun.estimatedCost ?? 0, 'USD')) + ' · Tokens: ' + escapeHtml(formatTokens(currentRun.totalTokens ?? 0)) + ' · Events: ' + escapeHtml(formatInteger(currentRun.eventCount ?? 0)) + '</div>'
+        : '<div class="kpi-label">Current Run Readiness</div><div class="value">No current loop</div>';
+      document.getElementById('readiness').innerHTML = '<div class="panel">' + currentRunHtml + '<div class="kpi-subvalue" style="margin-top:12px;">Historical Ledger Readiness</div><div class="score">' + escapeHtml(String(readiness.score ?? 0)) + '/100</div><div class="value">' + escapeHtml(readiness.status || 'Unknown') + '</div><div class="kpi-subvalue" style="margin-top:12px;">Blockers</div><pre>' + readinessBlockers + '</pre><div class="kpi-subvalue" style="margin-top:12px;">Recommendations</div><pre>' + readinessRecommendations + '</pre></div>';
 
       document.getElementById('steering-dashboard').innerHTML = steeringInsights.length
         ? steeringInsights.map((entry) => card(entry.current?.steeringProfileId || 'Unknown profile', [
@@ -1027,6 +1524,32 @@ export function renderMonitorHtml(options: SafeloopStorageOptions = {}): string 
           ])).join('')
         : card('No steering data', ['Waiting for steering events']);
     }
+
+    function initActiveNav() {
+      const links = Array.from(document.querySelectorAll('.sl-sticky-nav a'));
+      const byHash = new Map(links.map((link) => [new URL(link.getAttribute('href') || '#overview', window.location.href).hash || '#overview', link]));
+      const setActive = (hash) => {
+        const target = byHash.get(hash) || byHash.get('#overview');
+        links.forEach((link) => link.classList.remove('active'));
+        if (target) {
+          target.classList.add('active');
+        }
+      };
+      const sections = Array.from(document.querySelectorAll('section[id]'));
+      if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver((entries) => {
+          const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+          if (visible?.target?.id) {
+            setActive('#' + visible.target.id);
+          }
+        }, { rootMargin: '-30% 0px -55% 0px', threshold: [0.1, 0.25, 0.5] });
+        sections.forEach((section) => observer.observe(section));
+      }
+      setActive(window.location.hash || '#overview');
+      window.addEventListener('hashchange', () => setActive(window.location.hash || '#overview'));
+    }
+
+    initActiveNav();
 
     async function refresh() {
       const pollUrl = new URL('/api/dashboard', window.location.href).toString();

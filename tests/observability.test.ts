@@ -20,6 +20,7 @@ import {
   startMonitorServer,
   streamEvents,
 } from '../src/index';
+import { summarizeLoopSummaries } from '../src/monitor/server';
 
 describe('Safeloop v0.7 observability layer', () => {
   let baseDir: string;
@@ -78,7 +79,7 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(jsonl).toContain('decision.made');
   });
 
-  it('records model usage and calculates case costs from explicit pricing', () => {
+  it('summarizes a complete loop into an AI worker timecard', () => {
     setModelPricing(
       {
         provider: 'OpenAI',
@@ -90,31 +91,249 @@ describe('Safeloop v0.7 observability layer', () => {
       { baseDir },
     );
 
-    const usage = recordModelUsage(
+    appendEvent(
+      {
+        id: 'evt-start',
+        type: 'task.started',
+        timestamp: '2026-06-14T10:00:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Start dogfood live monitor cost accountability',
+      },
+      { baseDir },
+    );
+
+    recordModelUsage(
       {
         provider: 'OpenAI',
         model: 'gpt-5-mini',
         modelArchitecture: 'hosted',
-        inputTokens: 12000,
-        outputTokens: 1800,
+        inputTokens: 10000,
+        outputTokens: 1000,
         agentId: 'hermes-1',
-        caseId: 'case-1',
+        agent: 'Hermes',
+        project: 'Safeloop',
+        taskId: 'dogfood-live-monitor-cost-accountability',
+        taskName: 'Dogfood live monitor cost accountability',
+        caseId: 'case-dogfood',
         timestamp: '2026-06-14T10:02:00.000Z',
       },
       { baseDir },
     );
 
-    const totalCost = (calculateCost(usage, { baseDir }) as { totalCost: number }).totalCost;
-    const summary = getCaseCostSummary('case-1', { baseDir });
+    recordTokenCost(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 8000,
+        outputTokens: 1200,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        project: 'Safeloop',
+        taskId: 'dogfood-live-monitor-cost-accountability',
+        taskName: 'Dogfood live monitor cost accountability',
+        caseId: 'case-dogfood',
+        timestamp: '2026-06-14T10:03:00.000Z',
+      },
+      { baseDir },
+    );
 
-    expect(usage.totalTokens).toBe(13800);
-    expect(usage.estimatedCost).toBeCloseTo(0.0066, 6);
-    expect(totalCost).toBeCloseTo(0.0066, 6);
-    expect(summary.totalCost).toBeCloseTo(0.0066, 6);
-    expect(summary.costByAgent['hermes-1']).toBeCloseTo(0.0066, 6);
-    expect(summary.costByModel['gpt-5-mini']).toBeCloseTo(0.0066, 6);
-    expect(summary.costByCase['case-1']).toBeCloseTo(0.0066, 6);
-    expect(summary.currency).toBe('USD');
+    appendEvent(
+      {
+        id: 'evt-risk',
+        type: 'risk.detected',
+        timestamp: '2026-06-14T10:04:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Overlap risk surfaced',
+        metadata: { severity: 'medium' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-approval-requested',
+        type: 'approval.requested',
+        timestamp: '2026-06-14T10:05:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Request approval for monitor polish',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-approval-resolved',
+        type: 'approval.resolved',
+        timestamp: '2026-06-14T10:06:00.000Z',
+        agentId: 'charles',
+        agentName: 'Charles',
+        caseId: 'case-dogfood',
+        summary: 'Approval granted',
+        metadata: { decision: 'approved' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-artifact',
+        type: 'artifact.changed',
+        timestamp: '2026-06-14T10:07:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Monitor server updated',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-handoff',
+        type: 'handoff.created',
+        timestamp: '2026-06-14T10:08:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Handoff to review',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-complete',
+        type: 'task.completed',
+        timestamp: '2026-06-14T10:09:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Monitor polish complete',
+      },
+      { baseDir },
+    );
+
+    const snapshot = getDashboardSnapshot({ baseDir });
+    const loopState = summarizeLoopSummaries(snapshot);
+    const latest = loopState.latest;
+
+    expect(latest).toBeTruthy();
+    expect(latest?.taskName).toBe('Dogfood live monitor cost accountability');
+    expect(latest?.agent).toBe('Hermes');
+    expect(latest?.project).toBe('Safeloop');
+    expect(latest?.status).toBe('completed');
+    expect(latest?.eventCount).toBe(7);
+    expect(latest?.inputTokens).toBe(18000);
+    expect(latest?.outputTokens).toBe(2200);
+    expect(latest?.totalTokens).toBe(20200);
+    expect(latest?.estimatedCost).toBeCloseTo(0.0089, 6);
+    expect(latest?.approvalsCount).toBe(2);
+    expect(latest?.approvalsStatus).toBe('approved');
+    expect(latest?.risksCount).toBe(1);
+    expect(latest?.artifactsCount).toBe(1);
+    expect(latest?.handoffsCount).toBe(1);
+    expect(latest?.durationMs).toBeGreaterThan(0);
+    expect(loopState.current).toHaveLength(1);
+    expect(loopState.historical).toHaveLength(0);
+  });
+
+  it('renders the monitor with a sticky nav, latest run highlight, and compact diagnostics', () => {
+    setModelPricing(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        inputPerMillion: 0.25,
+        outputPerMillion: 2.0,
+        currency: 'USD',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-start-2',
+        type: 'task.started',
+        timestamp: '2026-06-14T10:00:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood-2',
+        summary: 'Start dogfood live monitor cost accountability',
+      },
+      { baseDir },
+    );
+
+    recordModelUsage(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 10000,
+        outputTokens: 1000,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        project: 'Safeloop',
+        taskId: 'dogfood-live-monitor-cost-accountability',
+        taskName: 'Dogfood live monitor cost accountability',
+        caseId: 'case-dogfood-2',
+        timestamp: '2026-06-14T10:02:00.000Z',
+      },
+      { baseDir },
+    );
+
+    recordTokenCost(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 8000,
+        outputTokens: 1200,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        project: 'Safeloop',
+        taskId: 'dogfood-live-monitor-cost-accountability',
+        taskName: 'Dogfood live monitor cost accountability',
+        caseId: 'case-dogfood-2',
+        timestamp: '2026-06-14T10:03:00.000Z',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-complete-2',
+        type: 'task.completed',
+        timestamp: '2026-06-14T10:09:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood-2',
+        summary: 'Monitor polish complete',
+      },
+      { baseDir },
+    );
+
+    const html = renderMonitorHtml({ baseDir });
+
+    expect(html).toContain('Loop Timecards');
+    expect(html).toContain('Latest Run');
+    expect(html).toContain('Historical Ledger Readiness');
+    expect(html).toContain('scroll-margin-top: 160px');
+    expect(html).toContain('top: 24px');
+    expect(html).toContain('Response Keys');
+    expect(html).toContain('diag-details');
+    expect(html).toContain('latest-loop-timecard');
+    expect(html).toContain('current-loop-timecards');
+    expect(html).toContain('historical-loop-timecards');
+    expect(html).toContain('Loop Timecards');
+    expect(html).toContain('Latest Run');
+    expect(html).toContain('latest-loop-timecard');
+    expect(html).toContain('loop-highlight-card');
   });
 
   it('records token/cost events and aggregates costs by agent, task, and project', () => {
@@ -410,6 +629,185 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(snapshot.monitoredPath).toBe(join(baseDir, '.safeloop'));
   });
 
+  it('summarizes a complete dogfood loop as a timecard', () => {
+    setModelPricing(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        inputPerMillion: 0.25,
+        outputPerMillion: 2.0,
+        currency: 'USD',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-start',
+        type: 'task.started',
+        timestamp: '2026-06-14T10:00:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Dogfood live monitor cost accountability',
+      },
+      { baseDir },
+    );
+
+    recordModelUsage(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 10000,
+        outputTokens: 1000,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        caseId: 'case-dogfood',
+        project: 'Safeloop',
+        taskId: 'dogfood-live-monitor-cost-accountability',
+        taskName: 'Dogfood live monitor cost accountability',
+        timestamp: '2026-06-14T10:02:00.000Z',
+      },
+      { baseDir },
+    );
+
+    recordTokenCost(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 8000,
+        outputTokens: 1200,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        caseId: 'case-dogfood',
+        project: 'Safeloop',
+        taskId: 'dogfood-live-monitor-cost-accountability',
+        taskName: 'Dogfood live monitor cost accountability',
+        timestamp: '2026-06-14T10:03:00.000Z',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-risk',
+        type: 'risk.detected',
+        timestamp: '2026-06-14T10:04:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Demo risk',
+        metadata: { severity: 'medium' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-approval-requested',
+        type: 'approval.requested',
+        timestamp: '2026-06-14T10:05:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Request approval for dogfood',
+        metadata: { approver: 'Charles' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-approval-resolved',
+        type: 'approval.resolved',
+        timestamp: '2026-06-14T10:06:00.000Z',
+        agentId: 'charles-1',
+        agentName: 'Charles',
+        caseId: 'case-dogfood',
+        summary: 'Approved dogfood loop',
+        metadata: { decision: 'approved', approver: 'Charles' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-artifact',
+        type: 'artifact.changed',
+        timestamp: '2026-06-14T10:07:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Updated monitor UI',
+        metadata: { path: 'src/monitor/server.ts' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-handoff',
+        type: 'handoff.created',
+        timestamp: '2026-06-14T10:08:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Handoff to Charles',
+        metadata: { from: 'Hermes', to: 'Charles' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-completed',
+        type: 'task.completed',
+        timestamp: '2026-06-14T10:09:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Dogfood loop completed',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-report',
+        type: 'report.generated',
+        timestamp: '2026-06-14T10:10:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-dogfood',
+        summary: 'Report generated',
+      },
+      { baseDir },
+    );
+
+    const snapshot = getDashboardSnapshot({ baseDir });
+    const summaries = summarizeLoopSummaries(snapshot);
+
+    expect(summaries.latest?.taskName).toBe('Dogfood live monitor cost accountability');
+    expect(summaries.latest?.agent).toBe('Hermes');
+    expect(summaries.latest?.project).toBe('Safeloop');
+    expect(summaries.latest?.status).toBe('completed');
+    expect(summaries.latest?.eventCount).toBe(8);
+    expect(summaries.latest?.inputTokens).toBe(18000);
+    expect(summaries.latest?.outputTokens).toBe(2200);
+    expect(summaries.latest?.totalTokens).toBe(20200);
+    expect(summaries.latest?.estimatedCost).toBeCloseTo(0.0089, 6);
+    expect(summaries.latest?.approvalsCount).toBe(2);
+    expect(summaries.latest?.approvalsStatus).toBe('approved');
+    expect(summaries.latest?.risksCount).toBe(1);
+    expect(summaries.latest?.artifactsCount).toBe(1);
+    expect(summaries.latest?.handoffsCount).toBe(1);
+    expect(summaries.latest?.durationMs).toBeGreaterThan(0);
+    expect(summaries.current).toHaveLength(1);
+    expect(summaries.historical).toHaveLength(0);
+  });
+
   it('renders an executive-style live monitor shell with compact sections', () => {
     const html = renderMonitorHtml();
 
@@ -418,41 +816,28 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toContain('Local-only');
     expect(html).toContain('Version v0.7.0');
     expect(html).toContain('Overview');
+    expect(html).toContain('Loops');
     expect(html).toContain('Spend');
-    expect(html).toContain('Activity');
     expect(html).toContain('Risks');
     expect(html).toContain('Human Review');
     expect(html).toContain('Diagnostics');
-    expect(html).toContain('Latest Dogfood Run');
-    expect(html).toContain('taskName');
+    expect(html).toContain('Loop Timecards');
+    expect(html).toContain('Latest Run');
     expect(html).toContain('Dogfood live monitor cost accountability');
-    expect(html).toContain('Historical ledger');
-    expect(html).toContain('Event count');
-    expect(html).toContain('Active agent count');
-    expect(html).toContain('Total cost');
-    expect(html).toContain('Usage count');
-    expect(html).toContain('High risk count');
-    expect(html).toContain('Pending approval count');
-    expect(html).toContain('Last updated');
-    expect(html).toContain('Spend Overview');
-    expect(html).toContain('Token Usage');
-    expect(html).toContain('Active Agent Work');
-    expect(html).toContain('Activity Timeline');
-    expect(html).toContain('Risk &amp; Guardrails');
-    expect(html).toContain('Human Review');
-    expect(html).toContain('Work Products');
-    expect(html).toContain('Agent Handoffs');
-    expect(html).toContain('Steering Insights');
-    expect(html).toContain('Show raw event ledger');
-    expect(html).toContain('Show raw approvals');
-    expect(html).toContain('Diagnostics');
+    expect(html).toContain('Historical Ledger');
+    expect(html).toContain('scroll-margin-top: 160px');
+    expect(html).toContain('top: 24px');
+    expect(html).toContain('latest-loop-timecard');
+    expect(html).toContain('current-loop-timecards');
+    expect(html).toContain('historical-loop-timecards');
+    expect(html).toContain('Diagnostic');
     expect(html).toContain('script loaded');
     expect(html).toContain('poll started');
     expect(html).toContain('last poll URL');
     expect(html).toContain('last HTTP status');
     expect(html).toContain('last poll latency');
-    expect(html).toContain('last fetch error');
-    expect(html).toContain('last render error');
+    expect(html).toContain('Response Keys');
+    expect(html).toContain('diag-details');
     expect(html).toContain('window.onerror');
     expect(html).toContain('unhandledrejection');
     expect(html).toContain('steering-dashboard');
