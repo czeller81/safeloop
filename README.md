@@ -125,6 +125,20 @@ Safeloop does not:
 - send network data
 - replace human approval
 
+## Oversight Intelligence (v0.8.0)
+
+Version 0.8.0 adds an Oversight Intelligence layer that analyzes complete agent loops (Case File → Task → Events → Model Usage → Outcomes) and derives proactive warnings, anomalies, explainability coverage, and an oversight score per loop. Safeloop remains runtime-agnostic: agents emit events, Safeloop derives oversight intelligence.
+
+Key features:
+
+- Loop timecards that aggregate events, tokens, cost, risks, approvals, artifacts, handoffs, explainability, and feedback.
+- An analyzer that identifies stale or wasteful loops, unresolved approvals, missing attribution, high-risk work without mitigation, repeated failures, and budget anomalies.
+- Explainability schema support (decision.explained or decision.made with rationale metadata).
+- Feedback events (feedback.recorded) and per-loop feedback summaries.
+- Deterministic oversight score (0–100) with levels: healthy | watch | needs_review | critical and recommended actions.
+
+This release warns, scores, and reports — it does not block execution. See docs and /api/dashboard for the oversight payload shape.
+
 ## Why this exists
 
 Local AI agent loops fail in predictable ways:

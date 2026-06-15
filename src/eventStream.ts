@@ -4,6 +4,7 @@ export type SafeloopStreamEventType =
   | 'task.started'
   | 'context.loaded'
   | 'decision.made'
+  | 'decision.explained'
   | 'risk.detected'
   | 'approval.requested'
   | 'approval.resolved'
@@ -14,7 +15,8 @@ export type SafeloopStreamEventType =
   | 'test.completed'
   | 'handoff.created'
   | 'task.completed'
-  | 'report.generated';
+  | 'report.generated'
+  | 'feedback.recorded';
 
 export interface SafeloopStreamEvent {
   id: string;
