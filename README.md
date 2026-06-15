@@ -494,6 +494,23 @@ npm run example:live-simulation
 
 The simulation is repo-local and uses the TypeScript example harness. It is for proof and review, not a security boundary.
 
+## Live monitor setup note
+
+After pulling the Vite monitor refactor, run:
+
+```bash
+npm install
+npm run monitor
+```
+
+The `monitor` command now builds the Vite UI first, then starts the local monitor server on port `3777`.
+
+Notes:
+- Vite is a local devDependency, not a global dependency.
+- Do not install Vite globally.
+- If PowerShell says `vite` is not recognized, run `npm install` from the repo root first.
+- Do not run `npm audit fix --force` automatically, because it can introduce breaking changes.
+
 ## API references
 
 ### `createPolicyGate(config)`
