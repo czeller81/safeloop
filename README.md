@@ -1,6 +1,6 @@
 # Safeloop
 
-## Agent Accountability + Handoff SDK
+## Agent Accountability + Live Loop Monitor SDK
 
 Current release: v0.7.0
 
@@ -461,7 +461,7 @@ console.log(projectReport.summary);
 
 ## Install
 
-Safeloop v0.6.0 installs with:
+Safeloop v0.7.0 installs with:
 
 ```bash
 npm install safeloop
