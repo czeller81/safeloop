@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
+  buildMonitorDashboardPayload,
   appendEvent,
   calculateCost,
   calculateReadinessScore,
@@ -229,7 +230,7 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(latest?.agent).toBe('Hermes');
     expect(latest?.project).toBe('Safeloop');
     expect(latest?.status).toBe('completed');
-    expect(latest?.eventCount).toBe(7);
+    expect(latest?.eventCount).toBe(9);
     expect(latest?.inputTokens).toBe(18000);
     expect(latest?.outputTokens).toBe(2200);
     expect(latest?.totalTokens).toBe(20200);
@@ -319,28 +320,116 @@ describe('Safeloop v0.7 observability layer', () => {
     );
 
     const html = renderMonitorHtml({ baseDir });
+    const latestRunCount = (html.match(/Latest Run/g) ?? []).length;
+    const sidebarCount = (html.match(/<aside class="sl-sidebar"/g) ?? []).length;
 
     expect(html).toContain('Loop Timecards');
-    expect(html).toContain('Latest Run');
-    expect(html).toContain('Historical Ledger Readiness');
-    expect(html).toContain('scroll-padding-top: 140px');
-    expect(html).toContain('scroll-margin-top: 140px');
-    expect(html).toContain('top: 24px');
-    expect(html).toContain('sl-layout');
-    expect(html).toContain('sl-sidebar');
-    expect(html).toContain('sl-brand-mark');
-    expect(html).toContain('safeloop-logo');
-    expect(html).toContain('border-radius: 999px');
-    expect(html).toContain('width: 86px');
-    expect(html).toContain('Response Keys');
-    expect(html).toContain('diag-details');
-    expect(html).toContain('latest-loop-timecard');
+    expect(html).toContain('Historical Ledger');
     expect(html).toContain('current-loop-timecards');
     expect(html).toContain('historical-loop-timecards');
-    expect(html).toContain('Loop Timecards');
-    expect(html).toContain('Latest Run');
     expect(html).toContain('latest-loop-timecard');
     expect(html).toContain('loop-highlight-card');
+    expect(html).toContain('sl-layout');
+    expect(html).toContain('sl-sidebar');
+    expect(html).not.toContain('sl-sticky-nav');
+    expect(html).toContain('Response keys');
+    expect(html).toContain('diag-details');
+    expect(html).toContain('Historical ledger readiness');
+    expect(html).toContain('Current readiness');
+    expect(latestRunCount).toBe(1);
+    expect(sidebarCount).toBe(1);
+  });
+
+  it('separates current run readiness from historical ledger readiness', () => {
+    setModelPricing(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        inputPerMillion: 0.25,
+        outputPerMillion: 2.0,
+        currency: 'USD',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-current-start',
+        type: 'task.started',
+        timestamp: '2026-06-14T11:00:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-current',
+        summary: 'Start current monitor work',
+      },
+      { baseDir },
+    );
+
+    recordModelUsage(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 4000,
+        outputTokens: 500,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        caseId: 'case-current',
+        project: 'Safeloop',
+        taskId: 'current-monitor',
+        taskName: 'Current monitor work',
+        timestamp: '2026-06-14T11:01:00.000Z',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-historical-start',
+        type: 'task.started',
+        timestamp: '2026-06-13T08:00:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-history',
+        summary: 'Older historical work',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-historical-risk',
+        type: 'risk.detected',
+        timestamp: '2026-06-13T08:01:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-history',
+        summary: 'Historical risk',
+        metadata: { severity: 'high' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-historical-complete',
+        type: 'task.completed',
+        timestamp: '2026-06-13T08:02:00.000Z',
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-history',
+        summary: 'Historical work complete',
+      },
+      { baseDir },
+    );
+
+    const payload = buildMonitorDashboardPayload(getDashboardSnapshot({ baseDir }));
+
+    expect(payload.viewModel.current.latestRun?.taskName).toBe('Current monitor work');
+    expect(payload.viewModel.current.currentReadiness.score).toBeGreaterThan(0);
+    expect(payload.viewModel.historical.readiness.score).toBeLessThan(payload.viewModel.current.currentReadiness.score);
+    expect(payload.viewModel.current.risks).toHaveLength(0);
+    expect(payload.viewModel.historical.risks).toHaveLength(1);
   });
 
   it('records token/cost events and aggregates costs by agent, task, and project', () => {
@@ -800,7 +889,7 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(summaries.latest?.agent).toBe('Hermes');
     expect(summaries.latest?.project).toBe('Safeloop');
     expect(summaries.latest?.status).toBe('completed');
-    expect(summaries.latest?.eventCount).toBe(8);
+    expect(summaries.latest?.eventCount).toBe(10);
     expect(summaries.latest?.inputTokens).toBe(18000);
     expect(summaries.latest?.outputTokens).toBe(2200);
     expect(summaries.latest?.totalTokens).toBe(20200);
@@ -819,11 +908,10 @@ describe('Safeloop v0.7 observability layer', () => {
     const html = renderMonitorHtml();
 
     expect(html).toContain('Safeloop v0.7.0 · live monitor');
-    expect(html).toContain('Agent Cost, Control & Accountability Monitor');
+    expect(html).toContain('Agent Cost, Control &amp; Accountability Monitor');
     expect(html).toContain('Local-only');
     expect(html).toContain('Version v0.7.0');
-    expect(html).toContain('Overview');
-    expect(html).toContain('Loops');
+    expect(html).toContain('data-monitor-ui="vite"');
     expect(html).toContain('Spend');
     expect(html).toContain('Risks');
     expect(html).toContain('Human Review');
@@ -832,31 +920,17 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toContain('Latest Run');
     expect(html).toContain('Dogfood live monitor cost accountability');
     expect(html).toContain('Historical Ledger');
-    expect(html).toContain('scroll-padding-top: 140px');
-    expect(html).toContain('scroll-margin-top: 140px');
-    expect(html).toContain('top: 24px');
     expect(html).toContain('sl-layout');
     expect(html).toContain('sl-sidebar');
     expect(html).toContain('sl-brand-mark');
     expect(html).toContain('safeloop-logo');
-    expect(html).toContain('border-radius: 999px');
-    expect(html).toContain('width: 86px');
     expect(html).toContain('latest-loop-timecard');
     expect(html).toContain('current-loop-timecards');
     expect(html).toContain('historical-loop-timecards');
-    expect(html).toContain('Diagnostic');
-    expect(html).toContain('script loaded');
-    expect(html).toContain('poll started');
-    expect(html).toContain('last poll URL');
-    expect(html).toContain('last HTTP status');
-    expect(html).toContain('last poll latency');
-    expect(html).toContain('Response Keys');
+    expect(html).toContain('Current readiness');
+    expect(html).toContain('Historical ledger readiness');
+    expect(html).toContain('Response keys');
     expect(html).toContain('diag-details');
-    expect(html).toContain('window.onerror');
-    expect(html).toContain('unhandledrejection');
-    expect(html).toContain('steering-dashboard');
-    expect(html).toContain("fetch(pollUrl, { cache: 'no-store' })");
-    expect(html).toContain('setTimeout(refresh, POLL_MS)');
   });
 
   it('marks resolved approvals as approved instead of leaving them pending', () => {

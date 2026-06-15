@@ -980,9 +980,16 @@ export {
   createMonitorServer,
   startMonitorServer,
   renderMonitorHtml,
+  buildMonitorDashboardPayload,
+  buildMonitorViewModel,
+  summarizeLoopSummaries,
 } from './monitor';
 export type {
   MonitorServerOptions,
+  MonitorDashboardPayload,
+  MonitorViewModel,
+  TimecardCollection,
+  LoopTimecard,
 } from './monitor';
 export type {
   CaseFile,
