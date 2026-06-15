@@ -1,8 +1,5 @@
 import { type SafeloopStreamEvent } from './eventStream';
-
-const OVERSIGHT_COST_THRESHOLD = 0.02;
-const OVERSIGHT_TOKEN_THRESHOLD = 50000;
-const OVERSIGHT_DURATION_THRESHOLD_MS = 90 * 60 * 1000;
+import { defaultOversightConfig, mergeOversightConfig, type OversightConfig } from './oversightConfig';
 
 function asText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -97,7 +94,10 @@ export function collectLoopExplainability(loops: ReadonlyArray<{ _events?: Safel
   };
 }
 
-export function analyzeLoopOversight(loop: any, collection: any) {
+// Third param: optional oversight config overrides
+export function analyzeLoopOversight(loop: any, collection: any, options?: Partial<OversightConfig>) {
+  const config = mergeOversightConfig(options);
+
   const warnings: OversightIssue[] = [];
   const anomalies: OversightIssue[] = [];
   const events: SafeloopStreamEvent[] = Array.isArray(loop._events) ? loop._events : [];
@@ -106,10 +106,10 @@ export function analyzeLoopOversight(loop: any, collection: any) {
   const lastMs = toTimestamp(loop.lastTimestamp);
   const ageMs = lastMs > 0 ? Math.max(0, nowMs - lastMs) : Number.POSITIVE_INFINITY;
 
-  const staleByAge = loop.status === 'stale' || (loop.status !== 'historical' && ageMs > OVERSIGHT_DURATION_THRESHOLD_MS);
-  const durationTooLong = loop.durationMs > OVERSIGHT_DURATION_THRESHOLD_MS;
-  const tokenUsage = loop.totalTokens > OVERSIGHT_TOKEN_THRESHOLD;
-  const costTooHigh = loop.estimatedCost > OVERSIGHT_COST_THRESHOLD;
+  const staleByAge = loop.status === 'stale' || (loop.status !== 'historical' && ageMs > config.staleLoopMs);
+  const durationTooLong = loop.durationMs > config.maxLoopDurationMs;
+  const tokenUsage = loop.totalTokens > config.maxLoopTokens;
+  const costTooHigh = loop.estimatedCost > config.maxLoopCost;
   const unresolvedApprovals = loop.approvalsStatus === 'pending' || (events.some((e) => e.type === 'approval.requested') && !events.some((e) => e.type === 'approval.resolved'));
   const highRiskWithoutMitigation = events.some((e) => e.type === 'risk.detected' && asText(e.metadata?.severity) === 'high' && !asText(e.metadata?.mitigation));
   const missingAttribution = !loop.project || !loop.taskId || !loop.caseId || !loop.agentId;
@@ -144,27 +144,28 @@ export function analyzeLoopOversight(loop: any, collection: any) {
   if (repeatedPatchNoops > 0) warnings.push({ code: 'patch_noop', severity: 'warning', message: 'Patch no-op errors were detected.' });
   if (artifactChangedWithoutCompletion) warnings.push({ code: 'artifact_without_completion', severity: 'warning', message: 'Artifact changes were recorded without loop completion.' });
   if (taskCompletedWithoutReport) warnings.push({ code: 'completion_without_report', severity: 'warning', message: 'Task completed without a report or output summary.' });
-  if (historicalActives > 2) anomalies.push({ code: 'historical_loops_marked_active', severity: 'anomaly', message: 'Too many historical loops are still marked active.' });
+  if (historicalActives > config.maxHistoricalRunningLoops) anomalies.push({ code: 'historical_loops_marked_active', severity: 'anomaly', message: 'Too many historical loops are still marked active.' });
   if (feedback.needsReviewFromFeedback) warnings.push({ code: 'feedback_needs_review', severity: 'warning', message: 'Feedback indicates the loop needs review.' });
 
+  const p = config.penalties;
   const scoreDeductions = [
-    costTooHigh ? 15 : 0,
-    tokenUsage ? 12 : 0,
-    durationTooLong ? 10 : 0,
-    staleFlag ? 10 : 0,
-    repeatedFailures > 1 ? 15 : 0,
-    repeatedProviderRetries > 1 ? 10 : 0,
-    repeatedPatchNoops > 0 ? 10 : 0,
-    unresolvedApprovals ? 15 : 0,
-    highRiskWithoutMitigation ? 15 : 0,
-    artifactChangedWithoutCompletion ? 10 : 0,
-    taskCompletedWithoutReport ? 10 : 0,
-    missingAttribution ? 20 : 0,
-    modelUsageWithoutCost ? 10 : 0,
-    historicalActives > 2 ? 15 : 0,
-    explainability.decisionCount > 0 && explainability.explainedDecisionCount === 0 ? 10 : 0,
-    decisionMissingExplanation ? 5 : 0,
-    feedback.needsReviewFromFeedback ? 5 : 0,
+    costTooHigh ? p.costPenalty : 0,
+    tokenUsage ? p.tokenPenalty : 0,
+    durationTooLong ? p.durationPenalty : 0,
+    staleFlag ? p.stalePenalty : 0,
+    repeatedFailures > 1 ? p.repeatedFailuresPenalty : 0,
+    repeatedProviderRetries > 1 ? p.providerRetryPenalty : 0,
+    repeatedPatchNoops > 0 ? p.patchNoopPenalty : 0,
+    unresolvedApprovals ? p.unresolvedApprovalPenalty : 0,
+    highRiskWithoutMitigation ? p.highRiskPenalty : 0,
+    artifactChangedWithoutCompletion ? p.artifactWithoutCompletionPenalty : 0,
+    taskCompletedWithoutReport ? p.completionWithoutReportPenalty : 0,
+    missingAttribution ? p.missingAttributionPenalty : 0,
+    modelUsageWithoutCost ? p.modelUsageWithoutCostPenalty : 0,
+    historicalActives > config.maxHistoricalRunningLoops ? p.historicalActivesPenalty : 0,
+    explainability.decisionCount > 0 && explainability.explainedDecisionCount === 0 ? p.explainabilityMissingPenalty : 0,
+    decisionMissingExplanation ? p.decisionMissingExplanationPenalty : 0,
+    feedback.needsReviewFromFeedback ? p.feedbackNeedsReviewPenalty : 0,
   ].reduce((sum, v) => sum + v, 0);
 
   const oversightScore = Math.max(0, 100 - scoreDeductions);
@@ -172,7 +173,7 @@ export function analyzeLoopOversight(loop: any, collection: any) {
 
   const recommendedAction: any = (() => {
     if (missingAttribution) return 'fix_attribution';
-    if (oversightLevel === 'critical' || repeatedFailures > 1 || repeatedPatchNoops > 0 || historicalActives > 2) return 'stop_or_handoff';
+    if (oversightLevel === 'critical' || repeatedFailures > 1 || repeatedPatchNoops > 0 || historicalActives > config.maxHistoricalRunningLoops) return 'stop_or_handoff';
     if (unresolvedApprovals || highRiskWithoutMitigation) return 'approve_required';
     if (!isCompleted && (staleByAge || durationTooLong)) return 'investigate_stale_loop';
     if (costTooHigh || tokenUsage || modelUsageWithoutCost) return 'investigate_cost';
@@ -181,5 +182,5 @@ export function analyzeLoopOversight(loop: any, collection: any) {
     return 'continue';
   })();
 
-  return { oversightScore, oversightLevel, recommendedAction, warnings, anomalies, explainability, feedback };
+  return { oversightScore, oversightLevel, recommendedAction, warnings, anomalies, explainability, feedback, config };
 }

@@ -161,6 +161,8 @@ export interface OversightSection {
   anomalies: OversightIssue[];
   explainability: LoopExplainabilitySummary;
   feedback: LoopFeedbackSummary;
+  // active configured thresholds exposed for visibility
+  config?: Record<string, unknown> | undefined;
 }
 
 export interface CurrentSection {
@@ -891,6 +893,8 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
       explainability: oversightExplainability,
       feedback: oversightFeedback,
     },
+    // expose active oversight config (if analyzer returns it on latestRun)
+    config: (latestRun as any)?.config ?? undefined,
     latestLoop: latestRun,
     loopTimecards: oversightLoopTimecards,
     warnings: oversightWarnings,

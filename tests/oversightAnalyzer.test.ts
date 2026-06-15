@@ -64,4 +64,64 @@ describe('oversightAnalyzer', () => {
     expect(result.anomalies.find((a) => a.code === 'missing_attribution')).toBeTruthy();
     expect(result.anomalies.find((a) => a.code === 'unresolved_approval')).toBeTruthy();
   });
+
+  test('custom thresholds change stale/cost/token detection', () => {
+    const probLoop: any = {
+      _events: [
+        { id: 'p1', type: 'task.started', timestamp: '2026-05-01T08:00:00.000Z', summary: 'start', metadata: {} },
+        { id: 'p2', type: 'model.usage', timestamp: '2026-05-01T08:00:05.000Z', summary: 'usage', metadata: { estimatedCost: 0 } },
+        { id: 'p3', type: 'risk.detected', timestamp: '2026-05-01T08:00:06.000Z', summary: 'high risk', metadata: { severity: 'high' } },
+        { id: 'p4', type: 'approval.requested', timestamp: '2026-05-01T08:00:07.000Z', summary: 'ask', metadata: { approver: 'owner' } },
+      ],
+      _usageRecords: [ { estimatedCost: 0 } ],
+      status: 'running',
+      lastTimestamp: '2026-05-01T08:00:08.000Z',
+      firstTimestamp: '2026-05-01T08:00:00.000Z',
+      durationMs: 100000000,
+      totalTokens: 2100,
+      estimatedCost: 0,
+      approvalsStatus: 'pending',
+      project: '',
+      taskId: '',
+      caseId: 'case-problem',
+      agentId: 'hermes-2',
+    };
+    const collection: any = { historical: [] };
+
+    // make stale threshold tiny so this running loop becomes stale
+    const staleResult = analyzeLoopOversight(probLoop, collection, { staleLoopMs: 1 });
+    expect(staleResult.warnings.some((w: any) => w.code === 'stale_loop')).toBeTruthy();
+    // recommendedAction may be investigate_stale_loop, review, stop_or_handoff, or fix_attribution depending on other flags
+    expect(['investigate_stale_loop', 'review', 'stop_or_handoff', 'fix_attribution']).toContain(staleResult.recommendedAction);
+
+    // make cost threshold tiny so cost warning fires for healthy loop
+    const healthyLoop: any = {
+      _events: [
+        { id: 'e1', type: 'task.started', timestamp: '2026-06-15T09:00:00.000Z', summary: 'start', metadata: {} },
+        { id: 'e4', type: 'model.usage', timestamp: '2026-06-15T09:00:12.000Z', summary: 'usage', metadata: { estimatedCost: 0.001 } },
+        { id: 'e7', type: 'task.completed', timestamp: '2026-06-15T09:00:40.000Z', summary: 'done', metadata: { outputSummary: 'ok' } },
+      ],
+      _usageRecords: [ { estimatedCost: 0.001 } ],
+      status: 'completed',
+      lastTimestamp: '2026-06-15T09:00:40.000Z',
+      firstTimestamp: '2026-06-15T09:00:00.000Z',
+      durationMs: 40000,
+      totalTokens: 60,
+      estimatedCost: 0.001,
+      approvalsStatus: 'approved',
+      project: 'Safeloop',
+      taskId: 'task-healthy-1',
+      caseId: 'case-healthy',
+      agentId: 'hermes-1',
+    };
+
+    const costResultDefault = analyzeLoopOversight(healthyLoop, collection);
+    expect(costResultDefault.warnings.find((w) => w.code === 'cost_threshold_exceeded')).toBeUndefined();
+
+    const costResultTiny = analyzeLoopOversight(healthyLoop, collection, { maxLoopCost: 0.0001 });
+    expect(costResultTiny.warnings.find((w) => w.code === 'cost_threshold_exceeded')).toBeTruthy();
+
+    const tokenResultTiny = analyzeLoopOversight(healthyLoop, collection, { maxLoopTokens: 10 });
+    expect(tokenResultTiny.warnings.find((w) => w.code === 'token_threshold_exceeded')).toBeTruthy();
+  });
 });
