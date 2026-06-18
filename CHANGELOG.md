@@ -2,9 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.7.0 - Current
+## v0.7.0
 
 Safeloop v0.7.0 adds the local live loop monitor, event stream, cost tracking, steering intelligence, goal drift detection, and release readiness scoring.
+
+## v0.8.0 - Oversight Intelligence (current)
+
+v0.8.0 introduces the Oversight Intelligence Layer: loop timecards with oversight scoring, proactive warnings, anomaly detection, explainability coverage, feedback events, and recommended actions.
 
 ### Added
 

@@ -2,6 +2,7 @@ import { calculateReadinessScore, type ReadinessScoreResult } from '../readiness
 import type { DashboardSnapshot } from './dashboardData';
 import type { SafeloopStreamEvent } from '../eventStream';
 import type { ModelUsageRecord } from '../modelUsage';
+import { analyzeLoopOversight as analyzeLoopOversightImpl } from '../oversightAnalyzer';
 
 export type LoopStatus = 'running' | 'completed' | 'stale' | 'historical';
 
@@ -29,6 +30,13 @@ export interface LoopTimecard {
   firstTimestamp: string;
   lastTimestamp: string;
   models: string[];
+  oversightScore: number;
+  oversightLevel: OversightLevel;
+  recommendedAction: OversightRecommendedAction;
+  warnings: OversightIssue[];
+  anomalies: OversightIssue[];
+  explainability: LoopExplainabilitySummary;
+  feedback: LoopFeedbackSummary;
 }
 
 export interface TimecardCollection {
@@ -82,6 +90,79 @@ export interface ArtifactItem extends SectionItem {
 export interface HandoffItem extends SectionItem {
   from?: string;
   to?: string;
+}
+
+export type OversightLevel = 'healthy' | 'watch' | 'needs_review' | 'critical';
+export type OversightRecommendedAction =
+  | 'continue'
+  | 'review'
+  | 'approve_required'
+  | 'investigate_cost'
+  | 'investigate_stale_loop'
+  | 'fix_attribution'
+  | 'add_explanation'
+  | 'stop_or_handoff';
+
+export interface OversightIssue {
+  code: string;
+  severity: 'warning' | 'anomaly';
+  message: string;
+}
+
+export interface LoopExplainabilitySummary {
+  decisionCount: number;
+  explainedDecisionCount: number;
+  explanationCoveragePercent: number;
+  missingExplanationCount: number;
+}
+
+export interface LoopFeedbackItem {
+  feedbackId?: string;
+  targetType: 'loop' | 'event' | 'artifact' | 'decision' | 'approval' | 'handoff';
+  targetEventId?: string;
+  rating: 'positive' | 'neutral' | 'negative';
+  score?: number;
+  labels: string[];
+  comment: string;
+  reviewer?: string;
+  timestamp: string;
+}
+
+export interface LoopFeedbackSummary {
+  feedbackCount: number;
+  averageScore: number | null;
+  positiveCount: number;
+  negativeCount: number;
+  latestFeedback: LoopFeedbackItem | null;
+  needsReviewFromFeedback: boolean;
+}
+
+export interface LoopOversightSummary {
+  oversightScore: number;
+  oversightLevel: OversightLevel;
+  recommendedAction: OversightRecommendedAction;
+  warningCount: number;
+  anomalyCount: number;
+  latestLoop: LoopTimecard | null;
+  loopCount: number;
+  currentLoopCount: number;
+  historicalLoopCount: number;
+  staleLoopCount: number;
+  needsReviewLoopCount: number;
+  explainability: LoopExplainabilitySummary;
+  feedback: LoopFeedbackSummary;
+}
+
+export interface OversightSection {
+  summary: LoopOversightSummary;
+  latestLoop: LoopTimecard | null;
+  loopTimecards: LoopTimecard[];
+  warnings: OversightIssue[];
+  anomalies: OversightIssue[];
+  explainability: LoopExplainabilitySummary;
+  feedback: LoopFeedbackSummary;
+  // active configured thresholds exposed for visibility
+  config?: Record<string, unknown> | undefined;
 }
 
 export interface CurrentSection {
@@ -153,10 +234,12 @@ export interface MonitorViewModel {
   spend: SpendAggregate;
   tokens: TokenSection;
   diagnostics: DiagnosticsSection;
+  oversight: OversightSection;
 }
 
 export interface MonitorDashboardPayload extends DashboardSnapshot {
   viewModel: MonitorViewModel;
+  oversight: OversightSection;
 }
 
 const LOOP_RECENT_MS = 30 * 60 * 1000;
@@ -255,8 +338,8 @@ function createBucketFromEvent(event: SafeloopStreamEvent): LoopBucket {
     totalTokens: 0,
     estimatedCost: 0,
     timestamp: event.timestamp,
-    agentId: trimText(event.agentId) || 'unknown-agent',
-    agent: trimText(event.agentName) || undefined,
+    agentId: trimText(event.metadata?.agentId) || trimText(event.agentId) || 'unknown-agent',
+    agent: trimText(event.metadata?.agent) || trimText(event.agentName) || trimText(event.metadata?.agentId) || trimText(event.agentId) || undefined,
     caseId: trimText(event.caseId) || 'case-unknown',
     project: trimText(event.metadata?.project) || undefined,
     taskId: trimText(event.metadata?.taskId) || undefined,
@@ -274,8 +357,8 @@ function chooseBestBucket(event: SafeloopStreamEvent, buckets: LoopBucket[]): Lo
   const eventSessionId = trimText(event.sessionId);
   const eventTaskId = trimText(event.metadata?.taskId);
   const eventTaskName = trimText(event.metadata?.taskName) || trimText(event.metadata?.task);
-  const eventAgentId = trimText(event.agentId);
-  const eventAgent = trimText(event.agentName);
+  const eventAgentId = trimText(event.metadata?.agentId) || trimText(event.agentId);
+  const eventAgent = trimText(event.metadata?.agent) || trimText(event.agentName);
 
   const exactSession = eventSessionId ? buckets.find((bucket) => bucket.sessionId === eventSessionId) : undefined;
   if (exactSession) {
@@ -437,26 +520,39 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
     .sort((a, b) => toTimestamp(b.lastTimestamp) - toTimestamp(a.lastTimestamp));
 
   const nowMs = Date.now();
-  const current = all.filter((summary) => {
-    if (summary === all[0]) {
-      return true;
-    }
-    if (summary.status === 'running') {
-      return true;
-    }
-    if (summary.status === 'completed') {
-      return toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_HISTORICAL_MS;
-    }
-    return false;
-  });
-  const historical = all.filter((summary) => !current.some((item) => item.key === summary.key));
-  const latest = current[0] ?? all[0] ?? null;
+  const bareCollection: InternalTimecardCollection = {
+    all,
+    current: all.filter((summary) => {
+      if (summary === all[0]) {
+        return true;
+      }
+      if (summary.status === 'running') {
+        return true;
+      }
+      if (summary.status === 'completed') {
+        return toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_HISTORICAL_MS;
+      }
+      return false;
+    }),
+    historical: [],
+    latest: null,
+  };
+  bareCollection.historical = all.filter((summary) => !bareCollection.current.some((item) => item.key === summary.key));
+  bareCollection.latest = bareCollection.current[0] ?? all[0] ?? null;
+
+  const decoratedAll = all.map((loop) => ({
+    ...loop,
+    ...analyzeLoopOversightImpl(loop, bareCollection),
+  })) as InternalLoopTimecard[];
+  const decoratedCurrent = decoratedAll.filter((summary) => bareCollection.current.some((item) => item.key === summary.key));
+  const decoratedHistorical = decoratedAll.filter((summary) => bareCollection.historical.some((item) => item.key === summary.key));
+  const decoratedLatest = decoratedCurrent[0] ?? decoratedAll[0] ?? null;
 
   return {
-    all,
-    current,
-    historical,
-    latest,
+    all: decoratedAll,
+    current: decoratedCurrent,
+    historical: decoratedHistorical,
+    latest: decoratedLatest,
   };
 }
 
@@ -580,6 +676,12 @@ function buildHandoffItems(loops: ReadonlyArray<LoopEventSource>): HandoffItem[]
     }))
     .sort((a, b) => toTimestamp(b.timestamp) - toTimestamp(a.timestamp));
 }
+
+// Oversight analysis (explainability, feedback, scoring, stale detection)
+// has been delegated to src/oversightAnalyzer.ts. The view model uses the
+// analyzer via an imported function (analyzeLoopOversightImpl). This file no
+// longer contains duplicate analyzer logic. See src/oversightAnalyzer.ts for
+// the authoritative implementation and unit tests.
 
 function readinessFromLoops(loops: ReadonlyArray<LoopEventSource>): ReadinessScoreResult {
   const events = flattenSectionEvents(loops);
@@ -730,6 +832,76 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     responseKeys: [],
     lastRenderError: null,
   };
+  const oversightLoopTimecards = collection.all.map(stripInternalFields);
+  const oversightWarnings = collection.all.flatMap((loop) => loop.warnings);
+  const oversightAnomalies = collection.all.flatMap((loop) => loop.anomalies);
+  const oversightExplainability = collection.all.reduce(
+    (acc, loop) => ({
+      decisionCount: acc.decisionCount + loop.explainability.decisionCount,
+      explainedDecisionCount: acc.explainedDecisionCount + loop.explainability.explainedDecisionCount,
+      explanationCoveragePercent: acc.decisionCount + loop.explainability.decisionCount === 0
+        ? 100
+        : Math.max(0, Math.round(((acc.explainedDecisionCount + loop.explainability.explainedDecisionCount) / (acc.decisionCount + loop.explainability.decisionCount)) * 100)),
+      missingExplanationCount: acc.missingExplanationCount + loop.explainability.missingExplanationCount,
+    }),
+    {
+      decisionCount: 0,
+      explainedDecisionCount: 0,
+      explanationCoveragePercent: 100,
+      missingExplanationCount: 0,
+    },
+  );
+  const oversightFeedback = collection.all.reduce(
+    (acc, loop) => {
+      const nextCount = acc.feedbackCount + loop.feedback.feedbackCount;
+      const nextScoreTotal = (acc.averageScore ?? 0) * acc.feedbackCount + (loop.feedback.averageScore ?? 0) * loop.feedback.feedbackCount;
+      const nextAverage = nextCount > 0 ? nextScoreTotal / nextCount : null;
+      return {
+        feedbackCount: nextCount,
+        averageScore: nextAverage,
+        positiveCount: acc.positiveCount + loop.feedback.positiveCount,
+        negativeCount: acc.negativeCount + loop.feedback.negativeCount,
+        latestFeedback:
+          !acc.latestFeedback || toTimestamp(loop.feedback.latestFeedback?.timestamp ?? '') >= toTimestamp(acc.latestFeedback.timestamp)
+            ? loop.feedback.latestFeedback
+            : acc.latestFeedback,
+        needsReviewFromFeedback: acc.needsReviewFromFeedback || loop.feedback.needsReviewFromFeedback,
+      };
+    },
+    {
+      feedbackCount: 0,
+      averageScore: null as number | null,
+      positiveCount: 0,
+      negativeCount: 0,
+      latestFeedback: null as LoopFeedbackItem | null,
+      needsReviewFromFeedback: false,
+    },
+  );
+  const oversight: OversightSection = {
+    summary: {
+      oversightScore: latestRun?.oversightScore ?? 100,
+      oversightLevel: latestRun?.oversightLevel ?? 'healthy',
+      recommendedAction: latestRun?.recommendedAction ?? 'continue',
+      warningCount: oversightWarnings.length,
+      anomalyCount: oversightAnomalies.length,
+      latestLoop: latestRun,
+      loopCount: collection.all.length,
+      currentLoopCount: collection.current.length,
+      historicalLoopCount: collection.historical.length,
+      staleLoopCount: collection.all.filter((loop) => loop.status === 'stale').length,
+      needsReviewLoopCount: collection.all.filter((loop) => loop.oversightLevel !== 'healthy').length,
+      explainability: oversightExplainability,
+      feedback: oversightFeedback,
+    },
+    // expose active oversight config (if analyzer returns it on latestRun)
+    config: (latestRun as any)?.config ?? undefined,
+    latestLoop: latestRun,
+    loopTimecards: oversightLoopTimecards,
+    warnings: oversightWarnings,
+    anomalies: oversightAnomalies,
+    explainability: oversightExplainability,
+    feedback: oversightFeedback,
+  };
 
   return {
     status: {
@@ -743,6 +915,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     spend,
     tokens,
     diagnostics,
+    oversight,
   };
 }
 
@@ -751,6 +924,7 @@ export function buildMonitorDashboardPayload(snapshot: DashboardSnapshot): Monit
   const payload: MonitorDashboardPayload = {
     ...snapshot,
     viewModel,
+    oversight: viewModel.oversight,
   };
   const responseKeys = Object.keys(payload).sort();
   viewModel.diagnostics.responseKeys = responseKeys;

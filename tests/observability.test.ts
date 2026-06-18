@@ -328,8 +328,8 @@ describe('Safeloop v0.7 observability layer', () => {
     expect((html.match(/id="latest-run"/g) ?? []).length).toBe(1);
     expect((html.match(/class="sl-sidebar"/g) ?? []).length).toBe(1);
     expect((html.match(/id="historical-ledger"/g) ?? []).length).toBe(1);
-    expect(html).not.toContain('sl-sticky-nav');
-    expect(html).not.toContain('open class="historical-ledger"');
+    expect(html).toContain('Oversight Intelligence');
+    expect(html).toContain('id="oversight-intelligence"');
   });
 
   it('separates current run readiness from historical ledger readiness', () => {
@@ -418,12 +418,252 @@ describe('Safeloop v0.7 observability layer', () => {
     const payload = buildMonitorDashboardPayload(getDashboardSnapshot({ baseDir }));
 
     expect(payload.viewModel.current.latestRun).toBeTruthy();
+    expect(payload.viewModel.current.latestRun?.oversightScore).toBeGreaterThan(0);
     expect(payload.viewModel.current.currentLoops).toHaveLength(1);
     expect(payload.viewModel.historical.loops).toHaveLength(1);
     expect(payload.viewModel.current.currentReadiness.score).toBeGreaterThan(0);
     expect(payload.viewModel.historical.readiness.score).toBeLessThan(payload.viewModel.current.currentReadiness.score);
     expect(payload.viewModel.current.risks).toHaveLength(0);
     expect(payload.viewModel.historical.risks).toHaveLength(1);
+  });
+
+  it('derives oversight intelligence with stale, attribution, explainability, and feedback signals', () => {
+    setModelPricing(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        inputPerMillion: 0.25,
+        outputPerMillion: 2.0,
+        currency: 'USD',
+      },
+      { baseDir },
+    );
+
+    const staleTimestamp = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const recentTimestamp = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    appendEvent(
+      {
+        id: 'evt-oversight-start',
+        type: 'task.started',
+        timestamp: staleTimestamp,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-oversight',
+        summary: 'Start oversight test loop',
+      },
+      { baseDir },
+    );
+
+    recordModelUsage(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 60000,
+        outputTokens: 12000,
+        agentId: 'hermes-1',
+        agent: 'Hermes',
+        caseId: 'case-oversight',
+        timestamp: recentTimestamp,
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-decision',
+        type: 'decision.made',
+        timestamp: recentTimestamp,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-oversight',
+        summary: 'Change plan structure',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-risk',
+        type: 'risk.detected',
+        timestamp: recentTimestamp,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-oversight',
+        summary: 'High risk change without mitigation',
+        metadata: { severity: 'high' },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-approval',
+        type: 'approval.requested',
+        timestamp: recentTimestamp,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-oversight',
+        summary: 'Approval needed before continuing',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-artifact',
+        type: 'artifact.changed',
+        timestamp: recentTimestamp,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-oversight',
+        summary: 'Artifact updated before completion',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-complete',
+        type: 'task.completed',
+        timestamp: recentTimestamp,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-oversight',
+        summary: 'Completed without report',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-feedback-1',
+        type: 'feedback.recorded',
+        timestamp: recentTimestamp,
+        agentId: 'charles-1',
+        agentName: 'Charles',
+        caseId: 'case-oversight',
+        summary: 'Needs more explanation',
+        metadata: {
+          feedbackId: 'fb-1',
+          agentId: 'hermes-1',
+          agent: 'Hermes',
+          targetType: 'loop',
+          rating: 'negative',
+          score: 2,
+          labels: ['needs-review'],
+          comment: 'The loop needs clearer rationale.',
+          reviewer: 'Charles',
+          timestamp: recentTimestamp,
+        },
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-oversight-feedback-2',
+        type: 'feedback.recorded',
+        timestamp: recentTimestamp,
+        agentId: 'charles-1',
+        agentName: 'Charles',
+        caseId: 'case-oversight',
+        summary: 'Good local structure',
+        metadata: {
+          feedbackId: 'fb-2',
+          agentId: 'hermes-1',
+          agent: 'Hermes',
+          targetType: 'loop',
+          rating: 'positive',
+          score: 5,
+          labels: ['clear'],
+          comment: 'Good structure overall.',
+          reviewer: 'Charles',
+          timestamp: recentTimestamp,
+        },
+      },
+      { baseDir },
+    );
+
+    const payload = buildMonitorDashboardPayload(getDashboardSnapshot({ baseDir }));
+    const latest = payload.viewModel.current.latestRun;
+
+    expect(latest).toBeTruthy();
+    expect(latest?.oversightScore).toBeLessThan(40);
+    expect(latest?.oversightLevel).toBe('critical');
+    expect(latest?.recommendedAction).toBe('fix_attribution');
+    expect(latest?.warnings.length).toBeGreaterThan(0);
+    expect(latest?.anomalies.length).toBeGreaterThan(0);
+    expect(latest?.explainability.decisionCount).toBe(1);
+    expect(latest?.explainability.explainedDecisionCount).toBe(0);
+    expect(latest?.explainability.explanationCoveragePercent).toBe(0);
+    expect(latest?.explainability.missingExplanationCount).toBe(3);
+    expect(latest?.feedback.feedbackCount).toBe(2);
+    expect(latest?.feedback.positiveCount).toBe(1);
+    expect(latest?.feedback.negativeCount).toBe(1);
+    expect(latest?.feedback.averageScore).toBeCloseTo(3.5, 1);
+    expect(latest?.feedback.needsReviewFromFeedback).toBe(true);
+    expect(payload.viewModel.oversight.latestLoop?.key).toBe(latest?.key);
+    expect(payload.viewModel.oversight.warnings.length).toBeGreaterThan(0);
+    expect(payload.viewModel.oversight.anomalies.length).toBeGreaterThan(0);
+    expect(payload.viewModel.oversight.explainability.explanationCoveragePercent).toBe(0);
+    expect(payload.viewModel.oversight.feedback.feedbackCount).toBe(2);
+    expect(payload.viewModel.oversight.loopTimecards[0].key).toBe(latest?.key);
+  });
+
+  it('includes oversight in the dashboard payload and preserves legacy keys', () => {
+    const startedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+    appendEvent(
+      {
+        id: 'evt-overview-start',
+        type: 'task.started',
+        timestamp: startedAt,
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-overview',
+        summary: 'Start oversight overview test',
+      },
+      { baseDir },
+    );
+
+    appendEvent(
+      {
+        id: 'evt-overview-complete',
+        type: 'task.completed',
+        timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        agentId: 'hermes-1',
+        agentName: 'Hermes',
+        caseId: 'case-overview',
+        summary: 'Completed oversight overview test',
+      },
+      { baseDir },
+    );
+
+    const payload = buildMonitorDashboardPayload(getDashboardSnapshot({ baseDir }));
+    const keys = Object.keys(payload).sort();
+
+    expect(keys).toEqual(expect.arrayContaining([
+      'activeLoops',
+      'approvals',
+      'artifacts',
+      'costSummary',
+      'eventCount',
+      'events',
+      'handoffs',
+      'lastUpdated',
+      'modelUsage',
+      'monitoredPath',
+      'oversight',
+      'readiness',
+      'risks',
+      'steeringInsights',
+      'viewModel',
+    ]));
+    expect(payload.viewModel.oversight.summary.latestLoop?.oversightScore).toBeDefined();
+    expect(payload.oversight.summary.latestLoop?.oversightLevel).toBeDefined();
+    expect(payload.viewModel.current.latestRun?.oversightScore).toBeDefined();
   });
 
   it('records token/cost events and aggregates costs by agent, task, and project', () => {

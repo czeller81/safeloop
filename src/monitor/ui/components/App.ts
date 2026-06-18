@@ -5,6 +5,7 @@ import { renderHumanReviewPanel } from './HumanReviewPanel';
 import { renderKpiGrid } from './KpiGrid';
 import { renderLatestRunCard } from './LatestRunCard';
 import { renderLoopTimecards } from './LoopTimecards';
+import { renderOversightPanel } from './OversightPanel';
 import { renderRiskPanel } from './RiskPanel';
 import { renderSidebar } from './Sidebar';
 import { renderSpendPanel } from './SpendPanel';
@@ -17,6 +18,7 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
         ${renderHero(viewModel)}
         ${renderKpiGrid(viewModel)}
         ${renderLatestRunCard(viewModel)}
+        ${renderOversightPanel(viewModel)}
         ${renderSpendPanel(viewModel)}
         ${renderLoopTimecards(viewModel)}
         ${renderRiskPanel(viewModel)}

@@ -399,6 +399,138 @@ h3 {
   font-size: 13px;
 }
 
+.run-oversight,
+.timecard-oversight {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(5, 4, 12, 0.72);
+  border: 1px solid rgba(157, 105, 255, 0.16);
+}
+
+.run-oversight span,
+.timecard-oversight span {
+  color: var(--sl-text-dim);
+  font-size: 12px;
+  min-width: 72px;
+}
+
+.run-oversight strong,
+.timecard-oversight strong {
+  font-size: 18px;
+}
+
+.run-oversight em,
+.timecard-oversight em {
+  color: var(--sl-text-muted);
+  font-style: normal;
+  font-size: 13px;
+}
+
+.oversight-summary-grid,
+.oversight-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.oversight-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: var(--sl-space-4);
+}
+
+.oversight-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--sl-space-4);
+}
+
+.oversight-chip,
+.oversight-latest-card,
+.oversight-loop-card {
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(5, 4, 12, 0.66);
+  border: 1px solid rgba(157, 105, 255, 0.16);
+}
+
+.oversight-chip span {
+  display: block;
+  color: var(--sl-text-dim);
+  font-size: 12px;
+}
+
+.oversight-chip strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 16px;
+}
+
+.oversight-level {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oversight-level.healthy {
+  color: var(--sl-green);
+  border: 1px solid rgba(93, 232, 181, 0.24);
+  background: rgba(93, 232, 181, 0.10);
+}
+
+.oversight-level.watch,
+.oversight-level.needs_review {
+  color: var(--sl-yellow);
+  border: 1px solid rgba(255, 209, 102, 0.24);
+  background: rgba(255, 209, 102, 0.10);
+}
+
+.oversight-level.critical {
+  color: var(--sl-red);
+  border: 1px solid rgba(255, 96, 123, 0.24);
+  background: rgba(255, 96, 123, 0.10);
+}
+
+.oversight-loop-top,
+.oversight-latest-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.oversight-loop-meta,
+.oversight-latest-meta {
+  margin-top: 10px;
+  color: var(--sl-text-muted);
+  font-size: 13px;
+}
+
+.oversight-highlight {
+  margin-top: 16px;
+}
+
+.oversight-list-group {
+  border-radius: 22px;
+  padding: 16px;
+  background: rgba(8, 7, 18, 0.72);
+  border: 1px solid rgba(157, 105, 255, 0.18);
+}
+
+.oversight-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.oversight-loop-card strong,
+.oversight-latest-card strong {
+  font-size: 15px;
+}
+
 .panel-block,
 .historical-ledger {
   border-radius: 26px;
@@ -639,7 +771,9 @@ h3 {
   .review-summary-grid,
   .diagnostics-grid,
   .timecard-grid,
-  .historical-metrics {
+  .historical-metrics,
+  .oversight-summary-grid,
+  .oversight-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -664,7 +798,9 @@ h3 {
   .review-grid,
   .review-summary-grid,
   .diagnostics-grid,
-  .historical-metrics {
+  .historical-metrics,
+  .oversight-summary-grid,
+  .oversight-grid {
     grid-template-columns: 1fr;
   }
 
