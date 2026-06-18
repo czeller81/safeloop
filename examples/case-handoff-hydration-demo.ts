@@ -6,17 +6,26 @@ import {
   generateHandoffManifest,
   hydrateCaseFileFromManifest,
   exportCaseReportMarkdown,
+  recordCaseDecision,
 } from '../src/index';
 
+// Parent (main agent) flow: create case, add OpenCode participant, attach spec,
+// record explicit handoff, generate manifest and hand it to the child.
 function parentFlow() {
-  let cf = createCaseFile({ goal: 'Implement dog-feeding flow', owner: 'Hermes', project: 'Demo' });
+  let cf = createCaseFile({ goal: 'Feed the dog daily at 8am', owner: 'Hermes', project: 'DogFeeder' });
+
+  // Ensure OpenCode is a participant
   cf = addParticipant(cf, { id: 'OpenCode', name: 'OpenCode', type: 'agent', role: 'implementer' });
-  cf = attachArtifact(cf, { type: 'document', label: 'spec.md', path: '/tmp/spec.md' });
+
+  // Attach a spec (simulated)
+  cf = attachArtifact(cf, { type: 'document', label: 'feeding-spec.md', path: '/tmp/feeding-spec.md', description: 'Feeding schedule and constraints' });
+
+  // Record an explicit handoff from Hermes -> OpenCode
   cf = recordHandoff(cf, {
     from: 'Hermes',
     to: 'OpenCode',
-    handoffNotes: 'Continue implementation from spec.md',
-    recommendedNextActions: ['run tests', 'review README'],
+    handoffNotes: 'Implement feeder control loop and schedule',
+    recommendedNextActions: ['read feeding-spec.md', 'implement schedule'],
     attachmentIds: cf.listAttachments().map((a) => a.id),
   });
 
@@ -24,6 +33,7 @@ function parentFlow() {
   return manifest;
 }
 
+// Child (sub-agent) flow: receive manifest, hydrate, add a decision and continue
 function childFlow(manifest: any) {
   const hydrated = hydrateCaseFileFromManifest(manifest, {
     receivingParticipantId: 'OpenCode',
@@ -32,8 +42,16 @@ function childFlow(manifest: any) {
     recordReceivedHandoff: true,
   });
 
+  // Child records continued work: a decision and an added context note
+  const withDecision = recordCaseDecision(hydrated, {
+    decision: 'Implement schedule with retry on failure',
+    rationale: 'Retry ensures temporary API faults do not stop feeding',
+    createdBy: 'OpenCode',
+  });
+
   console.log('--- Hydrated Case Report (markdown) ---\n');
-  console.log(exportCaseReportMarkdown(hydrated));
+  console.log(exportCaseReportMarkdown(withDecision));
+  return withDecision;
 }
 
 const manifest = parentFlow();
