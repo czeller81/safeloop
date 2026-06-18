@@ -948,6 +948,7 @@ export {
   exportHandoffManifestMarkdown,
   exportHandoffManifestJSON,
 } from './handoffManifest';
+export { hydrateCaseFileFromManifest } from './handoffHydration';
 export {
   querySafeloop,
   createProjectGuardrailReport,

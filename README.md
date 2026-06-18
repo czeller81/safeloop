@@ -73,6 +73,11 @@ Transfer work between:
 
 without requiring the entire task to be re-explained.
 
+Hydration helper
+----------------
+
+Safeloop provides a hydration helper for receiving agents: generate a Handoff Manifest on the sending side (generateHandoffManifest) and pass the manifest to the receiving process. The receiving agent should call hydrateCaseFileFromManifest(manifest, options) to rebuild a working Case File (participants, required attachments, and an optional received handoff record). This keeps the accountability trail intact across Hermes, OpenCode, and other sub-agents without sharing unsafe historic state by default.
+
 #### Governance Primitives
 
 Safeloop also includes:
