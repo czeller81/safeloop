@@ -23,6 +23,8 @@
     "build": "npm run build:ui && tsc",
     "test": "jest --config jest.config.js",
     "monitor": "npm run build:ui && ts-node src/cli.ts monitor",
+    "monitor:dogfood": "npm run monitor -- --baseDir .safeloop-dogfood",
+    "dogfood:handoff": "ts-node examples/case-handoff-monitor-dogfood.ts",
     "safeloop": "ts-node src/cli.ts",
     "example": "ts-node examples/wrap-agent.ts",
     "example:live-simulation": "ts-node examples/breaker-live-simulation.ts",
