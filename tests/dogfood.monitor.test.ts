@@ -1,7 +1,6 @@
 import { resolve } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
-import { getDashboardSnapshot } from '../dist/monitor/dashboardData';
-import { buildMonitorViewModel } from '../dist/monitor/viewModel';
+import { getDashboardSnapshot, buildMonitorViewModel } from '../src/monitor';
 
 function sampleEvents(): string[] {
   const base = new Date().toISOString();

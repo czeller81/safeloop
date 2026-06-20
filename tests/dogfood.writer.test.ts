@@ -1,8 +1,7 @@
 import { execSync } from 'child_process';
 import { resolve } from 'path';
 import { existsSync, rmSync, readFileSync } from 'fs';
-import { getDashboardSnapshot } from '../dist/monitor/dashboardData';
-import { buildMonitorViewModel } from '../dist/monitor/viewModel';
+import { getDashboardSnapshot, buildMonitorViewModel } from '../src/monitor';
 
 describe('dogfood writer idempotence and monitor visibility', () => {
   const projectRoot = process.cwd();
