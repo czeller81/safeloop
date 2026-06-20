@@ -1,13 +1,17 @@
 import { appendEvent } from '../src/eventStream';
 import { resolveSafeloopPath } from '../src/localStorage';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { existsSync, rmSync, mkdirSync } from 'fs';
 
 function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
+// Use a fixed base timestamp for deterministic dogfood demos
+const FIXED_BASE = Date.parse('2026-06-19T08:00:00Z');
+
 function now(offsetMs = 0) {
-  return new Date(Date.now() + offsetMs).toISOString();
+  return new Date(FIXED_BASE + offsetMs).toISOString();
 }
 
 async function main() {
@@ -17,12 +21,30 @@ async function main() {
 
   console.log('Writing dogfood ledger to:', eventsPath);
 
+  // Reset the dogfood ledger directory so repeated runs are deterministic and do not append
+  const eventsDir = dirname(eventsPath);
+  try {
+    if (existsSync(eventsPath)) {
+      rmSync(eventsPath);
+      console.log('Removed existing events file:', eventsPath);
+    } else if (existsSync(eventsDir)) {
+      // remove the dogfood .safeloop directory to ensure a clean slate
+      rmSync(eventsDir, { recursive: true, force: true });
+      console.log('Removed existing dogfood directory:', eventsDir);
+    }
+  } catch (e) {
+    console.warn('Warning while resetting dogfood ledger:', e);
+  }
+
+  // ensure parent dir exists for fresh write operations
+  mkdirSync(eventsDir, { recursive: true });
+
   const caseId = 'case-dogfood-001';
   const taskId = 'task-feed-dog-001';
   const agentHermes = { agentId: 'hermes-1', agent: 'Hermes' };
   const agentOpenCode = { agentId: 'opencode-1', agent: 'OpenCode' };
 
-  // Sequence of events to represent a full handoff + loop
+  // Sequence of events to represent a full handoff + loop (tight timestamps)
   appendEvent({
     id: id('evt'),
     type: 'task.started',
@@ -156,7 +178,7 @@ async function main() {
 
   console.log('Dogfood ledger write complete.');
   console.log('Run the monitor against this dogfood ledger with:');
-  console.log('node -e "(async()=>{const s=await require(\'./dist/monitor/server\').startMonitorServer({port:3777, baseDir:require(\'path\').resolve(\''.replace(/'/g, "\\'") + '/.safeloop-dogfood' + '\'\')}); console.log(\`Monitor running at http://127.0.0.1:${s.port}\`); })()"');
+  console.log("npm run monitor:dogfood");
 }
 
 main();

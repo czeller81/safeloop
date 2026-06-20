@@ -27,6 +27,7 @@ export interface LoopTimecard {
   risksCount: number;
   artifactsCount: number;
   handoffsCount: number;
+  handoffSummary?: string;
   firstTimestamp: string;
   lastTimestamp: string;
   models: string[];
@@ -489,6 +490,9 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
       const firstTimestamp = bucket.firstTimestamp || bucket.lastTimestamp;
       const durationMs = firstMs > 0 && lastMs > 0 ? Math.max(0, lastMs - firstMs) : 0;
 
+      const firstHandoff = bucket.events.find((e) => e.type === 'handoff.created');
+      const handoffSummary = firstHandoff ? `${String(firstHandoff.metadata?.from || firstHandoff.metadata?.fromId || firstHandoff.agentName || firstHandoff.agentId)} → ${String(firstHandoff.metadata?.to || firstHandoff.metadata?.toId || '')}` : undefined;
+
       return {
         key: bucket.key,
         caseId: bucket.caseId,
@@ -513,6 +517,7 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
         firstTimestamp,
         lastTimestamp,
         models: Array.from(bucket.models).sort(),
+        handoffSummary,
         _events: bucket.events,
         _usageRecords: bucket.usageRecords,
       } as InternalLoopTimecard;
