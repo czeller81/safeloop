@@ -17,6 +17,7 @@ export function renderLatestRunCard(viewModel: MonitorViewModel): string {
     <section class="latest-run-card latest-loop-timecard loop-highlight-card" id="latest-run" aria-label="Latest run">
       <div class="run-label">Latest Run</div>
       <div class="run-title">${escapeHtml(latest.taskName)}</div>
+      ${latest.handoffSummary ? `<div class="run-subline"><strong>Handoff:</strong> ${escapeHtml(latest.handoffSummary)}</div>` : ''}
       <div class="run-grid">
         <div class="run-item">
           <div class="run-item-label">Agent</div>
