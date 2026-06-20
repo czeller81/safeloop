@@ -9,6 +9,7 @@ import { renderOversightPanel } from './OversightPanel';
 import { renderRiskPanel } from './RiskPanel';
 import { renderSidebar } from './Sidebar';
 import { renderSpendPanel } from './SpendPanel';
+import { renderHandoffsCard } from './HandoffsCard';
 
 export function renderAppBody(viewModel: MonitorViewModel): string {
   return `
@@ -18,6 +19,7 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
         ${renderHero(viewModel)}
         ${renderKpiGrid(viewModel)}
         ${renderLatestRunCard(viewModel)}
+        ${renderHandoffsCard(viewModel)}
         ${renderOversightPanel(viewModel)}
         ${renderSpendPanel(viewModel)}
         ${renderLoopTimecards(viewModel)}

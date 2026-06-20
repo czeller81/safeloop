@@ -41,5 +41,9 @@ describe('dogfood monitor baseDir', () => {
     expect(f.anomalies && f.anomalies.find((a: any) => a.code === 'missing_attribution')).toBeUndefined();
     expect(typeof f.oversightScore).toBe('number');
     expect(f.recommendedAction).toBeTruthy();
+
+    // ensure handoff event is visible in current handoffs
+    const handoffPresent = (view.current.handoffs || []).some((h) => h.from === 'Hermes' && h.to === 'OpenCode');
+    expect(handoffPresent).toBe(true);
   });
 });
