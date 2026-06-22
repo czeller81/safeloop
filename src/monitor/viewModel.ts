@@ -271,6 +271,50 @@ export interface DiagnosticsSection {
   lastRenderError: string | null;
 }
 
+export type OperatorPriority = 'low' | 'medium' | 'high' | 'critical';
+export type OperatorItemType = 'approval' | 'risk' | 'warning' | 'stale_loop' | 'failed_loop' | 'high_cost' | 'handoff';
+export type OperatorRecommendedAction =
+  | 'continue_watching'
+  | 'review_pending_approval'
+  | 'investigate_risk'
+  | 'investigate_failed_loop'
+  | 'review_stale_loop'
+  | 'check_token_cost'
+  | 'resolve_handoff'
+  | 'pause_before_next_model_call';
+
+export interface OperatorQueueItem {
+  id: string;
+  priority: OperatorPriority;
+  type: OperatorItemType;
+  title: string;
+  summary: string;
+  agent?: string;
+  caseId?: string;
+  timestamp?: string;
+  recommendedAction?: OperatorRecommendedAction;
+}
+
+export interface OperatorSummary {
+  activeAgents: number;
+  activeLoops: number;
+  unresolvedApprovals: number;
+  openRisks: number;
+  openWarnings: number;
+  staleLoops: number;
+  failedLoops: number;
+  recentTokenTotal: number;
+  recentCostTotal: number;
+}
+
+export interface OperatorConsole {
+  status: 'watch' | 'review' | 'pause' | 'stop';
+  reason?: string;
+  summary: OperatorSummary;
+  attentionQueue: OperatorQueueItem[];
+  recommendedAction?: OperatorRecommendedAction;
+}
+
 export interface MonitorViewModel {
   status: {
     connection: 'connected';
@@ -286,6 +330,8 @@ export interface MonitorViewModel {
   oversight: OversightSection;
   // live activity view model for interactive dashboard
   liveActivity?: LiveActivitySection;
+  // operator console guidance for human operators
+  operatorConsole?: OperatorConsole;
 }
 
 export interface MonitorDashboardPayload extends DashboardSnapshot {
@@ -1087,6 +1133,154 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     costTrend,
   };
 
+  // --- Operator console derivation (guidance only) ---
+  const unresolvedApprovalsCount = approvalItems.filter((a) => a.status === 'pending').length;
+  const openRisksCount = riskItems.length + oversightAnomalies.length;
+  const openWarningsCount = oversightWarnings.length;
+  const staleLoopsCount = collection.all.filter((l) => l.status === 'stale').length;
+  const failedLoopsCount = collection.all.filter((l) => l.oversightLevel === 'critical').length;
+
+  const summary: OperatorSummary = {
+    activeAgents: activeAgents.length,
+    activeLoops: collection.current.length,
+    unresolvedApprovals: unresolvedApprovalsCount,
+    openRisks: openRisksCount,
+    openWarnings: openWarningsCount,
+    staleLoops: staleLoopsCount,
+    failedLoops: failedLoopsCount,
+    recentTokenTotal,
+    recentCostTotal,
+  };
+
+  const attentionQueue: OperatorQueueItem[] = [];
+
+  // unresolved approvals -> medium/high
+  for (const a of approvalItems.slice(0, 20)) {
+    if (a.status === 'pending') {
+      attentionQueue.push({
+        id: a.id,
+        priority: unresolvedApprovalsCount > 5 ? 'high' : 'medium',
+        type: 'approval',
+        title: `Approval: ${a.summary}`,
+        summary: a.reason || a.summary,
+        agent: a.agent,
+        caseId: a.caseId,
+        timestamp: a.timestamp,
+        recommendedAction: 'review_pending_approval',
+      });
+    }
+  }
+
+  // risks & warnings -> high
+  for (const r of oversightWarnings.slice(0, 20)) {
+    attentionQueue.push({
+      id: r.code || `risk-${Math.random().toString(36).slice(2, 8)}`,
+      priority: 'high',
+      type: 'warning',
+      title: `Warning: ${r.code}`,
+      summary: r.message,
+      recommendedAction: 'investigate_risk',
+    });
+  }
+  for (const a of oversightAnomalies.slice(0, 20)) {
+    attentionQueue.push({
+      id: a.code || `anomaly-${Math.random().toString(36).slice(2, 8)}`,
+      priority: 'high',
+      type: 'risk',
+      title: `Anomaly: ${a.code}`,
+      summary: a.message,
+      recommendedAction: 'investigate_risk',
+    });
+  }
+
+  // stale loops -> high
+  for (const s of collection.all.filter((l) => l.status === 'stale').slice(0, 20)) {
+    attentionQueue.push({
+      id: s.key,
+      priority: 'high',
+      type: 'stale_loop',
+      title: `Stale loop: ${s.taskName}`,
+      summary: s.handoffSummary || `${s.eventCount} events`,
+      agent: s.agent,
+      caseId: s.caseId,
+      timestamp: s.lastTimestamp,
+      recommendedAction: 'review_stale_loop',
+    });
+  }
+
+  // failed loops -> high
+  for (const f of collection.all.filter((l) => l.oversightLevel === 'critical').slice(0, 20)) {
+    attentionQueue.push({
+      id: f.key,
+      priority: 'high',
+      type: 'failed_loop',
+      title: `Failed loop: ${f.taskName}`,
+      summary: f.handoffSummary || `${f.eventCount} events`,
+      agent: f.agent,
+      caseId: f.caseId,
+      timestamp: f.lastTimestamp,
+      recommendedAction: 'investigate_failed_loop',
+    });
+  }
+
+  // handoff pending -> medium
+  for (const h of handoffFlow.slice(0, 20)) {
+    if (h.status === 'pending' || h.status === 'unknown') {
+      attentionQueue.push({
+        id: h.caseId + '::' + (h.taskName || 'handoff'),
+        priority: 'medium',
+        type: 'handoff',
+        title: `Handoff: ${h.taskName}`,
+        summary: h.summary || '',
+        agent: h.fromAgent || h.toAgent,
+        caseId: h.caseId,
+        timestamp: h.timestamp,
+        recommendedAction: 'resolve_handoff',
+      });
+    }
+  }
+
+  // token/cost -> medium/high if above threshold
+  const highCostThreshold = Math.max(10, (spend.latestRunCost || 0) * 2);
+  if (recentCostTotal >= highCostThreshold) {
+    attentionQueue.push({
+      id: `cost-${Date.now()}`,
+      priority: recentCostTotal > highCostThreshold * 2 ? 'high' : 'medium',
+      type: 'high_cost',
+      title: `High token cost: ${recentCostTotal}`,
+      summary: `Top agent: ${topCostAgent || 'n/a'} task: ${topCostTask || 'n/a'}`,
+      recommendedAction: 'check_token_cost',
+    });
+  }
+
+  // compute status
+  let status: OperatorConsole['status'] = 'watch';
+  let reason = '';
+  if (failedLoopsCount > 0 || oversight.summary.oversightLevel === 'critical') {
+    status = 'stop';
+    reason = 'Critical oversight detected';
+  } else if (failedLoopsCount > 0 || (staleLoopsCount > 0 && recentCostTotal > (spend.latestRunCost || 0))) {
+    status = 'pause';
+    reason = 'Failed or costly stale loops detected';
+  } else if (unresolvedApprovalsCount > 0 || openRisksCount > 0 || attentionQueue.length > 0) {
+    status = 'review';
+    reason = 'Pending approvals, risks, or warnings need attention';
+  } else {
+    status = 'watch';
+    reason = 'No major issues detected';
+  }
+
+  const operatorConsole: OperatorConsole = {
+    status,
+    reason,
+    summary,
+    attentionQueue: attentionQueue.sort((a, b) => {
+      const order: Record<OperatorPriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (order[a.priority] || 3) - (order[b.priority] || 3);
+    }),
+    recommendedAction: attentionQueue.length === 0 ? 'continue_watching' : attentionQueue[0].recommendedAction,
+  };
+
   const liveActivity: LiveActivitySection = {
     activeAgents,
     recentActivity,
@@ -1116,9 +1310,11 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     tokens,
     diagnostics,
     oversight,
+    operatorConsole,
     liveActivity,
   };
 }
+
 
 export function buildMonitorDashboardPayload(snapshot: DashboardSnapshot): MonitorDashboardPayload {
   const viewModel = buildMonitorViewModel(snapshot);

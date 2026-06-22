@@ -10,6 +10,7 @@ import { renderRiskPanel } from './RiskPanel';
 import { renderSidebar } from './Sidebar';
 import { renderSpendPanel } from './SpendPanel';
 import { renderHandoffsCard } from './HandoffsCard';
+import { renderOperatorSummaryPanel } from './OperatorSummaryPanel';
 import { renderLiveActivityPanel } from './LiveActivityPanel';
 
 export function renderAppBody(viewModel: MonitorViewModel): string {
@@ -20,6 +21,7 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
         ${renderHero(viewModel)}
         ${renderKpiGrid(viewModel)}
         ${renderLatestRunCard(viewModel)}
+        ${renderOperatorSummaryPanel(viewModel)}
         ${renderHandoffsCard(viewModel)}
         ${renderLiveActivityPanel(viewModel)}
         ${renderOversightPanel(viewModel)}
