@@ -130,7 +130,7 @@ Safeloop does not:
 - send network data
 - replace human approval
 
-## Oversight Intelligence (next: v0.8.0)
+## Oversight Intelligence (v0.8.0)
 
 Version 0.8.0 adds an Oversight Intelligence layer that analyzes complete agent loops (Case File → Task → Events → Model Usage → Outcomes) and derives proactive warnings, anomalies, explainability coverage, and an oversight score per loop. Safeloop remains runtime-agnostic: agents emit events, Safeloop derives oversight intelligence.
 
@@ -143,6 +143,21 @@ Key features:
 - Deterministic oversight score (0–100) with levels: healthy | watch | needs_review | critical and recommended actions.
 
 This release warns, scores, and reports — it does not block execution. See docs and /api/dashboard for the oversight payload shape.
+
+## Live Agent Activity + Handoff Flow
+
+v0.8.0 includes a first Live Agent Activity slice for the monitor. This small, testable feature makes the local monitor feel active and operational:
+
+* active agents (recently active)
+* recent activity stream (event-level feed)
+* handoff-to-handoff flow (chronological handoffs)
+* warnings and blockers
+* approvals, risks, artifacts, feedback
+* token-cost pulse (recent token usage and cost trend)
+
+Limitations:
+
+* v0.8.0 visualizes and surfaces signals; hard-stop enforcement is not enabled yet. That will come in a future release after operators validate the live flows.
 
 ## Configurable oversight thresholds
 
@@ -198,15 +213,3 @@ Use Safeloop when you want a small, understandable control layer:
 
 - policy gates before execution
 - circuit breakers during execution
-- action ledgers after execution
-- markdown reports for human review
-
-## Governance loop
-
-- Policy Gate before execution
-- Circuit Breaker during execution
-- Action Ledger after/during execution
-- Markdown Report for human review
-- Live Simulation for proof
-
-... (rest of README unchanged)

@@ -6,30 +6,22 @@ All notable changes to this project will be documented in this file.
 
 Safeloop v0.7.0 adds the local live loop monitor, event stream, cost tracking, steering intelligence, goal drift detection, and release readiness scoring.
 
-## v0.8.0 - Oversight Intelligence (current)
+## v0.8.0 - Oversight Intelligence (v0.8.0)
 
-v0.8.0 introduces the Oversight Intelligence Layer: loop timecards with oversight scoring, proactive warnings, anomaly detection, explainability coverage, feedback events, and recommended actions.
+v0.8.0 introduces the Oversight Intelligence Layer and a first Live Agent Activity + Handoff Flow feature slice. Key additions center on visibility and accountability for agent loops:
 
 ### Added
 
-- `appendEvent`
-- `readEvents`
-- `streamEvents`
-- `recordModelUsage`
-- `setModelPricing`
-- `calculateCost`
-- `getCaseCostSummary`
-- `recordSteeringProfile`
-- `compareSteeringRuns`
-- `detectGoalDrift`
-- `calculateReadinessScore`
-- live monitor CLI and dashboard API
+- Oversight Intelligence: loop timecards with oversight scoring, proactive warnings, anomaly detection, explainability coverage, feedback events, and recommended actions.
+- Live Agent Activity + Handoff Flow (monitor slice): active agents, recent activity stream, handoff-to-handoff flow, and token-cost pulse.
+- `appendEvent`, `readEvents`, `streamEvents`, `recordModelUsage`, `setModelPricing`, `calculateCost`, `getCaseCostSummary` (model usage & cost primitives).
+- `recordSteeringProfile`, `compareSteeringRuns`, `detectGoalDrift`, `calculateReadinessScore` (steering & readiness primitives).
+- Live monitor CLI and dashboard API: viewModel now exposes `oversight` and `liveActivity` slices for UI clients.
 
 ### Notes
 
-- Safeloop remains local-first and file-based
-- Safeloop still records only explicit events
-- No telemetry, conversation capture, or remote control was added
+- v0.8.0 focuses on visualization and reporting: it warns, scores, and visualizes loops and handoffs but does not enforce hard stops.
+- The Live Agent Activity panel is a first, reversible slice to make the monitor feel alive. Hard-stop enforcement is planned for v0.9.
 
 ## v0.6.0 - Previous
 
@@ -65,8 +57,7 @@ Initial public launch candidate for the local AI agent governance SDK.
 - `toMarkdownReport`
 - `createAgentRunLedger`
 - `createPolicyGate`
-- live simulation harness in `examples/breaker-live-simulation.ts`
-- `npm run example:live-simulation`
+- `live simulation harness in `examples/breaker-live-simulation.ts`
 
 ### Notes
 

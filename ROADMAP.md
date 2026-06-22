@@ -9,10 +9,12 @@
 * ✓ v0.5 Query Layer
 * ✓ v0.6 Agent Adapter Protocol
 * ✓ v0.7 Live Loop Monitor + Cost & Steering Intelligence
+* ✓ v0.8 Oversight Intelligence + Live Agent Activity
 
 ## Planned
 
-* □ v0.8 Multi-Agent Workflow Graphs
+* □ v0.8.x live dashboard refinements
+* □ v0.9 hard-stop guardrails / pause before next model call
 * □ v1.0 Agent Collaboration Protocol
 
 ## Product Direction
@@ -31,6 +33,12 @@ Do not add:
 
 * cloud services
 * auth
-* dashboards
+* hosted dashboards with external hosting
 * databases
 * hosted observability
+
+Notes on next work
+
+- v0.8.x: live dashboard refinements (polish live activity, handoff reconciliation, token-cost alerts)
+- v0.9: hard-stop guardrails and operator approval flows
+- v1.0: formal agent collaboration protocol and exchange formats
