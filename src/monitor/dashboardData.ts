@@ -10,6 +10,7 @@ import {
   type SteeringProfileRecord,
 } from '../steeringTracker';
 import type { SafeloopStorageOptions } from '../localStorage';
+import { readLines } from '../localStorage';
 
 export interface ActiveLoopSnapshot {
   key: string;
@@ -31,7 +32,7 @@ export interface DashboardSnapshot {
   modelUsage: ModelUsageRecord[];
   risks: Array<{ id: string; summary: string; severity?: string; mitigation?: string }>;
   approvals: Array<{ id: string; summary: string; approver?: string; reason?: string; status: string }>;
-  artifacts: Array<{ id: string; summary: string; path?: string }>; 
+  artifacts: Array<{ id: string; summary: string; path?: string }>;
   handoffs: Array<{ id: string; currentOwner?: string; nextOwner?: string; summary: string }>;
   readiness: ReadinessScoreResult;
   steeringInsights: SteeringComparison[];
@@ -61,13 +62,13 @@ function deriveActiveLoops(events: SafeloopStreamEvent[]): ActiveLoopSnapshot[] 
 
   const activeLoops: ActiveLoopSnapshot[] = [];
   for (const [key, bucket] of groups.entries()) {
-    const started = [...bucket].reverse().find((event) => event.type === 'task.started');
+    const started = [...bucket].reverse().find((event) => String(event.type) === 'task.started' || String(event.type) === 'run.started');
     if (!started) {
       continue;
     }
     const latest = bucket[bucket.length - 1];
-    const model = [...bucket].reverse().find((event) => event.type === 'token.cost' || event.type === 'model.usage');
-    const status = latest?.type === 'task.completed' ? 'completed' : 'running';
+    const model = [...bucket].reverse().find((event) => String(event.type) === 'token.cost' || String(event.type) === 'model.usage');
+    const status = String(latest?.type) === 'task.completed' || String(latest?.type) === 'run.completed' || String(latest?.type) === 'run.failed' ? 'completed' : 'running';
     activeLoops.push({
       key,
       agent: latest.agentName ?? latest.agentId,
@@ -234,11 +235,124 @@ function buildSteeringInsights(records: SteeringProfileRecord[]): SteeringCompar
   });
 }
 
+// Normalize external CrewAI-style events into SafeloopStreamEvent shape
+function normalizeExternalEvent(raw: unknown, sourcePath?: string): SafeloopStreamEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r: any = raw as any;
+
+  const hasRunId = typeof r.runId === 'string' && r.runId.length > 0;
+  const isRunType = typeof r.type === 'string' && String(r.type).startsWith('run.');
+  if (!hasRunId && !isRunType) return null;
+
+  const runId = r.runId ?? 'unknown';
+  const evType = r.type ?? 'run.unknown';
+  const rawTs = r.timestamp;
+
+  // Normalize numeric timestamps (seconds or milliseconds) to ISO string
+  let timestampIso = new Date().toISOString();
+  if (typeof rawTs === 'number') {
+    const n = Number(rawTs);
+    // if likely milliseconds (>1e12) use as ms, else treat as seconds
+    const ms = n > 1_000_000_000_000 ? Math.round(n) : Math.round(n * 1000);
+    timestampIso = new Date(ms).toISOString();
+  } else if (typeof rawTs === 'string') {
+    timestampIso = rawTs;
+  }
+
+  const framework = r.data && typeof r.data.framework === 'string' ? r.data.framework : undefined;
+  const agentId = r.agent ?? framework ?? 'external';
+  const agentName = r.agent ?? (framework ? (framework === 'crewai' ? 'CrewAI' : String(framework)) : 'External Agent');
+
+  const caseId = r.caseId ?? undefined;
+  const sessionId = r.runId ?? undefined;
+  const summary = r.task ?? r.summary ?? `${evType} ${sessionId ?? ''}`.trim();
+
+  const metadata: Record<string, unknown> = {
+    source: {
+      kind: 'external-jsonl',
+      framework: framework ?? undefined,
+      path: sourcePath ?? undefined,
+      raw: r,
+    },
+  } as Record<string, unknown>;
+  if (r.data) metadata['data'] = r.data;
+
+  const id = r.id ?? `external:${String(runId)}:${String(evType)}:${String(rawTs ?? 'unknown')}`;
+
+  return {
+    id: String(id),
+    type: String(evType),
+    timestamp: timestampIso,
+    agentId: String(agentId),
+    agentName: String(agentName),
+    participantId: undefined,
+    caseId: caseId ? String(caseId) : undefined,
+    sessionId: sessionId ? String(sessionId) : undefined,
+    summary: String(summary),
+    metadata,
+  } as SafeloopStreamEvent;
+}
+
 export function getDashboardSnapshot(options: SafeloopStorageOptions = {}): DashboardSnapshot {
-  const events = readEvents(options);
+  let events = readEvents(options);
   const modelUsage = deriveModelUsage(options);
   const steeringProfiles = readSteeringProfiles(options);
   const monitoredPath = resolve(options.baseDir ?? process.cwd(), '.safeloop');
+
+  // support external JSONL event sources (paths passed via options.externalEventPaths or SAFELOOP_EXTERNAL_EVENTS env)
+  const externalFromOptions = options.externalEventPaths ?? [];
+  const envPaths = process.env.SAFELOOP_EXTERNAL_EVENTS
+    ? String(process.env.SAFELOOP_EXTERNAL_EVENTS)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const externalPaths: string[] = Array.isArray(externalFromOptions)
+    ? [...externalFromOptions.map(String), ...envPaths]
+    : [...envPaths];
+
+  if (externalPaths.length > 0) {
+    const externalEvents: SafeloopStreamEvent[] = [];
+    for (const p of externalPaths) {
+      try {
+        const lines = readLines(p);
+        for (const line of lines) {
+          try {
+            const raw = JSON.parse(line);
+            const ev = normalizeExternalEvent(raw, p) ?? (typeof raw === 'object' && (raw as any).id ? (raw as SafeloopStreamEvent) : null);
+            if (ev && ev.id) externalEvents.push(ev);
+          } catch {
+            // ignore malformed line
+          }
+        }
+      } catch {
+        // ignore unreadable path
+      }
+    }
+
+    // merge: add external first, then local override on id collisions
+    const byId = new Map<string, SafeloopStreamEvent>();
+    for (const ev of externalEvents) {
+      if (ev && ev.id) byId.set(ev.id, ev);
+    }
+    for (const ev of events) {
+      if (ev && ev.id) byId.set(ev.id, ev); // local overrides external
+    }
+
+    // safe timestamp parsing for sort (handle ISO or numeric strings)
+    const parseTsSafe = (t?: string): number => {
+      if (!t) return 0;
+      const n = Number(t);
+      if (!Number.isNaN(n)) {
+        return n > 1_000_000_000_000 ? Math.round(n) : Math.round(n * 1000);
+      }
+      const parsed = Date.parse(t);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+
+    events = Array.from(byId.values()).sort((a, b) => parseTsSafe(a.timestamp) - parseTsSafe(b.timestamp));
+  }
+
   const lastUpdated = events.length > 0 ? events[events.length - 1].timestamp : new Date().toISOString();
 
   return {

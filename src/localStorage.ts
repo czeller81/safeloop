@@ -3,6 +3,8 @@ import { dirname, join } from 'path';
 
 export interface SafeloopStorageOptions {
   baseDir?: string;
+  // optional external JSONL event file paths (full paths) to merge into snapshots
+  externalEventPaths?: string[];
 }
 
 export function resolveSafeloopPath(fileName: string, options: SafeloopStorageOptions = {}): string {
