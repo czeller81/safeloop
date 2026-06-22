@@ -138,6 +138,54 @@ export interface LoopFeedbackSummary {
   needsReviewFromFeedback: boolean;
 }
 
+// --- Live Activity model (new for Live Agent Activity + Handoff Flow) ---
+export interface AgentStatus {
+  agentId?: string;
+  agent?: string;
+  status: 'active' | 'idle' | 'waiting_for_approval' | 'blocked' | 'failed' | 'completed' | 'warning' | 'unknown';
+  lastEventTimestamp?: string;
+  details?: string;
+}
+
+export interface TokenCostPulse {
+  recentTokenTotal: number;
+  recentCostTotal: number;
+  topCostAgent?: string;
+  topCostTask?: string;
+  costTrend: 'stable' | 'rising' | 'high' | 'unknown';
+}
+
+export interface LiveActivitySection {
+  activeAgents: string[];
+  recentActivity: SectionItem[];
+  handoffFlow: HandoffDetail[];
+  currentLoopState: { running: number; stale: number; completed: number };
+  agentStatuses: Record<string, AgentStatus>;
+  openWarnings: OversightIssue[];
+  blockedOrWaitingItems: SectionItem[];
+  latestDecisions: SectionItem[];
+  latestApprovals: ApprovalItem[];
+  latestRisks: RiskItem[];
+  latestArtifacts: ArtifactItem[];
+  latestFeedback: LoopFeedbackItem[];
+  tokenCostPulse: TokenCostPulse;
+}
+
+export interface HandoffDetail {
+  caseId: string;
+  taskName: string;
+  fromAgent?: string;
+  toAgent?: string;
+  fromAgentId?: string;
+  toAgentId?: string;
+  summary?: string;
+  status?: 'pending' | 'accepted' | 'completed' | 'failed' | 'unknown';
+  approvalsStatus?: string;
+  artifactsCount?: number;
+  timestamp?: string;
+  relatedWarnings?: OversightIssue[];
+}
+
 export interface LoopOversightSummary {
   oversightScore: number;
   oversightLevel: OversightLevel;
@@ -236,6 +284,8 @@ export interface MonitorViewModel {
   tokens: TokenSection;
   diagnostics: DiagnosticsSection;
   oversight: OversightSection;
+  // live activity view model for interactive dashboard
+  liveActivity?: LiveActivitySection;
 }
 
 export interface MonitorDashboardPayload extends DashboardSnapshot {
@@ -908,6 +958,151 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     feedback: oversightFeedback,
   };
 
+  // --- Live Activity derivation (small, reversible slice) ---
+  const recentEvents = flattenSectionEvents(collection.all)
+    .slice()
+    .sort((a, b) => toTimestamp(b.timestamp) - toTimestamp(a.timestamp));
+
+  const recentActivity: SectionItem[] = recentEvents.slice(0, 50).map((e) => ({
+    id: e.id,
+    caseId: e.caseId,
+    loopKey: e.sessionId || e.caseId || e.id,
+    summary: e.summary,
+    timestamp: e.timestamp,
+    agent: e.agentName,
+    agentId: e.agentId,
+  }));
+
+  const activeAgentsSet = new Set<string>();
+  const nowMs = Date.now();
+  const activeWindowMs = 5 * 60 * 1000; // 5 minutes
+  for (const ev of recentEvents) {
+    const agent = trimText(ev.agentName) || trimText(ev.metadata?.agent) || trimText(ev.metadata?.agentId) || '';
+    if (!agent) continue;
+    const age = nowMs - toTimestamp(ev.timestamp);
+    if (age <= activeWindowMs) {
+      activeAgentsSet.add(agent);
+    }
+  }
+  const activeAgents = Array.from(activeAgentsSet).sort();
+
+  // build handoff flow details (chronological)
+  const rawHandoffs = buildHandoffItems(collection.all).reverse(); // chronological ascending
+  const handoffFlow: HandoffDetail[] = rawHandoffs.map((h) => ({
+    caseId: h.caseId || 'case-unknown',
+    taskName: h.summary || 'handoff',
+    fromAgent: h.from,
+    toAgent: h.to,
+    fromAgentId: h.agentId,
+    toAgentId: undefined,
+    summary: h.summary,
+    status: 'pending',
+    approvalsStatus: undefined,
+    artifactsCount: 0,
+    timestamp: h.timestamp,
+    relatedWarnings: [],
+  }));
+
+  // agent status inference (simple rules)
+  const agentStatuses: Record<string, AgentStatus> = {};
+  const approvalItems = buildApprovalItems(collection.current);
+  const riskItems = buildRiskItems(collection.current);
+  const failedLoopsKeys = collection.all.filter((l) => l.status === 'stale').map((l) => l.key);
+
+  // map last event time per agent
+  const lastEventByAgent = new Map<string, string>();
+  for (const ev of recentEvents) {
+    const agent = trimText(ev.agentName) || trimText(ev.metadata?.agent) || trimText(ev.metadata?.agentId) || '';
+    if (!agent) continue;
+    const prev = lastEventByAgent.get(agent);
+    if (!prev || toTimestamp(ev.timestamp) > toTimestamp(prev)) {
+      lastEventByAgent.set(agent, ev.timestamp);
+    }
+  }
+
+  const agentsToConsider = new Set<string>([...activeAgents, ...Array.from(lastEventByAgent.keys())]);
+  for (const agent of agentsToConsider) {
+    const lastTs = lastEventByAgent.get(agent) || '';
+    const age = lastTs ? Date.now() - toTimestamp(lastTs) : Number.POSITIVE_INFINITY;
+    let status: AgentStatus['status'] = 'unknown';
+    if (age <= activeWindowMs) status = 'active';
+    else if (age < 60 * 60 * 1000) status = 'idle';
+    else status = 'idle';
+
+    const waiting = approvalItems.some((a) => a.agent === agent && a.status === 'pending');
+    if (waiting) status = 'waiting_for_approval';
+    const hasRisk = riskItems.some((r) => r.agent === agent || r.agentId === agent);
+    if (hasRisk) status = 'warning';
+
+    agentStatuses[agent] = {
+      agent,
+      status,
+      lastEventTimestamp: lastTs,
+      details: undefined,
+    };
+  }
+
+  // Ensure requesters with pending approvals are marked as waiting_for_approval
+  for (const a of approvalItems) {
+    if (a.status === 'pending' && a.agent) {
+      const name = a.agent;
+      const prev = agentStatuses[name];
+      agentStatuses[name] = {
+        agent: name,
+        agentId: a.agentId,
+        status: 'waiting_for_approval',
+        lastEventTimestamp: a.timestamp,
+        details: a.reason || undefined,
+      } as AgentStatus;
+      if (prev && prev.lastEventTimestamp && !agentStatuses[name].lastEventTimestamp) {
+        agentStatuses[name].lastEventTimestamp = prev.lastEventTimestamp;
+      }
+    }
+  }
+
+  const openWarnings = oversightWarnings.slice(0, 20);
+  const blockedOrWaitingItems: SectionItem[] = approvalItems.filter((a) => a.status === 'pending').slice(0, 20);
+
+  const latestDecisions: SectionItem[] = recentActivity.filter((a) => String(a.summary || '').toLowerCase().includes('decision')).slice(0, 10);
+  const latestApprovals = approvalItems.slice(0, 10);
+  const latestRisks = buildRiskItems(collection.current).slice(0, 10);
+  const latestArtifacts = buildArtifactItems(collection.current).slice(0, 10);
+  const latestFeedback = collection.all.flatMap((l) => l.feedback.latestFeedback ? [l.feedback.latestFeedback] : []).slice(0, 10) as LoopFeedbackItem[];
+
+  // token cost pulse (recent 60 minutes)
+  const recentWindowMs = 60 * 60 * 1000;
+  const now = Date.now();
+  const recentUsage = (snapshot.modelUsage || []).filter((u) => now - toTimestamp(u.timestamp) <= recentWindowMs);
+  const recentTokenTotal = recentUsage.reduce((s, r) => s + Number(r.totalTokens || Number(r.inputTokens || 0) + Number(r.outputTokens || 0)), 0);
+  const recentCostTotal = recentUsage.reduce((s, r) => s + Number(r.estimatedCost || 0), 0);
+  const topCostAgent = Object.keys(spend.byAgent || {}).sort((a, b) => (spend.byAgent[b] || 0) - (spend.byAgent[a] || 0))[0];
+  const topCostTask = Object.keys(spend.byTask || {}).sort((a, b) => (spend.byTask[b] || 0) - (spend.byTask[a] || 0))[0];
+  const costTrend: TokenCostPulse['costTrend'] = recentCostTotal > (spend.latestRunCost || 0) ? 'rising' : 'stable';
+
+  const tokenCostPulse: TokenCostPulse = {
+    recentTokenTotal,
+    recentCostTotal,
+    topCostAgent,
+    topCostTask,
+    costTrend,
+  };
+
+  const liveActivity: LiveActivitySection = {
+    activeAgents,
+    recentActivity,
+    handoffFlow,
+    currentLoopState: { running: collection.current.filter((c) => c.status === 'running').length, stale: collection.all.filter((c) => c.status === 'stale').length, completed: collection.all.filter((c) => c.status === 'completed').length },
+    agentStatuses,
+    openWarnings,
+    blockedOrWaitingItems,
+    latestDecisions,
+    latestApprovals,
+    latestRisks,
+    latestArtifacts,
+    latestFeedback,
+    tokenCostPulse,
+  };
+
   return {
     status: {
       connection: 'connected',
@@ -921,6 +1116,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     tokens,
     diagnostics,
     oversight,
+    liveActivity,
   };
 }
 
