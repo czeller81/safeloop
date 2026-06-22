@@ -10,6 +10,8 @@ export { summarizeLoopSummaries } from './viewModel';
 
 export interface MonitorServerOptions extends SafeloopStorageOptions {
   port?: number;
+  // optional external event file paths to merge into the snapshot (full file paths)
+  externalEventPaths?: string[];
 }
 
 const DEFAULT_MONITOR_PORT = 3777;

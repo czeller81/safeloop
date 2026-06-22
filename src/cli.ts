@@ -47,6 +47,27 @@ function parseBaseDir(args: string[]): string | undefined {
   return undefined;
 }
 
+function parseExternalEvents(args: string[]): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === '--externalEvents' || value === '--external-events') {
+      const next = args[index + 1];
+      if (!next) {
+        throw new Error('Missing value for --externalEvents');
+      }
+      values.push(...next.split(',').map((s) => s.trim()).filter(Boolean));
+    }
+    if (value.startsWith('--externalEvents=')) {
+      values.push(...value.slice('--externalEvents='.length).split(',').map((s) => s.trim()).filter(Boolean));
+    }
+    if (value.startsWith('--external-events=')) {
+      values.push(...value.slice('--external-events='.length).split(',').map((s) => s.trim()).filter(Boolean));
+    }
+  }
+  return values;
+}
+
 function isAddressInUse(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'EADDRINUSE');
 }
@@ -55,9 +76,10 @@ async function runMonitor(args: string[]): Promise<void> {
   const port = parsePort(args) ?? 3777;
   const baseDirArg = parseBaseDir(args);
   const baseDir = baseDirArg ? resolve(process.cwd(), baseDirArg) : undefined;
+  const externalEvents = parseExternalEvents(args);
 
   try {
-    const server = await startMonitorServer({ port, baseDir });
+    const server = await startMonitorServer({ port, baseDir, externalEventPaths: externalEvents });
     const url = `http://127.0.0.1:${server.port}`;
     console.log(`Safeloop live monitor running at ${url}`);
     console.log('Press Ctrl+C to stop.');
@@ -90,7 +112,7 @@ async function main(): Promise<void> {
   }
 
   console.log('Safeloop CLI');
-  console.log('Usage: safeloop monitor [--port <port>] [--baseDir <path>]');
+  console.log('Usage: safeloop monitor [--port <port>] [--baseDir <path>] [--externalEvents <path1,path2>]');
 }
 
 main().catch((error) => {
