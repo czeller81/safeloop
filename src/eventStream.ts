@@ -16,7 +16,8 @@ export type SafeloopStreamEventType =
   | 'handoff.created'
   | 'task.completed'
   | 'report.generated'
-  | 'feedback.recorded';
+  | 'feedback.recorded'
+  | 'operator.action.recorded';
 
 export interface SafeloopStreamEvent {
   id: string;

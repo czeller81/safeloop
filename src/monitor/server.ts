@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { extname, resolve } from 'path';
 import { getDashboardSnapshot } from './dashboardData';
+import { appendEvent } from '../eventStream';
 import { buildMonitorDashboardPayload, summarizeLoopSummaries } from './viewModel';
 import { renderAppBody, renderFallbackDocument } from './ui/components/App';
 import type { SafeloopStorageOptions } from '../localStorage';
@@ -115,6 +116,75 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
 
     if (url.startsWith('/api/dashboard')) {
       sendJson(res, 200, buildMonitorDashboardPayload(getDashboardSnapshot(options)));
+      return;
+    }
+
+    // Operator action endpoint: record local operator events into the SafeLoop ledger
+    if (url === '/api/operator/actions' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => {
+        try {
+          body += chunk;
+        } catch (_) {
+          // ignore
+        }
+      });
+      req.on('end', () => {
+        try {
+          const payload = body ? JSON.parse(body) : {};
+          const action = typeof payload.action === 'string' ? payload.action.trim() : '';
+          const targetId = typeof payload.targetId === 'string' ? payload.targetId.trim() : '';
+
+          const allowed = new Set(['acknowledged', 'reviewed', 'resolved']);
+          if (!action || !allowed.has(action)) {
+            sendJson(res, 400, { error: 'invalid action' });
+            return;
+          }
+          if (!targetId) {
+            sendJson(res, 400, { error: 'missing targetId' });
+            return;
+          }
+
+          const caseId = typeof payload.caseId === 'string' && payload.caseId.trim() ? payload.caseId.trim() : undefined;
+          const agent = typeof payload.agent === 'string' && payload.agent.trim() ? payload.agent.trim() : undefined;
+          const targetType = typeof payload.targetType === 'string' && payload.targetType.trim() ? payload.targetType.trim() : undefined;
+          const note = typeof payload.note === 'string' && payload.note.trim() ? payload.note.trim() : undefined;
+
+          const eventId = `operator:${Date.now()}:${targetId}:${action}`;
+          const summary = `Operator marked ${targetId} as ${action}`;
+
+          try {
+            const recorded = appendEvent(
+              {
+                id: eventId,
+                type: 'operator.action.recorded',
+                agentId: agent ?? 'operator',
+                agentName: agent ?? 'operator',
+                caseId: caseId ?? undefined,
+                summary,
+                metadata: {
+                  source: { kind: 'operator-action' },
+                  action,
+                  targetId,
+                  targetType: targetType ?? undefined,
+                  note: note ?? undefined,
+                },
+              },
+              options,
+            );
+
+            sendJson(res, 201, { ok: true, id: recorded.id });
+            return;
+          } catch (err) {
+            // write failure
+            sendJson(res, 500, { error: 'failed to record operator action' });
+            return;
+          }
+        } catch (err) {
+          sendJson(res, 400, { error: 'invalid json' });
+          return;
+        }
+      });
       return;
     }
 
