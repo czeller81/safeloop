@@ -169,6 +169,10 @@ export interface LiveActivitySection {
   latestArtifacts: ArtifactItem[];
   latestFeedback: LoopFeedbackItem[];
   tokenCostPulse: TokenCostPulse;
+  // session-awareness helpers for the UI
+  currentSessionId?: string;
+  historicalHiddenCount?: number;
+  hasCurrentSession?: boolean;
 }
 
 export interface HandoffDetail {
@@ -625,23 +629,37 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
     .sort((a, b) => toTimestamp(b.lastTimestamp) - toTimestamp(a.lastTimestamp));
 
   const nowMs = Date.now();
+  // Determine a primary session/run to present by default. Prefer explicit sessionId (runId).
+  let selectedSessionId: string | undefined = undefined;
+  let selectedCaseId: string | undefined = undefined;
+  const latestWithSession = all.find((b) => b.sessionId && b.sessionId.trim().length > 0);
+  if (latestWithSession) {
+    selectedSessionId = latestWithSession.sessionId;
+  } else if (all[0]) {
+    // fallback to the caseId of the newest loop
+    selectedCaseId = all[0].caseId;
+  }
+
+  // Build "current" as: any running loops + loops belonging to the selected session (or selected case),
+  // and finally as a last resort include very recent loops.
+  const currentBuckets = all.filter((summary) => {
+    // always include newest item as a safe default (keeps behaviour for single-loop snapshots)
+    if (summary === all[0]) return true;
+    if (summary.status === 'running') return true; // preserve actively running loops
+    if (selectedSessionId) return summary.sessionId === selectedSessionId;
+    if (selectedCaseId) return summary.caseId === selectedCaseId && toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_HISTORICAL_MS;
+    // final fallback: recent loops within the recent window
+    return toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_RECENT_MS;
+  });
+
   const bareCollection: InternalTimecardCollection = {
     all,
-    current: all.filter((summary) => {
-      if (summary === all[0]) {
-        return true;
-      }
-      if (summary.status === 'running') {
-        return true;
-      }
-      if (summary.status === 'completed') {
-        return toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_HISTORICAL_MS;
-      }
-      return false;
-    }),
+    current: currentBuckets,
     historical: [],
     latest: null,
   };
+
+  // historical are those not selected as current
   bareCollection.historical = all.filter((summary) => !bareCollection.current.some((item) => item.key === summary.key));
   bareCollection.latest = bareCollection.current[0] ?? all[0] ?? null;
 
@@ -1009,7 +1027,8 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
   };
 
   // --- Live Activity derivation (small, reversible slice) ---
-  const recentEvents = flattenSectionEvents(collection.all)
+  // Use current session's events as the primary recent event feed for the live panel
+  const recentEvents = flattenSectionEvents(collection.current)
     .slice()
     .sort((a, b) => toTimestamp(b.timestamp) - toTimestamp(a.timestamp));
 
@@ -1037,7 +1056,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
   const activeAgents = Array.from(activeAgentsSet).sort();
 
   // build handoff flow details (chronological)
-  const rawHandoffs = buildHandoffItems(collection.all).reverse(); // chronological ascending
+  const rawHandoffs = buildHandoffItems(collection.current).reverse(); // chronological ascending
   const handoffFlow: HandoffDetail[] = rawHandoffs.map((h) => ({
     caseId: h.caseId || 'case-unknown',
     taskName: h.summary || 'handoff',
@@ -1318,6 +1337,10 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     recommendedAction: attentionQueue.length === 0 ? 'continue_watching' : attentionQueue[0].recommendedAction,
   };
 
+  const historicalHiddenCount = flattenSectionEvents(collection.historical).length;
+  const currentSessionId = collection.latest?.sessionId ?? undefined;
+  const hasCurrentSession = Boolean(currentSessionId) || collection.current.some((c) => c.status === 'running');
+
   const liveActivity: LiveActivitySection = {
     activeAgents,
     recentActivity,
@@ -1332,6 +1355,9 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     latestArtifacts,
     latestFeedback,
     tokenCostPulse,
+    currentSessionId,
+    historicalHiddenCount,
+    hasCurrentSession,
   };
 
   return {
