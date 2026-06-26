@@ -70,6 +70,9 @@ async function boot(): Promise<void> {
     render();
   }
 
+  // expose a simple refresh hook for inline scripts to call instead of full reload
+  (window as any).safeloopRefresh = refresh;
+
   window.setInterval(() => {
     void refresh();
   }, 5000);

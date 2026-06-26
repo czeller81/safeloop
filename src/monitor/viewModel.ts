@@ -293,6 +293,10 @@ export interface OperatorQueueItem {
   caseId?: string;
   timestamp?: string;
   recommendedAction?: OperatorRecommendedAction;
+  // operator action state (local only)
+  state?: 'open' | 'acknowledged' | 'reviewed' | 'resolved';
+  lastOperatorAction?: string;
+  operatorNote?: string;
 }
 
 export interface OperatorSummary {
@@ -1154,6 +1158,11 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
 
   const attentionQueue: OperatorQueueItem[] = [];
 
+  // default attention item state to 'open' and then apply any local operator events
+  // operator.action.recorded events in the snapshot.events will update matching items
+  // This keeps the model read-only and reflects local operator activity.
+  // We'll apply defaults after building the queue (below) — see processing block inserted later.
+
   // unresolved approvals -> medium/high
   for (const a of approvalItems.slice(0, 20)) {
     if (a.status === 'pending') {
@@ -1251,6 +1260,34 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
       summary: `Top agent: ${topCostAgent || 'n/a'} task: ${topCostTask || 'n/a'}`,
       recommendedAction: 'check_token_cost',
     });
+  }
+
+  // finalize attentionQueue: default each item to 'open' then apply local operator events
+  for (const it of attentionQueue) {
+    if (!it.state) it.state = 'open';
+  }
+
+  // apply operator.action.recorded events (local-only ledger) to attention queue items
+  const operatorEvents = (snapshot.events || []).filter((e) => String(e.type) === 'operator.action.recorded');
+  for (const ev of operatorEvents) {
+    try {
+      const meta = ev.metadata || {};
+      const action = String(meta.action || '').toLowerCase();
+      const targetId = String(meta.targetId || '');
+      const caseId = String(meta.caseId || '') || undefined;
+      const note = typeof meta.note === 'string' ? meta.note : undefined;
+      // match by id or caseId
+      const match = attentionQueue.find((q) => q.id === targetId || q.caseId === targetId || (caseId && q.caseId === caseId));
+      if (match) {
+        if (action === 'acknowledged') match.state = 'acknowledged';
+        else if (action === 'reviewed') match.state = 'reviewed';
+        else if (action === 'resolved') match.state = 'resolved';
+        match.lastOperatorAction = action || undefined;
+        if (note) match.operatorNote = note;
+      }
+    } catch (err) {
+      // ignore malformed operator events
+    }
   }
 
   // compute status
