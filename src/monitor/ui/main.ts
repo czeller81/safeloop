@@ -71,6 +71,34 @@ async function refresh(): Promise<void> {
 
     payload = next;
     setError(null);
+    // update liveness UI elements (hero badges)
+    try {
+      // prefer the explicit lastUpdated on the payload
+      const lastUpdated = next?.viewModel?.status?.lastUpdated ?? (window as any).safeloopLastUpdated ?? null;
+      const newEvents = (window as any).safeloopNewEvents ?? 0;
+      const elAge = document.getElementById('safeloop-last-age');
+      const elNew = document.getElementById('safeloop-new-events');
+      if (elAge) {
+        if (!lastUpdated) {
+          elAge.textContent = 'unavailable';
+        } else {
+          const ageMs = Date.now() - Date.parse(String(lastUpdated));
+          if (isNaN(ageMs) || ageMs < 1000) elAge.textContent = 'just now';
+          else if (ageMs < 60000) elAge.textContent = `${Math.round(ageMs/1000)}s ago`;
+          else elAge.textContent = `${Math.round(ageMs/60000)}m ago`;
+        }
+      }
+      if (elNew) {
+        if (typeof newEvents === 'number' && newEvents > 0) {
+          elNew.textContent = `+${newEvents} new events`;
+          elNew.style.display = '';
+        } else {
+          elNew.style.display = 'none';
+        }
+      }
+    } catch (e) {
+      // non-fatal UI update failure
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setError(message);
@@ -91,6 +119,32 @@ async function boot(): Promise<void> {
   (window as any).safeloopLastCount = payload?.viewModel?.status?.eventCount ?? 0;
   (window as any).safeloopNewEvents = 0;
   (window as any).safeloopLastUpdated = payload?.viewModel?.status?.lastUpdated ?? null;
+
+  // optional: update hero age every second so "Last event" feels live
+  setInterval(() => {
+    try {
+      const elAge = document.getElementById('safeloop-last-age');
+      const last = (window as any).safeloopLastUpdated;
+      if (elAge && last) {
+        const ageMs = Date.now() - Date.parse(String(last));
+        if (isNaN(ageMs) || ageMs < 1000) elAge.textContent = 'just now';
+        else if (ageMs < 60000) elAge.textContent = `${Math.round(ageMs/1000)}s ago`;
+        else elAge.textContent = `${Math.round(ageMs/60000)}m ago`;
+      }
+      const elNew = document.getElementById('safeloop-new-events');
+      const newEvents = (window as any).safeloopNewEvents ?? 0;
+      if (elNew) {
+        if (typeof newEvents === 'number' && newEvents > 0) {
+          elNew.textContent = `+${newEvents} new events`;
+          elNew.style.display = '';
+        } else {
+          elNew.style.display = 'none';
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, 1000);
 
   window.setInterval(() => {
     void refresh();
