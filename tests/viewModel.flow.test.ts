@@ -155,4 +155,42 @@ describe('viewModel live flow', () => {
     expect(live.recentActivity.every(r => !String(r.loopKey).includes('old'))).toBe(true);
   });
 
+  test('demo script uses a unique run/session id per execution', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const demoPath = path.resolve(__dirname, '..', 'examples', 'live-monitor-multihop-demo.ts');
+    const content = fs.readFileSync(demoPath, 'utf8');
+    // ensure demo declares a run id and uses it as sessionId
+    expect(content).toMatch(/const\s+runId\s*=\s*id\(/);
+    expect(content).not.toMatch(/sessionId\s*:\s*'s1'/);
+    expect(content).not.toMatch(/sessionId\s*:\s*'s2'/);
+    expect(content).not.toMatch(/sessionId\s*:\s*'s3'/);
+  });
+
+  test('token-cost pulse prefers current session usage', () => {
+    const now = Date.now();
+    const snapshot: any = {
+      events: [
+        { id: 'a1', type: 'task.event', timestamp: new Date(now - 120000).toISOString(), sessionId: 's-old', caseId: 'case-old', summary: 'old event' },
+        { id: 'a2', type: 'task.event', timestamp: new Date(now - 20000).toISOString(), sessionId: 's-new', caseId: 'case-new', summary: 'new event' },
+      ],
+      modelUsage: [
+        { provider: 'x', model: 'm', inputTokens: 100, outputTokens: 50, totalTokens: 150, estimatedCost: 0.01, timestamp: new Date(now - 120000).toISOString(), caseId: 'case-old', sessionId: 's-old' },
+        { provider: 'x', model: 'm', inputTokens: 500, outputTokens: 200, totalTokens: 700, estimatedCost: 0.05, timestamp: new Date(now - 20000).toISOString(), caseId: 'case-new', sessionId: 's-new' },
+      ],
+      activeLoops: [],
+      eventCount: 2,
+      monitoredPath: '/tmp',
+      lastUpdated: new Date().toISOString(),
+      costSummary: { caseId: 'all', totalCost: 0, currency: 'USD', costByAgent: {}, costByTask: {}, costByProject: {}, costByModel: {}, costByCase: {}, usageCount: 0 },
+      risks: [], approvals: [], artifacts: [], handoffs: [], readiness: { score: 100, status: 'ready' }, steeringInsights: [],
+    };
+
+    const vm = buildMonitorViewModel(snapshot as any);
+    const pulse = vm.liveActivity?.tokenCostPulse;
+    expect(pulse).toBeDefined();
+    // should reflect only the s-new usage (700 tokens)
+    expect(pulse?.recentTokenTotal).toBe(700);
+  });
+
 });

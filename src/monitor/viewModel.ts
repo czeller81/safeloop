@@ -1141,7 +1141,21 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
   // token cost pulse (recent 60 minutes)
   const recentWindowMs = 60 * 60 * 1000;
   const now = Date.now();
-  const recentUsage = (snapshot.modelUsage || []).filter((u) => now - toTimestamp(u.timestamp) <= recentWindowMs);
+  let recentUsage = (snapshot.modelUsage || []).filter((u) => now - toTimestamp(u.timestamp) <= recentWindowMs);
+
+  // Prefer usage records scoped to the current session/run when available. Fall back to caseId if session-scoped
+  const currentSessionIdForUsage = collection.latest?.sessionId;
+  const currentCaseId = collection.latest?.caseId;
+  if (currentSessionIdForUsage) {
+    const sessionFiltered = recentUsage.filter((u) => trimText((u as any).sessionId) === currentSessionIdForUsage);
+    if (sessionFiltered.length > 0) {
+      recentUsage = sessionFiltered;
+    } else if (currentCaseId) {
+      const caseFiltered = recentUsage.filter((u) => trimText(u.caseId) === currentCaseId);
+      if (caseFiltered.length > 0) recentUsage = caseFiltered;
+    }
+  }
+
   const recentTokenTotal = recentUsage.reduce((s, r) => s + Number(r.totalTokens || Number(r.inputTokens || 0) + Number(r.outputTokens || 0)), 0);
   const recentCostTotal = recentUsage.reduce((s, r) => s + Number(r.estimatedCost || 0), 0);
   const topCostAgent = Object.keys(spend.byAgent || {}).sort((a, b) => (spend.byAgent[b] || 0) - (spend.byAgent[a] || 0))[0];
