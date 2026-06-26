@@ -32,6 +32,8 @@ export function renderHero(viewModel: MonitorViewModel): string {
           <span class="sl-meta-pill">Events ${escapeHtml(String(viewModel.status.eventCount))}</span>
           <span class="sl-meta-pill">Polling: every 5s</span>
           <span class="sl-meta-pill">External events: not exposed</span>
+          <span class="sl-meta-pill">Last event: <span id="safeloop-last-age">${escapeHtml(formatTimestamp(viewModel.status.lastUpdated))}</span></span>
+          <span class="sl-meta-pill" id="safeloop-new-events" style="display:none;">+0 new events</span>
         </div>
       </div>
     </section>
