@@ -72,6 +72,7 @@ export interface SectionItem {
   timestamp: string;
   agent?: string;
   agentId?: string;
+  eventType?: string;
 }
 
 export interface RiskItem extends SectionItem {
@@ -1170,6 +1171,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     timestamp: e.timestamp,
     agent: e.agentName,
     agentId: e.agentId,
+    eventType: e.type,
   }));
 
   const activeAgentsSet = new Set<string>();

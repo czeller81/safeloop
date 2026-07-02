@@ -1,5 +1,6 @@
 import type { MonitorViewModel, SectionItem, HandoffDetail, TokenCostPulse, AgentStatus } from '../../viewModel';
 import { escapeHtml, formatCompact, formatTimestamp } from '../lib/formatters';
+import { renderEvidenceStream } from './EvidenceStream';
 
 export function renderLiveActivityPanel(viewModel: MonitorViewModel): string {
   const live = (viewModel as any).liveActivity as {
@@ -55,13 +56,6 @@ export function renderLiveActivityPanel(viewModel: MonitorViewModel): string {
   } else {
     agentsHtml = '<div class="muted">No active agents</div>';
   }
-
-  const recent = (live.recentActivity || []).slice(0, 12).map((it: SectionItem) => `
-    <li class="activity-item">
-      <div class="act-ts">${escapeHtml(formatTimestamp(it.timestamp))}</div>
-      <div class="act-body"><strong>${escapeHtml(it.agent || 'Unknown')}</strong>  ${escapeHtml(it.summary)}</div>
-    </li>
-  `).join('');
 
   // Build handoff flow grouped by caseId and render a lightweight chain.
   // When the dashboard is historical-only, suppress stale handoff chains from the
@@ -124,8 +118,7 @@ export function renderLiveActivityPanel(viewModel: MonitorViewModel): string {
           ${agentsHtml}
         </div>
         <div class="panel-block activity">
-          <h3>Recent Activity</h3>
-          <ul class="recent-activity">${recent}</ul>
+          ${renderEvidenceStream(viewModel)}
         </div>
         <div class="panel-block handoffs">
           <h3>Handoff Flow</h3>
