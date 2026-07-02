@@ -63,36 +63,43 @@ export function renderLiveActivityPanel(viewModel: MonitorViewModel): string {
     </li>
   `).join('');
 
-  // Build handoff flow grouped by caseId and render a lightweight chain
-  const handoffsByCase = (live.handoffFlow || []).reduce((acc: Record<string, HandoffDetail[]>, h) => {
-    const k = h.caseId || 'case-unknown';
-    const list = acc[k] ?? [];
-    list.push(h);
-    acc[k] = list;
-    return acc;
-  }, {} as Record<string, HandoffDetail[]>);
+  // Build handoff flow grouped by caseId and render a lightweight chain.
+  // When the dashboard is historical-only, suppress stale handoff chains from the
+  // active panel — they remain available in the historical/audit sections.
+  let handoffHtml = '';
+  if (isHistoricalOnly) {
+    handoffHtml = '<div class="muted">No handoffs in current session. Historical handoffs are available in the historical ledger.</div>';
+  } else {
+    const handoffsByCase = (live.handoffFlow || []).reduce((acc: Record<string, HandoffDetail[]>, h) => {
+      const k = h.caseId || 'case-unknown';
+      const list = acc[k] ?? [];
+      list.push(h);
+      acc[k] = list;
+      return acc;
+    }, {} as Record<string, HandoffDetail[]>);
 
-  const handoffHtml = Object.keys(handoffsByCase).slice(0, 8).map((caseId) => {
-    const events = (handoffsByCase[caseId] || []).slice().sort((a,b)=> (new Date(a.timestamp||'').getTime() - new Date(b.timestamp||'').getTime()));
-    // derive ordered node list
-    const nodes: string[] = [];
-    for (const ev of events) {
-      const evAny: any = ev;
-      const from = evAny.fromAgent || evAny.from || evAny.fromAgentId || 'unknown';
-      const to = evAny.toAgent || evAny.to || evAny.toAgentId || 'unknown';
-      if (!nodes.length) nodes.push(from);
-      if (nodes[nodes.length-1] !== from) nodes.push(from);
-      if (nodes[nodes.length-1] !== to) nodes.push(to);
-    }
-    const chain = nodes.map(n => `<span class="handoff-node">${escapeHtml(n)}</span>`).join(' <span class="handoff-arrow">\u2192</span> ');
-    const edgeDetails = events.map(e => `<div class="handoff-edge">${escapeHtml(formatTimestamp(e.timestamp||''))} \u2014 ${escapeHtml(e.summary||'')}</div>`).join('');
-    return `
-      <div class="handoff-case">
-        <div class="handoff-chain">${chain}</div>
-        <div class="handoff-edges">${edgeDetails}</div>
-      </div>
-    `;
-  }).join('') || '<div class="muted">No handoffs</div>';
+    handoffHtml = Object.keys(handoffsByCase).slice(0, 8).map((caseId) => {
+      const events = (handoffsByCase[caseId] || []).slice().sort((a,b)=> (new Date(a.timestamp||'').getTime() - new Date(b.timestamp||'').getTime()));
+      // derive ordered node list
+      const nodes: string[] = [];
+      for (const ev of events) {
+        const evAny: any = ev;
+        const from = evAny.fromAgent || evAny.from || evAny.fromAgentId || 'unknown';
+        const to = evAny.toAgent || evAny.to || evAny.toAgentId || 'unknown';
+        if (!nodes.length) nodes.push(from);
+        if (nodes[nodes.length-1] !== from) nodes.push(from);
+        if (nodes[nodes.length-1] !== to) nodes.push(to);
+      }
+      const chain = nodes.map(n => `<span class="handoff-node">${escapeHtml(n)}</span>`).join(' <span class="handoff-arrow">\u2192</span> ');
+      const edgeDetails = events.map(e => `<div class="handoff-edge">${escapeHtml(formatTimestamp(e.timestamp||''))} \u2014 ${escapeHtml(e.summary||'')}</div>`).join('');
+      return `
+        <div class="handoff-case">
+          <div class="handoff-chain">${chain}</div>
+          <div class="handoff-edges">${edgeDetails}</div>
+        </div>
+      `;
+    }).join('') || '<div class="muted">No handoffs</div>';
+  }
 
   // Token cost pulse: prefer explicit telemetry when available
   const tokenRecords = viewModel.tokens?.records ?? [];

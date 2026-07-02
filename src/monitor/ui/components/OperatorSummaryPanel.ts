@@ -54,15 +54,14 @@ export function renderOperatorSummaryPanel(viewModel: MonitorViewModel): string 
               var id = b.getAttribute('data-target-id');
               if(!act||!id) return;
               b.disabled = true;
--              postAction(act,id).then(function(){ window.location.reload(); }).catch(function(){ b.disabled = false; });
-+              var refresher = (window as any).safeloopRefresh;
-+              postAction(act,id).then(function(){
-+                if (typeof refresher === 'function') {
-+                  try { refresher(); } catch (e) { window.location.reload(); }
-+                } else {
-+                  window.location.reload();
-+                }
-+              }).catch(function(){ b.disabled = false; });
+              var refresher = window.safeloopRefresh;
+              postAction(act,id).then(function(){
+                if (typeof refresher === 'function') {
+                  try { refresher(); } catch (e) { window.location.reload(); }
+                } else {
+                  window.location.reload();
+                }
+              }).catch(function(){ b.disabled = false; });
             });
           });
         })();
