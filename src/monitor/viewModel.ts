@@ -344,6 +344,41 @@ export interface MonitorViewModel {
   liveActivity?: LiveActivitySection;
   // operator console guidance for human operators
   operatorConsole?: OperatorConsole;
+  // circuit graph for agent topology visualization
+  circuitGraph?: CircuitGraph;
+}
+
+// --- Circuit Graph types for Agent Circuit Map visualization ---
+export type CircuitNodeType = 'agent' | 'model' | 'human' | 'tool' | 'external';
+export type CircuitNodeStatus = 'active' | 'idle' | 'waiting' | 'blocked' | 'completed' | 'unknown';
+export type CircuitEdgeType = 'handoff' | 'model_call' | 'approval_gate' | 'artifact';
+export type CircuitEdgeStatus = 'active' | 'completed' | 'pending' | 'failed' | 'unknown';
+
+export interface CircuitNode {
+  id: string;
+  label: string;
+  type: CircuitNodeType;
+  status: CircuitNodeStatus;
+  lastEventTimestamp?: string;
+  tokenCount?: number;
+  costTotal?: number;
+  pricingAvailable?: boolean;
+}
+
+export interface CircuitEdge {
+  id: string;
+  from: string;
+  to: string;
+  type: CircuitEdgeType;
+  status: CircuitEdgeStatus;
+  timestamp?: string;
+  summary?: string;
+}
+
+export interface CircuitGraph {
+  nodes: CircuitNode[];
+  edges: CircuitEdge[];
+  currentFlowPath: string[];
 }
 
 export interface MonitorDashboardPayload extends DashboardSnapshot {
@@ -1483,6 +1518,15 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     isHistoricalOnly,
   };
 
+  // --- Circuit Graph derivation ---
+  const circuitGraph = deriveCircuitGraph(
+    agentStatuses,
+    handoffFlow,
+    recentUsage,
+    approvalItems,
+    isHistoricalOnly,
+  );
+
   return {
     status: {
       connection: 'connected',
@@ -1498,9 +1542,176 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     oversight,
     operatorConsole,
     liveActivity,
+    circuitGraph,
   };
 }
 
+
+// --- Circuit Graph derivation ---
+// Derives a topology graph from live activity data for the Agent Circuit Map.
+// Uses current-session data only. In historical-only mode, all edges are marked 'completed' (not 'active').
+function deriveCircuitGraph(
+  agentStatuses: Record<string, AgentStatus>,
+  handoffFlow: HandoffDetail[],
+  tokenRecords: ModelUsageRecord[],
+  approvalItems: ApprovalItem[],
+  isHistoricalOnly: boolean,
+): CircuitGraph {
+  const nodesById = new Map<string, CircuitNode>();
+  const edges: CircuitEdge[] = [];
+  const flowPath: string[] = [];
+
+  // Helper to map AgentStatus.status to CircuitNodeStatus
+  function mapAgentStatus(s: AgentStatus['status']): CircuitNodeStatus {
+    switch (s) {
+      case 'active': return 'active';
+      case 'idle': return 'idle';
+      case 'waiting_for_approval': return 'waiting';
+      case 'blocked': return 'blocked';
+      case 'failed': return 'blocked';
+      case 'completed': return 'completed';
+      case 'warning': return 'active'; // warning is still active, just flagged
+      default: return 'unknown';
+    }
+  }
+
+  // 1. Create agent nodes from agentStatuses
+  for (const [key, agentStatus] of Object.entries(agentStatuses)) {
+    const nodeId = `agent:${key}`;
+    nodesById.set(nodeId, {
+      id: nodeId,
+      label: agentStatus.agent || key,
+      type: 'agent',
+      status: isHistoricalOnly ? 'completed' : mapAgentStatus(agentStatus.status),
+      lastEventTimestamp: agentStatus.lastEventTimestamp,
+    });
+  }
+
+  // 2. Create model nodes and model_call edges from token/usage records
+  // Aggregate tokens/cost per model, and link from the calling agent
+  const modelAgg = new Map<string, { tokens: number; cost: number; pricingAvailable: boolean; lastTs: string; agentIds: Set<string> }>();
+  for (const record of tokenRecords) {
+    const modelKey = `${trimText(record.provider)}/${trimText(record.model)}`;
+    const existing = modelAgg.get(modelKey) ?? { tokens: 0, cost: 0, pricingAvailable: false, lastTs: '', agentIds: new Set() };
+    existing.tokens += Number(record.totalTokens || Number(record.inputTokens || 0) + Number(record.outputTokens || 0));
+    existing.cost += Number(record.estimatedCost || 0);
+    if (record.pricingAvailable === true) existing.pricingAvailable = true;
+    if (!existing.lastTs || toTimestamp(record.timestamp) > toTimestamp(existing.lastTs)) {
+      existing.lastTs = record.timestamp;
+    }
+    const callerAgent = trimText(record.agent) || trimText(record.agentId) || '';
+    if (callerAgent) existing.agentIds.add(callerAgent);
+    modelAgg.set(modelKey, existing);
+  }
+
+  for (const [modelKey, agg] of modelAgg.entries()) {
+    const nodeId = `model:${modelKey}`;
+    nodesById.set(nodeId, {
+      id: nodeId,
+      label: modelKey,
+      type: 'model',
+      status: isHistoricalOnly ? 'completed' : 'active',
+      lastEventTimestamp: agg.lastTs || undefined,
+      tokenCount: agg.tokens,
+      costTotal: agg.cost,
+      pricingAvailable: agg.pricingAvailable,
+    });
+
+    // Create model_call edges from each calling agent to this model
+    for (const callerAgent of agg.agentIds) {
+      const fromNodeId = `agent:${callerAgent}`;
+      // Ensure the agent node exists (it may have been missed if agentStatuses didn't include it)
+      if (!nodesById.has(fromNodeId)) {
+        nodesById.set(fromNodeId, {
+          id: fromNodeId,
+          label: callerAgent,
+          type: 'agent',
+          status: isHistoricalOnly ? 'completed' : 'idle',
+        });
+      }
+      edges.push({
+        id: `edge:model_call:${callerAgent}:${modelKey}`,
+        from: fromNodeId,
+        to: nodeId,
+        type: 'model_call',
+        status: isHistoricalOnly ? 'completed' : 'active',
+        timestamp: agg.lastTs || undefined,
+        summary: `${callerAgent} → ${modelKey}`,
+      });
+    }
+  }
+
+  // 3. Create handoff edges from handoffFlow
+  for (let i = 0; i < handoffFlow.length; i++) {
+    const h = handoffFlow[i];
+    const fromAgent = h.fromAgent || h.fromAgentId || 'unknown';
+    const toAgent = h.toAgent || h.toAgentId || 'unknown';
+    const fromNodeId = `agent:${fromAgent}`;
+    const toNodeId = `agent:${toAgent}`;
+
+    // Ensure both nodes exist
+    if (!nodesById.has(fromNodeId)) {
+      nodesById.set(fromNodeId, { id: fromNodeId, label: fromAgent, type: 'agent', status: isHistoricalOnly ? 'completed' : 'idle' });
+    }
+    if (!nodesById.has(toNodeId)) {
+      nodesById.set(toNodeId, { id: toNodeId, label: toAgent, type: 'agent', status: isHistoricalOnly ? 'completed' : 'idle' });
+    }
+
+    edges.push({
+      id: `edge:handoff:${i}:${fromAgent}:${toAgent}`,
+      from: fromNodeId,
+      to: toNodeId,
+      type: 'handoff',
+      status: isHistoricalOnly ? 'completed' : (i === handoffFlow.length - 1 ? 'active' : 'completed'),
+      timestamp: h.timestamp,
+      summary: h.summary,
+    });
+
+    // Build flow path from handoff chain
+    if (flowPath.length === 0) flowPath.push(fromNodeId);
+    if (flowPath[flowPath.length - 1] !== fromNodeId) flowPath.push(fromNodeId);
+    if (flowPath[flowPath.length - 1] !== toNodeId) flowPath.push(toNodeId);
+  }
+
+  // 4. Create human nodes and approval_gate edges from pending approvals
+  for (const approval of approvalItems) {
+    if (approval.status !== 'pending') continue;
+    const approverLabel = approval.approver || 'Human Reviewer';
+    const humanNodeId = `human:${approverLabel}`;
+    if (!nodesById.has(humanNodeId)) {
+      nodesById.set(humanNodeId, {
+        id: humanNodeId,
+        label: approverLabel,
+        type: 'human',
+        status: isHistoricalOnly ? 'completed' : 'waiting',
+        lastEventTimestamp: approval.timestamp,
+      });
+    }
+
+    // Edge from the requesting agent to the human approval gate
+    const requestingAgent = approval.agent || approval.agentId || 'unknown';
+    const fromNodeId = `agent:${requestingAgent}`;
+    if (!nodesById.has(fromNodeId)) {
+      nodesById.set(fromNodeId, { id: fromNodeId, label: requestingAgent, type: 'agent', status: isHistoricalOnly ? 'completed' : 'waiting' });
+    }
+
+    edges.push({
+      id: `edge:approval_gate:${approval.id}`,
+      from: fromNodeId,
+      to: humanNodeId,
+      type: 'approval_gate',
+      status: isHistoricalOnly ? 'completed' : 'pending',
+      timestamp: approval.timestamp,
+      summary: approval.summary,
+    });
+  }
+
+  return {
+    nodes: Array.from(nodesById.values()),
+    edges,
+    currentFlowPath: isHistoricalOnly ? [] : flowPath,
+  };
+}
 
 export function buildMonitorDashboardPayload(snapshot: DashboardSnapshot): MonitorDashboardPayload {
   const viewModel = buildMonitorViewModel(snapshot);
