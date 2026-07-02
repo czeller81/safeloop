@@ -23,10 +23,11 @@ export function renderLiveActivityPanel(viewModel: MonitorViewModel): string {
   const currentSessionId = (viewModel as any).liveActivity?.currentSessionId;
   const historicalHiddenCount = (viewModel as any).liveActivity?.historicalHiddenCount ?? 0;
   const hasCurrentSession = (viewModel as any).liveActivity?.hasCurrentSession ?? false;
+  const isHistoricalOnly = (viewModel as any).liveActivity?.isHistoricalOnly ?? false;
   let sessionCueHtml = '';
   if (hasCurrentSession) {
     sessionCueHtml = `<div class="live-session-cue"><strong>Current session active</strong>${currentSessionId ? `: ${escapeHtml(String(currentSessionId))}` : ''} &mdash; <span class="muted">${escapeHtml(String(historicalHiddenCount))} historical events hidden</span></div>`;
-  } else if ((viewModel.historical?.loopCount ?? 0) > 0) {
+  } else if (isHistoricalOnly || (viewModel.historical?.loopCount ?? 0) > 0) {
     sessionCueHtml = `<div class="live-session-cue muted">No current session activity. Historical ledger available below.</div>`;
   }
 

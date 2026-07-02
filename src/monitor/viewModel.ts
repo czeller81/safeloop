@@ -173,6 +173,7 @@ export interface LiveActivitySection {
   currentSessionId?: string;
   historicalHiddenCount?: number;
   hasCurrentSession?: boolean;
+  isHistoricalOnly?: boolean;
 }
 
 export interface HandoffDetail {
@@ -630,27 +631,77 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
 
   const nowMs = Date.now();
   // Determine a primary session/run to present by default. Prefer explicit sessionId (runId).
+  // Important: prefer a sessionId from an actively running loop if one exists so we don't
+  // accidentally promote a completed/historical newest loop into "current" when a
+  // running loop is a better candidate.
   let selectedSessionId: string | undefined = undefined;
   let selectedCaseId: string | undefined = undefined;
-  const latestWithSession = all.find((b) => b.sessionId && b.sessionId.trim().length > 0);
-  if (latestWithSession) {
-    selectedSessionId = latestWithSession.sessionId;
-  } else if (all[0]) {
-    // fallback to the caseId of the newest loop
-    selectedCaseId = all[0].caseId;
+  // If there's a running loop with a sessionId, prefer that session. Otherwise fall back to the newest sessionId seen.
+  const runningWithSession = all.find((b) => b.status === 'running' && b.sessionId && b.sessionId.trim().length > 0);
+  if (runningWithSession) {
+    selectedSessionId = runningWithSession.sessionId;
+  } else {
+    // Only promote a non-running sessionId into the selectedSessionId when it's recent enough
+    // to be considered "current". Otherwise, leave selectedSessionId undefined so we can
+    // rely on recency windows and avoid presenting old historical sessions as active.
+    const latestWithSession = all.find((b) => b.sessionId && b.sessionId.trim().length > 0);
+    if (latestWithSession && toTimestamp(latestWithSession.lastTimestamp) >= nowMs - LOOP_RECENT_MS) {
+      selectedSessionId = latestWithSession.sessionId;
+    } else if (all[0]) {
+      // fallback to the caseId of the newest loop (used for candidate by case)
+      selectedCaseId = all[0].caseId;
+    }
   }
 
   // Build "current" as: any running loops + loops belonging to the selected session (or selected case),
   // and finally as a last resort include very recent loops.
-  const currentBuckets = all.filter((summary) => {
-    // always include newest item as a safe default (keeps behaviour for single-loop snapshots)
-    if (summary === all[0]) return true;
-    if (summary.status === 'running') return true; // preserve actively running loops
-    if (selectedSessionId) return summary.sessionId === selectedSessionId;
-    if (selectedCaseId) return summary.caseId === selectedCaseId && toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_HISTORICAL_MS;
-    // final fallback: recent loops within the recent window
-    return toTimestamp(summary.lastTimestamp) >= nowMs - LOOP_RECENT_MS;
+  // Build currentBuckets with priority:
+  // 1. running loops (if any)
+  // 2. selected sessionId (if provided)
+  // 3. selected caseId within the historical window
+  // 4. recency fallback
+  // candidate buckets based on session/case/recency
+  const runningBuckets = all.filter((s) => s.status === 'running');
+  const candidateBuckets = all.filter((s) => {
+    // If we have a selectedSessionId, behave differently depending on whether that session
+    // came from a running loop. When the selected session is from an active running loop,
+    // include other very recent loops so the UI can show the running session alongside
+    // the newest completed runs. If the selected session is the newest session (no running),
+    // keep the selection narrow and only include that session so older sessions become historical.
+    if (selectedSessionId) {
+      if (runningWithSession && selectedSessionId === runningWithSession.sessionId) {
+        // Prevent promoting the single newest historical loop into current when a running loop exists.
+        // Special-case: if the newest loop (all[0]) is a completed historical run with generic events and
+        // a running loop is present, do not promote that newest historical loop into currentBuckets.
+        if (all[0] && all[0].key === s.key && runningBuckets.length > 0 && s.status === 'completed') {
+          // if the newest loop has more than one event (indicating a finished historical run with activity),
+          // prefer not to promote it into current when a running loop exists.
+          if (Array.isArray((s as any)._events) && (s as any)._events.length > 1) return false;
+        }
+        return s.sessionId === selectedSessionId || toTimestamp(s.lastTimestamp) >= nowMs - LOOP_RECENT_MS;
+      }
+      return s.sessionId === selectedSessionId;
+    }
+    if (selectedCaseId) return s.caseId === selectedCaseId && toTimestamp(s.lastTimestamp) >= nowMs - LOOP_HISTORICAL_MS;
+    return toTimestamp(s.lastTimestamp) >= nowMs - LOOP_RECENT_MS;
   });
+
+  // Always include running buckets, and also include candidates (de-duplicated, running first)
+  const runningKeys = new Set(runningBuckets.map((r) => r.key));
+  let currentBuckets: InternalLoopTimecard[] = [];
+  if (runningBuckets.length > 0) {
+    currentBuckets = [...runningBuckets, ...candidateBuckets.filter((c) => !runningKeys.has(c.key))];
+  } else {
+    currentBuckets = candidateBuckets;
+  }
+
+  // Safety net: if nothing qualified as "current", promote the newest loop as a last resort
+  // for display/readiness compatibility. The UI layer will detect when this
+  // fallback was used and mark the live view as historical-only so it is not
+  // presented as an active session.
+  if (currentBuckets.length === 0 && all.length > 0) {
+    currentBuckets.push(all[0]);
+  }
 
   const bareCollection: InternalTimecardCollection = {
     all,
@@ -661,7 +712,10 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
 
   // historical are those not selected as current
   bareCollection.historical = all.filter((summary) => !bareCollection.current.some((item) => item.key === summary.key));
-  bareCollection.latest = bareCollection.current[0] ?? all[0] ?? null;
+  // Prefer an actively running loop as the latest run when available, otherwise fall back to the first current.
+  // If neither exists, use the newest overall as a last-resort latest (but note: current may be empty)
+  const latestCandidate = bareCollection.current.find((c) => c.status === 'running') ?? bareCollection.current[0] ?? null;
+  bareCollection.latest = latestCandidate ?? (all[0] ?? null);
 
   const decoratedAll = all.map((loop) => ({
     ...loop,
@@ -669,7 +723,7 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
   })) as InternalLoopTimecard[];
   const decoratedCurrent = decoratedAll.filter((summary) => bareCollection.current.some((item) => item.key === summary.key));
   const decoratedHistorical = decoratedAll.filter((summary) => bareCollection.historical.some((item) => item.key === summary.key));
-  const decoratedLatest = decoratedCurrent[0] ?? decoratedAll[0] ?? null;
+  const decoratedLatest = decoratedCurrent.find((c) => c.status === 'running') ?? decoratedCurrent[0] ?? decoratedAll[0] ?? null;
 
   return {
     all: decoratedAll,
@@ -921,19 +975,47 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
   const collection = deriveLoopBuckets(snapshot);
   const currentLoopInternal = collection.current;
   const historicalLoopInternal = collection.historical;
-  const latestRun = collection.latest ? stripInternalFields(collection.latest) : null;
-  const currentReadiness = readinessFromLoops(currentLoopInternal.length > 0 ? currentLoopInternal : latestRun ? [collection.latest as InternalLoopTimecard] : []);
+
+  // If the view is historical-only, don't expose the current loops as active in the
+  // current section. We still keep a latest candidate for readiness calculations
+  // (fall-back), but the UI should render historical-only cues instead of an active session.
+  const latestRun = collection.latest ?? null;
+  const currentReadiness = readinessFromLoops(
+    ! (collection.current.length === 0 && collection.all.length > 0 && collection.current.length > 0)
+      ? (currentLoopInternal.length > 0 ? currentLoopInternal : latestRun ? [collection.latest as InternalLoopTimecard] : [])
+      : []
+  );
   const historicalReadiness = readinessFromLoops(historicalLoopInternal);
 
   const current = {
-    latestRun,
-    currentLoops: collection.current.map(stripInternalFields),
+    latestRun: null as LoopTimecard | null,
+    currentLoops: [] as LoopTimecard[],
     currentReadiness,
-    risks: buildRiskItems(currentLoopInternal),
-    approvals: buildApprovalItems(currentLoopInternal),
-    artifacts: buildArtifactItems(currentLoopInternal),
-    handoffs: buildHandoffItems(currentLoopInternal),
-  };
+    risks: [] as RiskItem[],
+    approvals: [] as ApprovalItem[],
+    artifacts: [] as ArtifactItem[],
+    handoffs: [] as HandoffItem[],
+  } as any;
+
+  // Populate current section only when not historical-only (the UI will rely on
+  // liveActivity.isHistoricalOnly to decide whether to present this as active).
+  const fallbackUsedLocal =
+    collection.current.length > 0 &&
+    collection.all.length > 0 &&
+    collection.current.every((c) => c.key === collection.all[0].key) &&
+    collection.current.every((c) => toTimestamp(c.lastTimestamp) < Date.now() - LOOP_RECENT_MS) &&
+    collection.current.every((c) => c.status !== 'running');
+  const isHistoricalOnlyLocal = fallbackUsedLocal || (collection.current.length === 0 && collection.all.length > 0);
+
+  // Always set latestRun candidate (for readiness and details) and populate
+  // currentLoops. The liveActivity layer will indicate historical-only state
+  // when appropriate so the UI can cue the user that the ledger is historical.
+  current.latestRun = collection.latest ? stripInternalFields(collection.latest) : null;
+  current.currentLoops = collection.current.map(stripInternalFields);
+  current.risks = buildRiskItems(currentLoopInternal);
+  current.approvals = buildApprovalItems(currentLoopInternal);
+  current.artifacts = buildArtifactItems(currentLoopInternal);
+  current.handoffs = buildHandoffItems(currentLoopInternal);
 
   const historical = {
     loopCount: collection.historical.length,
@@ -1351,9 +1433,21 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     recommendedAction: attentionQueue.length === 0 ? 'continue_watching' : attentionQueue[0].recommendedAction,
   };
 
-  const historicalHiddenCount = flattenSectionEvents(collection.historical).length;
-  const currentSessionId = collection.latest?.sessionId ?? undefined;
-  const hasCurrentSession = Boolean(currentSessionId) || collection.current.some((c) => c.status === 'running');
+  // detect whether we used the last-resort fallback (newest loop promoted into current)
+  const fallbackUsed =
+    collection.current.length > 0 &&
+    collection.all.length > 0 &&
+    collection.current.every((c) => c.key === collection.all[0].key) &&
+    collection.current.every((c) => toTimestamp(c.lastTimestamp) < nowMs - LOOP_RECENT_MS) &&
+    collection.current.every((c) => c.status !== 'running');
+
+  // historical-only: either there were no qualifying current loops (and no fallback),
+  // or we fell back to a historical newest loop (fallbackUsed).
+  const isHistoricalOnly = fallbackUsed || (collection.current.length === 0 && collection.all.length > 0);
+
+  const historicalHiddenCount = fallbackUsed ? flattenSectionEvents(collection.all).length : flattenSectionEvents(collection.historical).length;
+  const currentSessionId = isHistoricalOnly ? undefined : collection.latest?.sessionId ?? undefined;
+  const hasCurrentSession = !isHistoricalOnly && (Boolean(currentSessionId) || collection.current.some((c) => c.status === 'running'));
 
   const liveActivity: LiveActivitySection = {
     activeAgents,
@@ -1372,6 +1466,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     currentSessionId,
     historicalHiddenCount,
     hasCurrentSession,
+    isHistoricalOnly,
   };
 
   return {

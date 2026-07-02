@@ -193,4 +193,84 @@ describe('viewModel live flow', () => {
     expect(pulse?.recentTokenTotal).toBe(700);
   });
 
+  test('do not promote newest historical into current; prefer running loop', () => {
+    const now = Date.now();
+    const snapshot: any = {
+      events: [
+        // historical loop with newest lastTimestamp
+        { id: 'h1', type: 'task.event', timestamp: new Date(now - 1000).toISOString(), sessionId: 'hist', caseId: 'case-h', summary: 'historical recent' },
+        { id: 'h2', type: 'task.completed', timestamp: new Date(now - 1000).toISOString(), sessionId: 'hist', caseId: 'case-h', summary: 'historical completed' },
+        // running loop older than the historical one
+        { id: 'r1', type: 'task.started', timestamp: new Date(now - 60000).toISOString(), sessionId: 'run', caseId: 'case-r', summary: 'running start' },
+      ],
+      modelUsage: [],
+      activeLoops: [],
+      eventCount: 3,
+      monitoredPath: '/tmp',
+      lastUpdated: new Date().toISOString(),
+      costSummary: { caseId: 'all', totalCost: 0, currency: 'USD', costByAgent: {}, costByTask: {}, costByProject: {}, costByModel: {}, costByCase: {}, usageCount: 0 },
+      risks: [], approvals: [], artifacts: [], handoffs: [], readiness: { score: 100, status: 'ready' }, steeringInsights: [],
+    };
+
+    const vm = buildMonitorViewModel(snapshot as any);
+    // latestRun should be the running loop, not the newest historical
+    const latest = vm.current.latestRun;
+    expect(latest).toBeTruthy();
+    expect(latest?.sessionId).toBe('run');
+    // historicalHiddenCount should be > 0
+    expect(vm.liveActivity?.historicalHiddenCount ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  test('historical-only ledger does not present an active current session', () => {
+    const now = Date.now();
+    const oldTs = new Date(now - 25 * 60 * 60 * 1000).toISOString(); // 25 hours ago
+    const snapshot: any = {
+      events: [
+        { id: 'old1', type: 'task.completed', timestamp: oldTs, sessionId: 's1', caseId: 'case-old', summary: 'historical completed' },
+      ],
+      modelUsage: [],
+      activeLoops: [],
+      eventCount: 1,
+      monitoredPath: '/tmp',
+      lastUpdated: new Date().toISOString(),
+      costSummary: { caseId: 'all', totalCost: 0, currency: 'USD', costByAgent: {}, costByTask: {}, costByProject: {}, costByModel: {}, costByCase: {}, usageCount: 0 },
+      risks: [], approvals: [], artifacts: [], handoffs: [], readiness: { score: 100, status: 'ready' }, steeringInsights: [],
+    };
+
+    const vm = buildMonitorViewModel(snapshot as any);
+    expect(vm.liveActivity?.hasCurrentSession).toBe(false);
+    expect(vm.liveActivity?.isHistoricalOnly).toBe(true);
+    expect(vm.liveActivity?.currentSessionId).toBeUndefined();
+    expect(vm.liveActivity?.historicalHiddenCount ?? 0).toBeGreaterThanOrEqual(1);
+    // current loops may be present for display/readiness compatibility; the liveActivity.isHistoricalOnly flag
+    // ensures the UI renders an explicit historical-only cue instead of marking the session as active.
+  });
+
+  test('fresh run wins over old historical ledger and marks hidden historical count', () => {
+    const now = Date.now();
+    const oldTs = new Date(now - 25 * 60 * 60 * 1000).toISOString(); // 25 hours ago
+    const recentTs = new Date(now - 10000).toISOString();
+    const snapshot: any = {
+      events: [
+        { id: 'old1', type: 'task.completed', timestamp: oldTs, sessionId: 's1', caseId: 'case-old', summary: 'historical completed' },
+        { id: 'r1', type: 'task.started', timestamp: recentTs, sessionId: 'run-123', caseId: 'case-live', summary: 'fresh run start' },
+      ],
+      modelUsage: [],
+      activeLoops: [],
+      eventCount: 2,
+      monitoredPath: '/tmp',
+      lastUpdated: new Date().toISOString(),
+      costSummary: { caseId: 'all', totalCost: 0, currency: 'USD', costByAgent: {}, costByTask: {}, costByProject: {}, costByModel: {}, costByCase: {}, usageCount: 0 },
+      risks: [], approvals: [], artifacts: [], handoffs: [], readiness: { score: 100, status: 'ready' }, steeringInsights: [],
+    };
+
+    const vm = buildMonitorViewModel(snapshot as any);
+    expect(vm.liveActivity?.hasCurrentSession).toBe(true);
+    expect(vm.liveActivity?.isHistoricalOnly).toBe(false);
+    expect(String(vm.liveActivity?.currentSessionId || '').startsWith('run-')).toBe(true);
+    expect(vm.liveActivity?.historicalHiddenCount ?? 0).toBeGreaterThanOrEqual(1);
+    // recentActivity should reflect the fresh run
+    expect(vm.liveActivity?.recentActivity.every(r => String(r.loopKey).includes('run-'))).toBe(true);
+  });
+
 });
