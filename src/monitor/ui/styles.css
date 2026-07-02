@@ -1190,3 +1190,376 @@ h3 {
     padding: 8px 10px;
   }
 }
+
+
+/* ===== Agent Circuit Map ===== */
+
+.cmap-section {
+  padding: var(--sl-space-5);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(120, 231, 255, 0.06), transparent 40%),
+    linear-gradient(180deg, rgba(17, 13, 40, 0.96), rgba(8, 7, 21, 0.96));
+  border: 1px solid rgba(120, 231, 255, 0.18);
+  box-shadow: var(--sl-shadow);
+}
+
+.cmap-section--historical {
+  border-color: rgba(255, 209, 102, 0.18);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 209, 102, 0.04), transparent 40%),
+    linear-gradient(180deg, rgba(17, 13, 40, 0.96), rgba(8, 7, 21, 0.96));
+}
+
+.cmap-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sl-space-3);
+  margin-bottom: var(--sl-space-4);
+}
+
+.cmap-header h2 {
+  margin-right: auto;
+}
+
+.cmap-summary-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cmap-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--sl-text-muted);
+  border: 1px solid var(--sl-border);
+  background: rgba(9, 7, 26, 0.6);
+}
+
+.cmap-pill--active { color: var(--sl-green); border-color: rgba(67, 255, 149, 0.24); }
+.cmap-pill--waiting { color: var(--sl-yellow); border-color: rgba(255, 209, 102, 0.24); }
+.cmap-pill--blocked { color: var(--sl-red); border-color: rgba(255, 96, 123, 0.24); }
+
+.cmap-empty {
+  padding: var(--sl-space-6) var(--sl-space-4);
+  text-align: center;
+}
+
+/* --- Session/flow cue --- */
+
+.cmap-cue {
+  margin-bottom: var(--sl-space-4);
+  font-size: 13px;
+  color: var(--sl-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cmap-cue--active {
+  color: var(--sl-cyan);
+}
+
+.cmap-cue--historical {
+  color: var(--sl-yellow);
+  font-style: italic;
+}
+
+.cmap-flow-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(120, 231, 255, 0.12);
+  border: 1px solid rgba(120, 231, 255, 0.22);
+  color: var(--sl-cyan);
+}
+
+.cmap-flow-sep {
+  color: var(--sl-text-dim);
+  font-size: 12px;
+  margin: 0 2px;
+}
+
+/* --- Topology: node groups --- */
+
+.cmap-topology {
+  display: grid;
+  gap: var(--sl-space-4);
+  margin-bottom: var(--sl-space-4);
+}
+
+.cmap-group-title {
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--sl-text-dim);
+  margin-bottom: 8px;
+}
+
+.cmap-group-nodes {
+  display: flex;
+  gap: var(--sl-space-3);
+  flex-wrap: wrap;
+}
+
+/* --- Node card --- */
+
+.cmap-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 88px;
+  padding: 14px 12px 10px;
+  border-radius: var(--sl-radius-md);
+  background: rgba(5, 4, 12, 0.72);
+  border: 1.5px solid var(--sl-border);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.cmap-node-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 2px solid transparent;
+  transition: border-color 0.3s, opacity 0.3s;
+  opacity: 0;
+}
+
+/* Node type styling */
+.cmap-node--agent { border-color: rgba(157, 105, 255, 0.30); }
+.cmap-node--model { border-color: rgba(120, 231, 255, 0.30); }
+.cmap-node--human { border-color: rgba(255, 209, 102, 0.30); }
+.cmap-node--tool { border-color: rgba(67, 255, 149, 0.20); }
+.cmap-node--external { border-color: rgba(186, 176, 216, 0.20); }
+
+/* Node status styling */
+.cmap-node--active {
+  border-color: rgba(67, 255, 149, 0.50);
+  box-shadow: 0 0 12px rgba(67, 255, 149, 0.15);
+}
+.cmap-node--active .cmap-node-ring {
+  border-color: rgba(67, 255, 149, 0.40);
+  opacity: 1;
+  animation: cmap-pulse 2s ease-in-out infinite;
+}
+
+.cmap-node--waiting {
+  border-color: rgba(255, 209, 102, 0.50);
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.10);
+}
+.cmap-node--waiting .cmap-node-ring {
+  border-color: rgba(255, 209, 102, 0.40);
+  opacity: 1;
+  animation: cmap-breathe 3s ease-in-out infinite;
+}
+
+.cmap-node--blocked {
+  border-color: rgba(255, 96, 123, 0.50);
+  box-shadow: 0 0 10px rgba(255, 96, 123, 0.12);
+}
+.cmap-node--blocked .cmap-node-ring {
+  border-color: rgba(255, 96, 123, 0.45);
+  opacity: 1;
+}
+
+.cmap-node--completed {
+  border-color: rgba(67, 255, 149, 0.18);
+  opacity: 0.7;
+}
+
+.cmap-node--idle,
+.cmap-node--unknown {
+  opacity: 0.55;
+}
+
+.cmap-node-icon {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.cmap-node-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  word-break: break-word;
+  max-width: 100px;
+}
+
+.cmap-node-type {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sl-text-dim);
+  margin-top: 2px;
+}
+
+.cmap-node-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--sl-text-muted);
+}
+
+.cmap-node-tokens,
+.cmap-node-cost {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(9, 7, 26, 0.6);
+  border: 1px solid rgba(157, 105, 255, 0.12);
+}
+
+/* --- Edges --- */
+
+.cmap-edges {
+  display: grid;
+  gap: var(--sl-space-3);
+}
+
+.cmap-edge-group {
+  padding: 12px;
+  border-radius: var(--sl-radius-sm);
+  background: rgba(5, 4, 12, 0.50);
+  border: 1px solid rgba(157, 105, 255, 0.10);
+}
+
+.cmap-edge-group-title {
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--sl-text-dim);
+  margin-bottom: 8px;
+}
+
+.cmap-edge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  transition: border-color 0.3s, opacity 0.3s;
+}
+
+.cmap-edge-from,
+.cmap-edge-to {
+  font-weight: 600;
+  color: var(--sl-text);
+}
+
+.cmap-edge-arrow {
+  font-size: 14px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.cmap-edge-summary {
+  color: var(--sl-text-dim);
+  font-size: 11px;
+  margin-left: auto;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Edge status styling */
+.cmap-edge--active {
+  border-color: rgba(67, 255, 149, 0.30);
+  background: rgba(67, 255, 149, 0.05);
+}
+.cmap-edge--active .cmap-edge-arrow {
+  color: var(--sl-green);
+  animation: cmap-edge-pulse 1.5s ease-in-out infinite;
+}
+
+.cmap-edge--pending {
+  border-color: rgba(255, 209, 102, 0.25);
+  background: rgba(255, 209, 102, 0.04);
+  border-style: dashed;
+}
+.cmap-edge--pending .cmap-edge-arrow {
+  color: var(--sl-yellow);
+}
+
+.cmap-edge--failed {
+  border-color: rgba(255, 96, 123, 0.30);
+  background: rgba(255, 96, 123, 0.04);
+}
+.cmap-edge--failed .cmap-edge-arrow {
+  color: var(--sl-red);
+}
+
+.cmap-edge--completed {
+  opacity: 0.55;
+}
+
+.cmap-edge--unknown {
+  opacity: 0.4;
+}
+
+/* --- Animations (CSS only, GPU-composited) --- */
+
+@keyframes cmap-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes cmap-breathe {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
+@keyframes cmap-edge-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .cmap-node-ring,
+  .cmap-edge--active .cmap-edge-arrow {
+    animation: none !important;
+  }
+  .cmap-node--active .cmap-node-ring {
+    opacity: 1;
+  }
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 760px) {
+  .cmap-group-nodes {
+    gap: var(--sl-space-2);
+  }
+
+  .cmap-node {
+    min-width: 72px;
+    padding: 10px 8px 8px;
+  }
+
+  .cmap-node-label {
+    font-size: 11px;
+    max-width: 72px;
+  }
+
+  .cmap-edge {
+    flex-wrap: wrap;
+  }
+
+  .cmap-edge-summary {
+    max-width: 100%;
+    margin-left: 0;
+  }
+}
