@@ -349,6 +349,21 @@ export interface MonitorViewModel {
   circuitGraph?: CircuitGraph;
   // billable agent timecard summary
   timecardSummary?: BillableTimecardSummary;
+  // deployment metadata for local/cloud mode awareness
+  deployment?: SafeLoopDeploymentMetadata;
+}
+
+// --- Deployment Metadata types ---
+export type SafeLoopDeploymentMode = 'local' | 'cloud' | 'unknown';
+
+export interface SafeLoopDeploymentMetadata {
+  mode: SafeLoopDeploymentMode;
+  label: string;
+  instanceId?: string;
+  orgId?: string;
+  projectId?: string;
+  dataResidency: 'local' | 'cloud' | 'hybrid' | 'unknown';
+  transport: 'polling' | 'sse' | 'websocket' | 'unknown';
 }
 
 // --- Billable Agent Timecard types ---
@@ -1581,6 +1596,9 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     isHistoricalOnly,
   );
 
+  // --- Deployment Metadata ---
+  const deployment = deriveDeploymentMetadata();
+
   return {
     status: {
       connection: 'connected',
@@ -1598,9 +1616,38 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     liveActivity,
     circuitGraph,
     timecardSummary,
+    deployment,
   };
 }
 
+
+// --- Deployment Metadata derivation ---
+// Reads deployment mode from environment variables with safe fallbacks.
+function deriveDeploymentMetadata(): SafeLoopDeploymentMetadata {
+  const rawMode = (typeof process !== 'undefined' && process.env?.SAFELOOP_MODE || '').trim().toLowerCase();
+  let mode: SafeLoopDeploymentMode = 'local';
+  if (rawMode === 'cloud') mode = 'cloud';
+  else if (rawMode === 'local') mode = 'local';
+  else if (rawMode && rawMode !== 'local') mode = 'unknown';
+
+  const instanceId = (typeof process !== 'undefined' && process.env?.SAFELOOP_INSTANCE_ID || '').trim() || undefined;
+  const orgId = (typeof process !== 'undefined' && process.env?.SAFELOOP_ORG_ID || '').trim() || undefined;
+  const projectId = (typeof process !== 'undefined' && process.env?.SAFELOOP_PROJECT_ID || '').trim() || undefined;
+
+  const label = mode === 'cloud' ? 'Cloud monitor' : mode === 'local' ? 'Local monitor' : 'Unknown deployment';
+  const dataResidency = mode === 'cloud' ? 'cloud' : 'local';
+  const transport: SafeLoopDeploymentMetadata['transport'] = 'polling'; // only polling supported currently
+
+  return {
+    mode,
+    label,
+    instanceId,
+    orgId,
+    projectId,
+    dataResidency,
+    transport,
+  };
+}
 
 // --- Billable Timecard derivation ---
 // Derives billable agent timecards from existing loop data.

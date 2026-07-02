@@ -1781,3 +1781,21 @@ h3 {
 .rail-billable {
   color: var(--sl-green);
 }
+
+
+/* ===== Deployment Badge Variants ===== */
+
+.command-bar-badge--local {
+  color: var(--sl-text-muted);
+  border-color: var(--sl-border);
+}
+
+.command-bar-badge--cloud {
+  color: var(--sl-cyan);
+  border-color: rgba(120, 231, 255, 0.24);
+}
+
+.command-bar-badge--unknown {
+  color: var(--sl-yellow);
+  border-color: rgba(255, 209, 102, 0.24);
+}

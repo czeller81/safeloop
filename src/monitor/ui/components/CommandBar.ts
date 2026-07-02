@@ -31,12 +31,19 @@ export function renderCommandBar(viewModel: MonitorViewModel): string {
     viewModel.spend.currency,
   );
 
+  // Deployment metadata
+  const deployment = viewModel.deployment;
+  const deployLabel = deployment?.label ?? 'Local monitor';
+  const deployTransport = deployment?.transport ?? 'polling';
+  const deployResidency = deployment?.dataResidency ?? 'local';
+  const deployBadge = `${deployLabel} \u00B7 ${deployTransport} \u00B7 ${deployResidency} data`;
+
   return `
     <header class="sl-command-bar" role="banner">
       <div class="command-bar-left">
         <span class="command-bar-brand">SafeLoop</span>
         <span class="command-bar-status command-bar-status--${escapeHtml(operatorStatus)}">${escapeHtml(operatorStatus.toUpperCase())}</span>
-        <span class="command-bar-badge">${escapeHtml('Local monitor')}</span>
+        <span class="command-bar-badge command-bar-badge--${escapeHtml(deployment?.mode ?? 'local')}">${escapeHtml(deployBadge)}</span>
       </div>
       <div class="command-bar-center">
         <span class="command-bar-session command-bar-session--${escapeHtml(sessionClass)}">${escapeHtml(sessionLabel)}</span>
