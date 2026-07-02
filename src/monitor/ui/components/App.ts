@@ -1,13 +1,13 @@
 import type { MonitorDashboardPayload, MonitorViewModel } from '../../viewModel';
+import { renderCommandBar } from './CommandBar';
+import { renderCommandRail } from './CommandRail';
+import { renderCircuitMapPlaceholder } from './CircuitMapPlaceholder';
 import { renderDiagnosticsPanel } from './DiagnosticsPanel';
-import { renderHero } from './Hero';
 import { renderHumanReviewPanel } from './HumanReviewPanel';
-import { renderKpiGrid } from './KpiGrid';
 import { renderLatestRunCard } from './LatestRunCard';
 import { renderLoopTimecards } from './LoopTimecards';
 import { renderOversightPanel } from './OversightPanel';
 import { renderRiskPanel } from './RiskPanel';
-import { renderSidebar } from './Sidebar';
 import { renderSpendPanel } from './SpendPanel';
 import { renderHandoffsCard } from './HandoffsCard';
 import { renderOperatorSummaryPanel } from './OperatorSummaryPanel';
@@ -15,22 +15,32 @@ import { renderLiveActivityPanel } from './LiveActivityPanel';
 
 export function renderAppBody(viewModel: MonitorViewModel): string {
   return `
-    <div class="sl-layout" data-monitor-ui="vite">
-      ${renderSidebar(viewModel)}
-      <main class="sl-main">
-        ${renderHero(viewModel)}
-        ${renderKpiGrid(viewModel)}
-        ${renderLatestRunCard(viewModel)}
-        ${renderOperatorSummaryPanel(viewModel)}
-        ${renderHandoffsCard(viewModel)}
-        ${renderLiveActivityPanel(viewModel)}
-        ${renderOversightPanel(viewModel)}
-        ${renderSpendPanel(viewModel)}
-        ${renderLoopTimecards(viewModel)}
-        ${renderRiskPanel(viewModel)}
-        ${renderHumanReviewPanel(viewModel)}
-        ${renderDiagnosticsPanel(viewModel)}
-      </main>
+    <div class="sl-command-center" data-monitor-ui="vite">
+      ${renderCommandBar(viewModel)}
+      <div class="sl-command-body">
+        <main class="sl-canvas">
+          ${renderCircuitMapPlaceholder(viewModel)}
+          ${renderLatestRunCard(viewModel)}
+          ${renderLiveActivityPanel(viewModel)}
+          ${renderHandoffsCard(viewModel)}
+          ${renderOperatorSummaryPanel(viewModel)}
+          ${renderOversightPanel(viewModel)}
+          ${renderSpendPanel(viewModel)}
+          <details class="sl-lower-section" id="historical-details">
+            <summary class="sl-lower-summary">
+              <span class="sl-lower-title">Historical, Timecards &amp; Diagnostics</span>
+              <span class="sl-lower-caption">Loop history, risks, human review, and debug</span>
+            </summary>
+            <div class="sl-lower-body">
+              ${renderLoopTimecards(viewModel)}
+              ${renderRiskPanel(viewModel)}
+              ${renderHumanReviewPanel(viewModel)}
+              ${renderDiagnosticsPanel(viewModel)}
+            </div>
+          </details>
+        </main>
+        ${renderCommandRail(viewModel)}
+      </div>
     </div>
   `;
 }
@@ -43,7 +53,7 @@ export function renderFallbackDocument(payload: MonitorDashboardPayload, cssText
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Safeloop Live Loop Monitor</title>
+  <title>Safeloop Command Center</title>
   ${styleBlock}
 </head>
 <body>

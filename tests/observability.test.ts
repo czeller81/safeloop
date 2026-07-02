@@ -326,7 +326,7 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/index-[^"]+\.js"><\/script>/);
     expect(html).toMatch(/<link rel="stylesheet" crossorigin href="\/assets\/index-[^"]+\.css">/);
     expect((html.match(/id="latest-run"/g) ?? []).length).toBe(1);
-    expect((html.match(/class="sl-sidebar"/g) ?? []).length).toBe(1);
+    expect((html.match(/class="sl-command-bar"/g) ?? []).length).toBe(1);
     expect((html.match(/id="historical-ledger"/g) ?? []).length).toBe(1);
     expect(html).toContain('Oversight Intelligence');
     expect(html).toContain('id="oversight-intelligence"');
