@@ -119,6 +119,36 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
       return;
     }
 
+    // Timecard export endpoint: returns billable agent timecards as structured JSON
+    if (url.startsWith('/api/timecards/export') && (req.method === 'GET' || !req.method)) {
+      const snapshot = getDashboardSnapshot(options);
+      const dashboardPayload = buildMonitorDashboardPayload(snapshot);
+      const vm = dashboardPayload.viewModel;
+
+      const exportPayload = {
+        generatedAt: new Date().toISOString(),
+        deployment: vm.deployment ?? null,
+        currentSessionId: vm.liveActivity?.currentSessionId ?? null,
+        isHistoricalOnly: vm.liveActivity?.isHistoricalOnly ?? false,
+        timecardSummary: vm.timecardSummary ?? {
+          current: [],
+          historical: [],
+          totals: {
+            currentCount: 0,
+            historicalCount: 0,
+            billableCandidateCount: 0,
+            totalDurationMs: 0,
+            totalTokens: 0,
+            totalEstimatedCost: 0,
+            pricingAvailable: false,
+          },
+        },
+      };
+
+      sendJson(res, 200, exportPayload);
+      return;
+    }
+
     // Operator action endpoint: record local operator events into the SafeLoop ledger
     if (url === '/api/operator/actions' && req.method === 'POST') {
       let body = '';
