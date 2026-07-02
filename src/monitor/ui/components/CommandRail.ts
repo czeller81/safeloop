@@ -57,17 +57,25 @@ function renderRailSession(viewModel: MonitorViewModel): string {
   const latest = viewModel.current.latestRun;
   const live = viewModel.liveActivity;
   const loopState = live?.currentLoopState;
+  const tc = viewModel.timecardSummary;
+
+  const billableCount = tc?.totals.billableCandidateCount ?? 0;
+  const billableLabel = billableCount > 0
+    ? `${formatNumber(billableCount)} billable`
+    : 'Not billable yet';
 
   return `
     <div class="rail-card">
-      <div class="rail-card-title">Session</div>
+      <div class="rail-card-title">Session &amp; Timecards</div>
       <div class="rail-card-body">
         <div class="rail-metric"><span>Latest run</span><strong>${escapeHtml(latest?.taskName || 'None')}</strong></div>
         <div class="rail-metric"><span>Status</span><strong>${escapeHtml(latest?.status || 'idle')}</strong></div>
         <div class="rail-metric"><span>Duration</span><strong>${escapeHtml(formatDuration(latest?.durationMs))}</strong></div>
         <div class="rail-metric"><span>Running</span><strong>${escapeHtml(formatNumber(loopState?.running ?? 0))}</strong></div>
         <div class="rail-metric"><span>Completed</span><strong>${escapeHtml(formatNumber(loopState?.completed ?? 0))}</strong></div>
-        <div class="rail-metric"><span>Stale</span><strong>${escapeHtml(formatNumber(loopState?.stale ?? 0))}</strong></div>
+        <div class="rail-metric rail-metric--separator"><span>Billable</span><strong class="${billableCount > 0 ? 'rail-billable' : ''}">${escapeHtml(billableLabel)}</strong></div>
+        <div class="rail-metric"><span>Total tokens</span><strong>${escapeHtml(formatCompact(tc?.totals.totalTokens ?? 0))}</strong></div>
+        <div class="rail-metric"><span>Total cost</span><strong>${escapeHtml(formatCostOrUnavailable(tc?.totals.totalEstimatedCost ?? 0, tc?.totals.pricingAvailable ?? false, viewModel.spend.currency))}</strong></div>
       </div>
     </div>
   `;

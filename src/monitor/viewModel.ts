@@ -347,6 +347,51 @@ export interface MonitorViewModel {
   operatorConsole?: OperatorConsole;
   // circuit graph for agent topology visualization
   circuitGraph?: CircuitGraph;
+  // billable agent timecard summary
+  timecardSummary?: BillableTimecardSummary;
+}
+
+// --- Billable Agent Timecard types ---
+export type BillableTimecardStatus = 'running' | 'completed' | 'stale' | 'failed' | 'unknown';
+
+export interface BillableAgentTimecard {
+  id: string;
+  sessionId?: string;
+  caseId?: string;
+  taskId?: string;
+  taskName?: string;
+  agentId?: string;
+  agentName?: string;
+  project?: string;
+  status: BillableTimecardStatus;
+  startTime?: string;
+  endTime?: string;
+  durationMs?: number;
+  handoffCount: number;
+  approvalCount: number;
+  artifactCount: number;
+  riskCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+  pricingAvailable: boolean;
+  billableCandidate: boolean;
+  billableReason?: string;
+}
+
+export interface BillableTimecardSummary {
+  current: BillableAgentTimecard[];
+  historical: BillableAgentTimecard[];
+  totals: {
+    currentCount: number;
+    historicalCount: number;
+    billableCandidateCount: number;
+    totalDurationMs: number;
+    totalTokens: number;
+    totalEstimatedCost: number;
+    pricingAvailable: boolean;
+  };
 }
 
 // --- Circuit Graph types for Agent Circuit Map visualization ---
@@ -1529,6 +1574,13 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     isHistoricalOnly,
   );
 
+  // --- Billable Timecard Summary ---
+  const timecardSummary = deriveBillableTimecardSummary(
+    current.currentLoops,
+    historical.loops,
+    isHistoricalOnly,
+  );
+
   return {
     status: {
       connection: 'connected',
@@ -1545,9 +1597,98 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     operatorConsole,
     liveActivity,
     circuitGraph,
+    timecardSummary,
   };
 }
 
+
+// --- Billable Timecard derivation ---
+// Derives billable agent timecards from existing loop data.
+function deriveBillableTimecardFromLoop(loop: LoopTimecard): BillableAgentTimecard {
+  const status: BillableTimecardStatus = loop.status === 'historical' ? 'unknown' : loop.status as BillableTimecardStatus;
+
+  // A loop is a billable candidate when it has meaningful work evidence:
+  // - has token usage (agent did computation)
+  // - OR has handoffs (agent coordinated work)
+  // - OR has artifacts (agent produced output)
+  // - AND is completed or running (not stale/unknown)
+  const hasWork = loop.totalTokens > 0 || loop.handoffsCount > 0 || loop.artifactsCount > 0;
+  const hasActiveStatus = status === 'running' || status === 'completed';
+  const billableCandidate = hasWork && hasActiveStatus;
+
+  let billableReason: string | undefined;
+  if (!billableCandidate) {
+    if (!hasWork) billableReason = 'No token usage, handoffs, or artifacts recorded';
+    else if (status === 'stale') billableReason = 'Loop is stale — may need investigation before billing';
+    else if (status === 'failed') billableReason = 'Loop failed — review before billing';
+    else billableReason = 'Insufficient evidence for billing';
+  }
+
+  return {
+    id: loop.key,
+    sessionId: loop.sessionId,
+    caseId: loop.caseId,
+    taskId: loop.taskId,
+    taskName: loop.taskName,
+    agentId: loop.agentId,
+    agentName: loop.agent,
+    project: loop.project,
+    status,
+    startTime: loop.firstTimestamp,
+    endTime: loop.lastTimestamp,
+    durationMs: loop.durationMs,
+    handoffCount: loop.handoffsCount,
+    approvalCount: loop.approvalsCount,
+    artifactCount: loop.artifactsCount,
+    riskCount: loop.risksCount,
+    inputTokens: loop.inputTokens,
+    outputTokens: loop.outputTokens,
+    totalTokens: loop.totalTokens,
+    estimatedCost: loop.estimatedCost,
+    pricingAvailable: loop.pricingAvailable,
+    billableCandidate,
+    billableReason,
+  };
+}
+
+function deriveBillableTimecardSummary(
+  currentLoops: LoopTimecard[],
+  historicalLoops: LoopTimecard[],
+  isHistoricalOnly: boolean,
+): BillableTimecardSummary {
+  const current = currentLoops.map((loop) => {
+    const card = deriveBillableTimecardFromLoop(loop);
+    // In historical-only mode, current loops are fallback-promoted historical data.
+    // They must not be marked as current billable candidates.
+    if (isHistoricalOnly && card.billableCandidate) {
+      card.billableCandidate = false;
+      card.billableReason = 'Historical-only fallback \u2014 not current billable work';
+    }
+    return card;
+  });
+  const historical = historicalLoops.map(deriveBillableTimecardFromLoop);
+  const all = [...current, ...historical];
+
+  const billableCandidateCount = all.filter(t => t.billableCandidate).length;
+  const totalDurationMs = all.reduce((sum, t) => sum + (t.durationMs ?? 0), 0);
+  const totalTokens = all.reduce((sum, t) => sum + t.totalTokens, 0);
+  const totalEstimatedCost = all.reduce((sum, t) => sum + t.estimatedCost, 0);
+  const pricingAvailable = all.some(t => t.pricingAvailable);
+
+  return {
+    current,
+    historical,
+    totals: {
+      currentCount: current.length,
+      historicalCount: historical.length,
+      billableCandidateCount,
+      totalDurationMs,
+      totalTokens,
+      totalEstimatedCost,
+      pricingAvailable,
+    },
+  };
+}
 
 // --- Circuit Graph derivation ---
 // Derives a topology graph from live activity data for the Agent Circuit Map.

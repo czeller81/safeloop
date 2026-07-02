@@ -1768,3 +1768,16 @@ h3 {
     grid-column: 2;
   }
 }
+
+
+/* ===== Billable Timecard Rail ===== */
+
+.rail-metric--separator {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(157, 105, 255, 0.12);
+}
+
+.rail-billable {
+  color: var(--sl-green);
+}
