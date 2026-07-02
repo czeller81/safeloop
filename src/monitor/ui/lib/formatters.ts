@@ -43,6 +43,13 @@ export function formatCurrency(value: number | undefined | null, currency = 'USD
   }).format(amount);
 }
 
+export function formatCostOrUnavailable(value: number | undefined | null, pricingAvailable: boolean, currency = 'USD'): string {
+  if (!pricingAvailable) {
+    return '\u2014 (no pricing)';
+  }
+  return formatCurrency(value, currency);
+}
+
 export function formatDuration(value: number | undefined | null): string {
   const amount = Number(value ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) {

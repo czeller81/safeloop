@@ -15,6 +15,7 @@ export interface UsageCostResult {
   outputCost: number;
   totalCost: number;
   currency: string;
+  pricingAvailable: boolean;
 }
 
 const PRICING_FILE = 'model-pricing.json';
@@ -86,5 +87,6 @@ export function calculateUsageCost(
     outputCost,
     totalCost: inputCost + outputCost,
     currency,
+    pricingAvailable: pricing !== undefined,
   };
 }

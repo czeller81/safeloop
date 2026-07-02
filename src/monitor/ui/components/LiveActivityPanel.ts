@@ -103,14 +103,15 @@ export function renderLiveActivityPanel(viewModel: MonitorViewModel): string {
 
   // Token cost pulse: prefer explicit telemetry when available
   const tokenRecords = viewModel.tokens?.records ?? [];
-  const tokenPulse = live.tokenCostPulse || { recentTokenTotal: 0, recentCostTotal: 0, topCostAgent: '', topCostTask: '', costTrend: 'unknown' };
+  const tokenPulse = live.tokenCostPulse || { recentTokenTotal: 0, recentCostTotal: 0, topCostAgent: '', topCostTask: '', costTrend: 'unknown', pricingAvailable: false };
+  const pulsePricingAvailable = (tokenPulse as any).pricingAvailable ?? false;
   const tokensHtml = (tokenRecords.length === 0)
     ? '<div class="muted">No token-cost events emitted yet. Emit token.cost / model.usage events to populate spend by agent/model/task.</div>'
     : `
       <div>Tokens (last 60m): <strong>${escapeHtml(formatCompact(tokenPulse.recentTokenTotal))}</strong></div>
-      <div>Cost (last 60m): <strong>${escapeHtml(String(tokenPulse.recentCostTotal.toFixed ? tokenPulse.recentCostTotal.toFixed(4) : tokenPulse.recentCostTotal))}</strong></div>
+      <div>Cost (last 60m): <strong>${pulsePricingAvailable ? escapeHtml(String(tokenPulse.recentCostTotal.toFixed ? tokenPulse.recentCostTotal.toFixed(4) : tokenPulse.recentCostTotal)) : escapeHtml('\u2014 (no pricing)')}</strong></div>
       <div>Top agent: <strong>${escapeHtml(tokenPulse.topCostAgent || '\u2014')}</strong></div>
-      <div>Cost trend: <strong>${escapeHtml(tokenPulse.costTrend)}</strong></div>
+      <div>Cost trend: <strong>${pulsePricingAvailable ? escapeHtml(tokenPulse.costTrend) : escapeHtml('\u2014')}</strong></div>
     `;
 
   return `

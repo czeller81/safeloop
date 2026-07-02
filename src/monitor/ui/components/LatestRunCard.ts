@@ -1,5 +1,5 @@
 import type { MonitorViewModel } from '../../viewModel';
-import { escapeHtml, formatCompact, formatCurrency, formatDuration, formatNumber, formatTimestamp, formatList } from '../lib/formatters';
+import { escapeHtml, formatCompact, formatCostOrUnavailable, formatDuration, formatNumber, formatTimestamp, formatList } from '../lib/formatters';
 
 export function renderLatestRunCard(viewModel: MonitorViewModel): string {
   const latest = viewModel.current.latestRun;
@@ -41,7 +41,7 @@ export function renderLatestRunCard(viewModel: MonitorViewModel): string {
         </div>
         <div class="run-item">
           <div class="run-item-label">Cost</div>
-          <div class="run-item-value">${escapeHtml(formatCurrency(latest.estimatedCost, viewModel.spend.currency))}</div>
+          <div class="run-item-value">${escapeHtml(formatCostOrUnavailable(latest.estimatedCost, latest.pricingAvailable, viewModel.spend.currency))}</div>
         </div>
         <div class="run-item">
           <div class="run-item-label">Events</div>

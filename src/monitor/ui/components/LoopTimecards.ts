@@ -1,5 +1,5 @@
 import type { LoopTimecard, MonitorViewModel } from '../../viewModel';
-import { escapeHtml, formatCompact, formatCurrency, formatDuration, formatNumber, formatTimestamp } from '../lib/formatters';
+import { escapeHtml, formatCompact, formatCostOrUnavailable, formatDuration, formatNumber, formatTimestamp } from '../lib/formatters';
 
 function renderLoopCard(loop: LoopTimecard, currency: string): string {
   return `
@@ -9,7 +9,7 @@ function renderLoopCard(loop: LoopTimecard, currency: string): string {
           <div class="timecard-label">${escapeHtml(loop.status)}</div>
           <h3>${escapeHtml(loop.taskName)}</h3>
         </div>
-        <div class="timecard-chip">${escapeHtml(formatCurrency(loop.estimatedCost, currency))}</div>
+        <div class="timecard-chip">${escapeHtml(formatCostOrUnavailable(loop.estimatedCost, loop.pricingAvailable, currency))}</div>
       </div>
       <div class="timecard-grid">
         <div><span>Agent</span><strong>${escapeHtml(loop.agent || loop.agentId || 'Unknown')}</strong></div>
@@ -75,7 +75,7 @@ export function renderLoopTimecards(viewModel: MonitorViewModel): string {
           <div class="historical-metrics">
             <div class="mini-metric"><span>Readiness</span><strong>${escapeHtml(formatNumber(viewModel.historical.readiness.score))}/100</strong></div>
             <div class="mini-metric"><span>Events</span><strong>${escapeHtml(formatNumber(viewModel.historical.eventCount))}</strong></div>
-            <div class="mini-metric"><span>Cost</span><strong>${escapeHtml(formatCurrency(viewModel.spend.totalLedgerCost, viewModel.spend.currency))}</strong></div>
+            <div class="mini-metric"><span>Cost</span><strong>${escapeHtml(formatCostOrUnavailable(viewModel.spend.totalLedgerCost, viewModel.spend.pricingAvailable, viewModel.spend.currency))}</strong></div>
           </div>
           ${renderLoopList('Historical loops', viewModel.historical.loops, viewModel.spend.currency, 'No historical loops yet.', 'historical-loop-timecards')}
         </div>

@@ -21,6 +21,7 @@ export interface LoopTimecard {
   outputTokens: number;
   totalTokens: number;
   estimatedCost: number;
+  pricingAvailable: boolean;
   durationMs: number;
   approvalsCount: number;
   approvalsStatus: 'none' | 'pending' | 'approved' | 'rejected';
@@ -153,6 +154,7 @@ export interface TokenCostPulse {
   topCostAgent?: string;
   topCostTask?: string;
   costTrend: 'stable' | 'rising' | 'high' | 'unknown';
+  pricingAvailable: boolean;
 }
 
 export interface LiveActivitySection {
@@ -251,6 +253,7 @@ export interface SpendAggregate {
   byTask: Record<string, number>;
   latestRunCost: number;
   totalLedgerCost: number;
+  pricingAvailable: boolean;
 }
 
 export interface TokenModelUsageSummary {
@@ -406,6 +409,7 @@ interface LoopBucket {
   outputTokens: number;
   totalTokens: number;
   estimatedCost: number;
+  pricingAvailable: boolean;
   firstTimestamp: string;
   lastTimestamp: string;
 }
@@ -428,6 +432,7 @@ function createBucketFromUsage(record: ModelUsageRecord): LoopBucket {
     outputTokens: 0,
     totalTokens: 0,
     estimatedCost: 0,
+    pricingAvailable: false,
     firstTimestamp: record.timestamp,
     lastTimestamp: record.timestamp,
   };
@@ -499,6 +504,11 @@ function addUsageToBucket(bucket: LoopBucket, record: ModelUsageRecord): void {
   bucket.outputTokens += Number(record.outputTokens || 0);
   bucket.totalTokens += Number(record.totalTokens || Number(record.inputTokens || 0) + Number(record.outputTokens || 0));
   bucket.estimatedCost += Number(record.estimatedCost || 0);
+  // Use the explicit pricingAvailable field from the usage record.
+  // If any record in the bucket has pricing available, the bucket is considered priced.
+  if (record.pricingAvailable === true) {
+    bucket.pricingAvailable = true;
+  }
   bucket.models.add(trimText(record.model) || 'unknown-model');
   bucket.firstTimestamp = earliestTimestamp(bucket.firstTimestamp, record.timestamp);
   bucket.lastTimestamp = latestTimestamp(bucket.lastTimestamp, record.timestamp);
@@ -613,6 +623,7 @@ function deriveLoopBuckets(snapshot: DashboardSnapshot): InternalTimecardCollect
         outputTokens: bucket.outputTokens,
         totalTokens: bucket.totalTokens,
         estimatedCost: bucket.estimatedCost,
+        pricingAvailable: bucket.pricingAvailable,
         durationMs,
         approvalsCount: approvalsRequested + approvalsResolved,
         approvalsStatus: approvalStatus,
@@ -953,6 +964,7 @@ function aggregateSpend(snapshot: DashboardSnapshot, latest: LoopTimecard | null
 
   const latestRunCost = latestUsageRecords.reduce((sum, record) => sum + Number(record.estimatedCost || 0), 0);
   const totalLedgerCost = snapshot.modelUsage.reduce((sum, record) => sum + Number(record.estimatedCost || 0), 0);
+  const pricingAvailable = snapshot.modelUsage.some((record) => record.pricingAvailable === true);
 
   return {
     totalCost: Number(costSummary.totalCost || 0),
@@ -964,6 +976,7 @@ function aggregateSpend(snapshot: DashboardSnapshot, latest: LoopTimecard | null
     byTask: { ...costSummary.costByTask },
     latestRunCost,
     totalLedgerCost,
+    pricingAvailable,
   };
 }
 
@@ -1250,6 +1263,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     topCostAgent,
     topCostTask,
     costTrend,
+    pricingAvailable: recentUsage.some((u) => (u as any).pricingAvailable === true) || spend.pricingAvailable,
   };
 
   // --- Operator console derivation (guidance only) ---

@@ -1,5 +1,5 @@
 import type { MonitorViewModel } from '../../viewModel';
-import { escapeHtml, formatCompact, formatCurrency } from '../lib/formatters';
+import { escapeHtml, formatCompact, formatCurrency, formatCostOrUnavailable } from '../lib/formatters';
 
 function renderMetricList(title: string, entries: Record<string, number>, currency: string): string {
   const rows = Object.entries(entries).sort((a, b) => b[1] - a[1]);
@@ -30,18 +30,18 @@ export function renderSpendPanel(viewModel: MonitorViewModel): string {
       </div>
       <div class="spend-grid">
         <article class="metric-card">
-          <span>Total ledger cost</span>
-          <strong>${escapeHtml(formatCurrency(viewModel.spend.totalCost, viewModel.spend.currency))}</strong>
+          <span>Total cost (calculated)</span>
+          <strong>${escapeHtml(formatCostOrUnavailable(viewModel.spend.totalCost, viewModel.spend.pricingAvailable, viewModel.spend.currency))}</strong>
           <em>${escapeHtml(formatCompact(viewModel.spend.usageCount))} records</em>
         </article>
         <article class="metric-card">
           <span>Latest run cost</span>
-          <strong>${escapeHtml(formatCurrency(viewModel.spend.latestRunCost, viewModel.spend.currency))}</strong>
+          <strong>${escapeHtml(formatCostOrUnavailable(viewModel.spend.latestRunCost, viewModel.spend.pricingAvailable, viewModel.spend.currency))}</strong>
           <em>${escapeHtml(viewModel.current.latestRun?.taskName || 'No latest run')}</em>
         </article>
         <article class="metric-card">
-          <span>Total ledger cost</span>
-          <strong>${escapeHtml(formatCurrency(viewModel.spend.totalLedgerCost, viewModel.spend.currency))}</strong>
+          <span>Full ledger cost</span>
+          <strong>${escapeHtml(formatCostOrUnavailable(viewModel.spend.totalLedgerCost, viewModel.spend.pricingAvailable, viewModel.spend.currency))}</strong>
           <em>Full history</em>
         </article>
       </div>

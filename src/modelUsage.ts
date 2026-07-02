@@ -12,6 +12,7 @@ export interface ModelUsageRecord {
   outputTokens: number;
   totalTokens: number;
   estimatedCost: number;
+  pricingAvailable?: boolean;
   timestamp: string;
   agentId: string;
   agent?: string;
@@ -94,6 +95,7 @@ export function recordTokenCost(input: TokenCostInput, options: SafeloopStorageO
   const record: TokenCostRecord = {
     ...provisional,
     estimatedCost: calculated.totalCost,
+    pricingAvailable: calculated.pricingAvailable,
   };
   appendTokenCostEvent(record, options);
   return record;
