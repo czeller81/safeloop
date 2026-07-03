@@ -962,6 +962,8 @@ export {
   exportAgentSessionJSON,
 } from './agentAdapter';
 export { appendEvent, readEvents, streamEvents } from './eventStream';
+export { createCommandGuard } from './commandGuard';
+export type { CommandGuard, CommandGuardConfig, GuardDecision, GuardResult } from './commandGuard';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
   setModelPricing,
