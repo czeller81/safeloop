@@ -22,16 +22,16 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
           ${renderCircuitMapPlaceholder(viewModel)}
           ${renderLatestRunCard(viewModel)}
           ${renderLiveActivityPanel(viewModel)}
-          ${renderHandoffsCard(viewModel)}
           ${renderOperatorSummaryPanel(viewModel)}
           ${renderOversightPanel(viewModel)}
           ${renderSpendPanel(viewModel)}
-          <details class="sl-lower-section" id="historical-details">
+          <details class="sl-lower-section" id="historical-details" data-state-key="historical-details">
             <summary class="sl-lower-summary">
-              <span class="sl-lower-title">Historical, Timecards &amp; Diagnostics</span>
-              <span class="sl-lower-caption">Loop history, risks, human review, and debug</span>
+              <span class="sl-lower-title">Historical Ledger, Timecards &amp; Debug</span>
+              <span class="sl-lower-caption">Full audit trail \u2014 loop history, handoff detail, risks, human review, and diagnostics</span>
             </summary>
             <div class="sl-lower-body">
+              ${renderHandoffsCard(viewModel)}
               ${renderLoopTimecards(viewModel)}
               ${renderRiskPanel(viewModel)}
               ${renderHumanReviewPanel(viewModel)}

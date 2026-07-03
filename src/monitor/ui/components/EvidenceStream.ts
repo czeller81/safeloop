@@ -108,7 +108,7 @@ export function renderEvidenceStream(viewModel: MonitorViewModel): string {
         <span class="ev-count">${escapeHtml(String(recentActivity.length))} events</span>
       </div>
       ${sessionCueHtml}
-      <div class="ev-timeline">
+      <div class="ev-timeline" data-scroll-key="ev-timeline">
         ${rowsHtml}
       </div>
       ${hiddenCount > 0 ? `<div class="ev-overflow muted">${escapeHtml(String(hiddenCount))} more events in this session. Full ledger available in historical section.</div>` : ''}

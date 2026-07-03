@@ -25,9 +25,9 @@ export function renderOperatorSummaryPanel(viewModel: MonitorViewModel): string 
         <div class="queue-head"><strong>${escapeHtml(it.title)}</strong> ${stateLabel}</div>
         <div class="queue-summary">${escapeHtml(it.summary)}</div>
         <div class="queue-actions">
-          <button class="operator-action-btn" data-action="acknowledged" data-target-id="${escapeHtml(it.id)}">Acknowledge</button>
-          <button class="operator-action-btn" data-action="reviewed" data-target-id="${escapeHtml(it.id)}">Mark reviewed</button>
-          <button class="operator-action-btn" data-action="resolved" data-target-id="${escapeHtml(it.id)}">Resolve</button>
+          <button class="sl-btn sl-btn--subtle" data-action="acknowledged" data-target-id="${escapeHtml(it.id)}">Acknowledge</button>
+          <button class="sl-btn sl-btn--subtle" data-action="reviewed" data-target-id="${escapeHtml(it.id)}">Mark reviewed</button>
+          <button class="sl-btn sl-btn--primary" data-action="resolved" data-target-id="${escapeHtml(it.id)}">Resolve</button>
         </div>
       </li>`;
   }).join('');
@@ -48,7 +48,7 @@ export function renderOperatorSummaryPanel(viewModel: MonitorViewModel): string 
           function postAction(action,targetId){
             return fetch('/api/operator/actions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,targetId})});
           }
-          document.querySelectorAll('.operator-action-btn').forEach(function(b){
+          document.querySelectorAll('.sl-btn[data-action]').forEach(function(b){
             b.addEventListener('click',function(){
               var act = b.getAttribute('data-action');
               var id = b.getAttribute('data-target-id');

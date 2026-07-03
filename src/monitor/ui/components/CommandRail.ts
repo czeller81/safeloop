@@ -78,7 +78,7 @@ function renderRailSession(viewModel: MonitorViewModel): string {
         <div class="rail-metric"><span>Total cost</span><strong>${escapeHtml(formatCostOrUnavailable(tc?.totals.totalEstimatedCost ?? 0, tc?.totals.pricingAvailable ?? false, viewModel.spend.currency))}</strong></div>
       </div>
       <div class="rail-card-action">
-        <a href="/api/timecards/export" target="_blank" rel="noopener" class="rail-export-link">Export timecards \u2197</a>
+        <a href="/api/timecards/export" target="_blank" rel="noopener" class="rail-export-link">\uD83D\uDCCB Export timecards</a>
       </div>
     </div>
   `;

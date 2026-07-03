@@ -1829,3 +1829,122 @@ h3 {
   background: rgba(120, 231, 255, 0.12);
   border-color: rgba(120, 231, 255, 0.40);
 }
+
+
+/* ===== Premium UI Buttons ===== */
+
+.sl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border: 1px solid var(--sl-border);
+  background: rgba(9, 7, 26, 0.7);
+  color: var(--sl-text);
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+
+.sl-btn:hover {
+  background: rgba(22, 17, 48, 0.9);
+  border-color: var(--sl-border-strong);
+}
+
+.sl-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sl-btn--primary {
+  background: rgba(67, 255, 149, 0.12);
+  border-color: rgba(67, 255, 149, 0.30);
+  color: var(--sl-green);
+}
+
+.sl-btn--primary:hover {
+  background: rgba(67, 255, 149, 0.20);
+  border-color: rgba(67, 255, 149, 0.50);
+}
+
+.sl-btn--subtle {
+  background: rgba(157, 105, 255, 0.06);
+  border-color: rgba(157, 105, 255, 0.18);
+  color: var(--sl-text-muted);
+}
+
+.sl-btn--subtle:hover {
+  background: rgba(157, 105, 255, 0.14);
+  border-color: rgba(157, 105, 255, 0.36);
+  color: var(--sl-text);
+}
+
+/* ===== Queue item premium polish ===== */
+
+.queue-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* ===== Circuit Map subtitle ===== */
+
+.cmap-subtitle {
+  font-size: 13px;
+  color: var(--sl-text-muted);
+  margin-top: 4px;
+}
+
+/* ===== Evidence Stream premium ===== */
+
+.ev-stream {
+  border: 1px solid rgba(120, 231, 255, 0.10);
+  background: rgba(5, 4, 12, 0.50);
+}
+
+.ev-header .panel-kicker {
+  color: var(--sl-cyan);
+}
+
+.ev-row {
+  border: 1px solid rgba(157, 105, 255, 0.08);
+  background: rgba(8, 7, 18, 0.40);
+}
+
+.ev-row:hover {
+  background: rgba(157, 105, 255, 0.08);
+  border-color: rgba(157, 105, 255, 0.18);
+}
+
+/* ===== Rail premium export button ===== */
+
+.rail-export-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ===== Historical lower section premium ===== */
+
+.sl-lower-section > summary {
+  padding: 4px 0;
+}
+
+.sl-lower-title {
+  font-size: 14px;
+}
+
+.sl-lower-section[open] > summary {
+  margin-bottom: var(--sl-space-3);
+  padding-bottom: var(--sl-space-3);
+  border-bottom: 1px solid rgba(157, 105, 255, 0.12);
+}

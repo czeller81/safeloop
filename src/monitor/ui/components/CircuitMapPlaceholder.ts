@@ -100,8 +100,11 @@ export function renderCircuitMapPlaceholder(viewModel: MonitorViewModel): string
     return `
       <section class="cmap-section" id="circuit-map">
         <div class="cmap-header">
-          <div class="panel-kicker">Agent Circuit Map</div>
-          <h2>Topology</h2>
+          <div>
+            <div class="panel-kicker">Agent Circuit Map</div>
+            <h2>Topology</h2>
+            <p class="cmap-subtitle">Live topology of agents, models, approvals, and handoffs</p>
+          </div>
         </div>
         <div class="cmap-empty">
           <div class="muted">No agent activity detected. The circuit map will populate when agents, models, and handoffs are active.</div>
@@ -168,8 +171,11 @@ export function renderCircuitMapPlaceholder(viewModel: MonitorViewModel): string
   return `
     <section class="cmap-section${isHistoricalOnly ? ' cmap-section--historical' : ''}" id="circuit-map">
       <div class="cmap-header">
-        <div class="panel-kicker">Agent Circuit Map</div>
-        <h2>Topology</h2>
+        <div>
+          <div class="panel-kicker">Agent Circuit Map</div>
+          <h2>Topology</h2>
+          <p class="cmap-subtitle">Live topology of agents, models, approvals, and handoffs</p>
+        </div>
         <div class="cmap-summary-pills">
           <span class="cmap-pill">${escapeHtml(formatNumber(graph.nodes.length))} nodes</span>
           <span class="cmap-pill">${escapeHtml(formatNumber(graph.edges.length))} edges</span>
