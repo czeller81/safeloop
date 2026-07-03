@@ -964,6 +964,8 @@ export {
 export { appendEvent, readEvents, streamEvents } from './eventStream';
 export { createCommandGuard } from './commandGuard';
 export type { CommandGuard, CommandGuardConfig, GuardDecision, GuardResult } from './commandGuard';
+export { createScenarioLoop } from './scenarioLoop';
+export type { ScenarioLoop, ScenarioLoopConfig, ScenarioContract, ScenarioLoopStep, ScenarioLoopDecision, ScenarioLoopResult } from './scenarioLoop';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
   setModelPricing,
