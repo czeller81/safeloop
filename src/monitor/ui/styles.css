@@ -1948,3 +1948,251 @@ h3 {
   padding-bottom: var(--sl-space-3);
   border-bottom: 1px solid rgba(157, 105, 255, 0.12);
 }
+
+
+/* ===== v1 Mission Control Visual Upgrade ===== */
+
+/* --- Tactical grid background --- */
+body {
+  background:
+    repeating-linear-gradient(0deg, rgba(120, 231, 255, 0.015) 0px, transparent 1px, transparent 80px),
+    repeating-linear-gradient(90deg, rgba(120, 231, 255, 0.015) 0px, transparent 1px, transparent 80px),
+    radial-gradient(ellipse at 30% 10%, rgba(157, 105, 255, 0.12), transparent 30%),
+    radial-gradient(ellipse at 70% 5%, rgba(120, 231, 255, 0.07), transparent 25%),
+    linear-gradient(180deg, #010108 0%, #04030a 100%);
+}
+
+/* --- Command Bar mission-control strip --- */
+.command-bar-brand {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  color: var(--sl-cyan);
+}
+
+.command-bar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sl-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.command-bar-pill--live {
+  color: var(--sl-green);
+  border-color: rgba(67, 255, 149, 0.24);
+}
+
+/* --- Circuit Map hero treatment --- */
+.cmap-section {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 20%, rgba(120, 231, 255, 0.08), transparent 50%),
+    linear-gradient(180deg, rgba(8, 6, 20, 0.98), rgba(4, 3, 10, 0.98));
+  border-color: rgba(120, 231, 255, 0.22);
+}
+
+.cmap-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(120, 231, 255, 0.02) 0px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(90deg, rgba(120, 231, 255, 0.02) 0px, transparent 1px, transparent 40px);
+  border-radius: inherit;
+}
+
+.cmap-header h2 {
+  font-size: clamp(22px, 2.5vw, 32px);
+  letter-spacing: -0.03em;
+}
+
+.cmap-subtitle {
+  font-size: 14px;
+  color: var(--sl-text-dim);
+  margin-top: 6px;
+  letter-spacing: 0.01em;
+}
+
+/* Stronger active flow path */
+.cmap-cue--active {
+  padding: 8px 14px;
+  border-radius: var(--sl-radius-sm);
+  background: rgba(120, 231, 255, 0.06);
+  border: 1px solid rgba(120, 231, 255, 0.16);
+}
+
+.cmap-flow-pill {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(120, 231, 255, 0.16);
+  border: 1px solid rgba(120, 231, 255, 0.30);
+}
+
+/* Stronger node cards */
+.cmap-node {
+  min-width: 96px;
+  padding: 16px 14px 12px;
+  background: rgba(8, 6, 20, 0.85);
+  border-width: 2px;
+}
+
+.cmap-node-icon {
+  font-size: 22px;
+  margin-bottom: 6px;
+}
+
+.cmap-node-label {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* --- Evidence Stream flight-recorder feel --- */
+.ev-stream {
+  border-color: rgba(120, 231, 255, 0.12);
+  background: rgba(4, 3, 10, 0.60);
+}
+
+.ev-header h3 {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.ev-row {
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.ev-agent {
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.ev-summary {
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.ev-ts {
+  font-size: 9px;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  opacity: 0.7;
+}
+
+.ev-badge {
+  font-size: 8px;
+  padding: 1px 5px;
+  letter-spacing: 0.08em;
+}
+
+/* --- Command Rail operator panel --- */
+.sl-command-rail .rail-card {
+  background: rgba(8, 6, 20, 0.90);
+  border-color: rgba(157, 105, 255, 0.16);
+}
+
+.rail-card-title {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  font-weight: 800;
+}
+
+.rail-export-link {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 16px;
+  background: rgba(120, 231, 255, 0.08);
+  border-color: rgba(120, 231, 255, 0.28);
+}
+
+.rail-export-link:hover {
+  background: rgba(120, 231, 255, 0.16);
+  border-color: rgba(120, 231, 255, 0.50);
+  box-shadow: 0 0 12px rgba(120, 231, 255, 0.10);
+}
+
+/* --- Operator queue premium treatment --- */
+.queue-item {
+  border-radius: var(--sl-radius-sm);
+  padding: 12px;
+  margin-bottom: 8px;
+  background: rgba(5, 4, 12, 0.60);
+  border: 1px solid rgba(157, 105, 255, 0.12);
+}
+
+.queue-item.queue-high {
+  border-color: rgba(255, 96, 123, 0.24);
+  background: rgba(255, 96, 123, 0.04);
+}
+
+.queue-item.queue-critical {
+  border-color: rgba(255, 96, 123, 0.40);
+  background: rgba(255, 96, 123, 0.08);
+}
+
+.queue-item.queue-medium {
+  border-color: rgba(255, 209, 102, 0.20);
+}
+
+.attention-queue {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* --- Historical vault treatment --- */
+.sl-lower-section {
+  background: rgba(4, 3, 10, 0.80);
+  border-color: rgba(157, 105, 255, 0.10);
+}
+
+.sl-lower-title {
+  letter-spacing: 0.02em;
+  color: var(--sl-text-muted);
+}
+
+.sl-lower-caption {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+/* --- Global premium typography --- */
+.panel-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.panel-block {
+  border-color: rgba(157, 105, 255, 0.12);
+}
+
+/* --- Status dot animation for command bar --- */
+.command-bar-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: currentColor;
+  animation: status-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-bar-status::before {
+    animation: none;
+    opacity: 1;
+  }
+}

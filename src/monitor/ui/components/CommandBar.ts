@@ -12,7 +12,7 @@ export function renderCommandBar(viewModel: MonitorViewModel): string {
   let sessionLabel = 'No session';
   let sessionClass = 'muted';
   if (hasCurrentSession) {
-    sessionLabel = currentSessionId ? `Session: ${currentSessionId}` : 'Session active';
+    sessionLabel = currentSessionId ? `Run: ${currentSessionId}` : 'Session active';
     sessionClass = 'active';
   } else if (isHistoricalOnly) {
     sessionLabel = 'Historical only';
@@ -33,26 +33,25 @@ export function renderCommandBar(viewModel: MonitorViewModel): string {
 
   // Deployment metadata
   const deployment = viewModel.deployment;
-  const deployLabel = deployment?.label ?? 'Local monitor';
+  const deployMode = deployment?.mode ?? 'local';
   const deployTransport = deployment?.transport ?? 'polling';
-  const deployResidency = deployment?.dataResidency ?? 'local';
-  const deployBadge = `${deployLabel} \u00B7 ${deployTransport} \u00B7 ${deployResidency} data`;
 
   return `
     <header class="sl-command-bar" role="banner">
       <div class="command-bar-left">
-        <span class="command-bar-brand">SafeLoop</span>
+        <span class="command-bar-brand">SAFELOOP</span>
+        <span class="command-bar-title">Control Room</span>
         <span class="command-bar-status command-bar-status--${escapeHtml(operatorStatus)}">${escapeHtml(operatorStatus.toUpperCase())}</span>
-        <span class="command-bar-badge command-bar-badge--${escapeHtml(deployment?.mode ?? 'local')}">${escapeHtml(deployBadge)}</span>
       </div>
       <div class="command-bar-center">
+        <span class="command-bar-badge command-bar-badge--${escapeHtml(deployMode)}">Mode: ${escapeHtml(deployMode)} \u00B7 ${escapeHtml(deployTransport)}</span>
         <span class="command-bar-session command-bar-session--${escapeHtml(sessionClass)}">${escapeHtml(sessionLabel)}</span>
       </div>
       <div class="command-bar-right">
-        <span class="command-bar-pill" title="Latest run cost">${escapeHtml(costLabel)}</span>
-        <span class="command-bar-pill" title="Active agents">${escapeHtml(formatNumber(agentCount))} agents</span>
-        ${pendingApprovals > 0 ? `<span class="command-bar-pill command-bar-pill--warn" title="Pending approvals">${escapeHtml(formatNumber(pendingApprovals))} approvals</span>` : ''}
-        ${riskCount > 0 ? `<span class="command-bar-pill command-bar-pill--danger" title="Current risks">${escapeHtml(formatNumber(riskCount))} risks</span>` : ''}
+        <span class="command-bar-pill" title="Cost burn">${escapeHtml(costLabel)}</span>
+        <span class="command-bar-pill${agentCount > 0 ? ' command-bar-pill--live' : ''}" title="Active agents">${escapeHtml(formatNumber(agentCount))} agents</span>
+        ${pendingApprovals > 0 ? `<span class="command-bar-pill command-bar-pill--warn" title="Pending approvals">\u25C6 ${escapeHtml(formatNumber(pendingApprovals))} pending</span>` : ''}
+        ${riskCount > 0 ? `<span class="command-bar-pill command-bar-pill--danger" title="Current risks">\u26A0 ${escapeHtml(formatNumber(riskCount))} risks</span>` : ''}
       </div>
     </header>
   `;
