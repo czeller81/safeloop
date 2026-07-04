@@ -169,6 +169,22 @@ Hermes Connector:
 
 ## What SafeLoop Can and Cannot Intercept
 
+### Connector vs Runtime Hook
+
+A **connector** provides detection, status reporting, integration instructions, and an adoption path. It makes SafeLoop easy to connect to.
+
+A **runtime hook** is the actual command/file/git execution path routed through SafeLoop. Enforcement happens only at the runtime hook — not at the connector level.
+
+| Layer | What It Does | Enforces? |
+|-------|-------------|:-:|
+| Connector | Detects agent, reports status, documents integration | No |
+| CLI Wrapper (`safeloop-command.ts`) | Evaluates + executes commands through guard | **Yes** |
+| CommandGuard API (`guard.run()`) | Blocks before shell execution | **Yes** |
+| Hermes patch (spawnPowerShell + env flag) | Preflights PowerShell commands | **Yes** |
+| Agent calling commands directly | Bypasses SafeLoop entirely | No |
+
+**Key principle:** Connectors make SafeLoop easy to adopt. They do not magically intercept private agent runtimes. Real enforcement begins when an agent routes actions through SafeLoop.
+
 ### Can intercept (when agent uses the guard)
 
 - Shell commands routed through `safeloop-command.ts`
@@ -253,6 +269,32 @@ const hermes = createHermesConnector();
 console.log(hermes.detect());   // { found: true/false, ... }
 console.log(hermes.verify());   // { ok: true/false, checks: [...] }
 ```
+
+---
+
+## Kiro Governance Roadmap
+
+Kiro (the AI coding agent in this workspace) is not currently governed by SafeLoop unless explicitly configured. Its internal `execute_bash`, file edit, and git tools run directly without SafeLoop preflight.
+
+### Phase 1: Cooperative steering (smallest step)
+
+Add a `.kiro/steering/` file instructing Kiro to preflight shell commands through `safeloop-command.ts --check-only` before execution. This is advisory — Kiro reads steering but its tools still execute directly.
+
+### Phase 2: SafeLoop MCP command tool
+
+Create a SafeLoop MCP server that Kiro calls instead of raw `execute_bash`. This would be a real enforcement point because Kiro would use SafeLoop as its primary command execution tool.
+
+### Phase 3: File/git activity event adapter
+
+Emit SafeLoop events for file edits and git operations so the Evidence Stream and audit trail capture all Kiro work, not just shell commands.
+
+### Phase 4: Stronger runtime wrapper
+
+System-level shell wrapping or sandbox integration that intercepts all command execution regardless of which tool is used. This provides non-cooperative enforcement but requires infrastructure changes.
+
+### Current honest status
+
+Kiro is governed by SafeLoop **only when it voluntarily calls `safeloop-command.ts`**. Without steering or MCP integration, Kiro's normal operation bypasses SafeLoop entirely.
 
 ---
 

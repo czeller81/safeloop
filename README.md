@@ -107,11 +107,15 @@ See **[docs/CONNECTORS.md](docs/CONNECTORS.md)** for full quickstart.
 
 SafeLoop Core is a cooperative enforcement layer.
 
-It can enforce actions that pass through its guard, CLI wrapper, scenario loop, or connector preflight path. Blocked commands never reach the shell — the enforcement is real.
+It can govern any agent that routes actions through its guard, CLI wrapper, connector, or future MCP tool. Blocked commands never reach the shell — the enforcement is real.
+
+SafeLoop does not automatically intercept an agent's private runtime tools unless that runtime is patched, wrapped, or configured to use SafeLoop. Connectors make SafeLoop easy to adopt. They do not magically intercept private agent runtimes. Real enforcement begins when an agent routes actions through SafeLoop.
 
 It cannot intercept direct shell, file, network, or process actions that bypass SafeLoop. For full non-cooperative interception, a system sandbox or proxy would be required.
 
 **Hermes integration:** The current proof guards the `bootstrap-runner.cjs` `spawnPowerShell` path when `SAFELOOP_HERMES_POWERSHELL_GUARD=1`. Other Hermes exec/spawn paths require separate coverage.
+
+**Kiro integration:** Kiro is not currently governed by SafeLoop unless explicitly instructed to preflight commands through `safeloop-command.ts`. See the Kiro governance roadmap in [docs/CONNECTORS.md](docs/CONNECTORS.md).
 
 ---
 
