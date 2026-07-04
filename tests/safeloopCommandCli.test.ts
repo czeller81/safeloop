@@ -30,6 +30,71 @@ function runCli(args: string, baseDir: string): { stdout: string; exitCode: numb
 }
 
 describe('safeloop-command CLI wrapper', () => {
+  test('--check-only safe command returns allow and does not execute', () => {
+    const baseDir = makeTempBaseDir();
+    const { exitCode, json } = runCli(
+      '--check-only --command "node -e \\\"console.log(\\\'check-only-safe\\\')\\\""  --agent-id hermes --agent-name Hermes',
+      baseDir,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(json.decision).toBe('allow');
+    expect(json.executed).toBe(false);
+    expect(json.checkOnly).toBe(true);
+    expect(json.eventId).toBeDefined();
+  });
+
+  test('--check-only dangerous command returns deny and does not execute', () => {
+    const baseDir = makeTempBaseDir();
+    const { exitCode, json } = runCli(
+      '--check-only --command "rm -rf ." --agent-id hermes --agent-name Hermes',
+      baseDir,
+    );
+
+    expect(exitCode).toBe(10);
+    expect(json.decision).toBe('deny');
+    expect(json.executed).toBe(false);
+    expect(json.checkOnly).toBe(true);
+    expect(json.eventId).toBeDefined();
+    expect(json.violations).toBeDefined();
+    expect(json.reasons).toBeDefined();
+  });
+
+  test('--check-only approval command returns requires_approval and does not execute', () => {
+    const baseDir = makeTempBaseDir();
+    const { exitCode, json } = runCli(
+      '--check-only --command "git push origin master" --agent-id hermes --agent-name Hermes',
+      baseDir,
+    );
+
+    expect(exitCode).toBe(20);
+    expect(json.decision).toBe('requires_approval');
+    expect(json.executed).toBe(false);
+    expect(json.checkOnly).toBe(true);
+    expect(json.eventId).toBeDefined();
+    expect(json.reasons).toBeDefined();
+  });
+
+  test('--check-only does not execute a command that would create a file', () => {
+    const baseDir = makeTempBaseDir();
+    const writeScript = join(baseDir, 'write.js');
+    const createdPath = join(baseDir, 'created.txt');
+    // script that writes the file when executed
+    require('fs').writeFileSync(writeScript, `require('fs').writeFileSync('${createdPath.replace(/\\/g,"\\\\")}', 'x')`);
+
+    const { exitCode, json } = runCli(
+      `--check-only --command "node ${writeScript}" --agent-id hermes --agent-name Hermes`,
+      baseDir,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(json.decision).toBe('allow');
+    expect(json.executed).toBe(false);
+    expect(json.checkOnly).toBe(true);
+    // file must NOT exist after check-only
+    const fs = require('fs');
+    expect(fs.existsSync(createdPath)).toBe(false);
+  });
   test('safe command executes through CLI', () => {
     const baseDir = makeTempBaseDir();
     const { exitCode, json } = runCli(
