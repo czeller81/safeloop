@@ -1,215 +1,190 @@
-# Safeloop
+# SafeLoop Core
 
-## Agent Accountability + Live Loop Monitor SDK
+**Local AI agent circuit breaker and scenario loop controller.**
 
-Current release: v0.8.0
+SafeLoop helps agents run until correct — while enforcing guardrails and producing audit evidence.
 
-### Current architecture
+> Connect your agent. Guard its actions. Prove what happened.
 
-- Case Files
-- Attachments
-- Participants
-- Agent Identity
-- Handoff Manifest
-- Report Query Layer
-- Agent Adapter Protocol
-- Event Stream
-- Live Loop Monitor
-- Cost Tracking
-- Model Usage Tracking
-- Steering Intelligence
-- Goal Drift Detection
-- Release Readiness
+---
 
-Safeloop helps AI agents and humans collaborate through portable Case Files.
+## What SafeLoop Core Is
 
-As teams move from one AI agent to many, the hardest problem is no longer execution—it is continuity. Context gets lost, decisions become unclear, approvals disappear, and work must be repeatedly explained to the next agent or reviewer.
+SafeLoop is a local runtime and command center for AI agent governance. It is not only observability — it actively controls agent behavior when agents route through its guard.
 
-Safeloop solves this by creating structured Case Files that travel with the work.
+- **SEE** — Live visibility into agents, tasks, handoffs, tool calls, cost burn.
+- **CONTROL** — Block dangerous commands before execution. Hold approval-required actions. Enforce scenario loop contracts.
+- **PROVE** — Audit events, billable timecards, export API, connector status, 204 tests.
 
-A Case File captures:
+---
 
-* Goals
-* Context
-* Decisions
-* Risks
-* Approvals
-* Attachments
-* Handoffs
-* Reports
+## What SafeLoop Core Proves Today
 
-This creates a portable accountability trail that allows agents and humans to continue work without losing critical information.
+### Command Guard
 
-Built for:
-
-* Hermes
-* OpenCode
-* Claude Code
-* Codex
-* Replit Agents
-* Custom agent workflows
-* Scripts
-* Human-operated workflows
-
-### What Safeloop Provides
-
-#### Agent Accountability
-
-Track:
-
-* what happened
-* why it happened
-* who made the decision
-* what evidence was used
-* what risks were accepted
-
-#### Agent Handoffs
-
-Transfer work between:
-
-* agent → agent
-* agent → human
-* human → agent
-
-without requiring the entire task to be re-explained.
-
-Hydration helper
-----------------
-
-Safeloop provides a hydration helper for receiving agents: generate a Handoff Manifest on the sending side (generateHandoffManifest) and pass the manifest to the receiving process. The receiving agent should call hydrateCaseFileFromManifest(manifest, options) to rebuild a working Case File (participants, required attachments, and an optional received handoff record). This keeps the accountability trail intact across Hermes, OpenCode, and other sub-agents without sharing unsafe historic state by default.
-
-#### Governance Primitives
-
-Safeloop also includes:
-
-* Policy Gates
-* Circuit Breakers
-* Action Ledgers
-* Markdown Reports
-
-These primitives help teams build safer agentic workflows while maintaining a complete accountability trail.
-
-### Why Safeloop Exists
-
-Git tracks code.
-
-Safeloop tracks agent work.
-
-Git answers:
-
-"What changed?"
-
-Safeloop answers:
-
-"Why did it change?"
-"Who decided?"
-"What evidence was used?"
-"What should happen next?"
-
-### Local First
-
-Safeloop is intentionally:
-
-* local-first
-* file-based
-* lightweight
-* TypeScript-native
-
-No cloud service.
-No database required.
-No hosted platform.
-
-Your Case Files remain under your control.
-
-Safeloop does not:
-
-- run agents
-- execute shell commands
-- collect telemetry
-- capture conversations
-- send network data
-- replace human approval
-
-## Oversight Intelligence (v0.8.0)
-
-Version 0.8.0 adds an Oversight Intelligence layer that analyzes complete agent loops (Case File → Task → Events → Model Usage → Outcomes) and derives proactive warnings, anomalies, explainability coverage, and an oversight score per loop. Safeloop remains runtime-agnostic: agents emit events, Safeloop derives oversight intelligence.
-
-Key features:
-
-- Loop timecards that aggregate events, tokens, cost, risks, approvals, artifacts, handoffs, explainability, and feedback.
-- An analyzer that identifies stale or wasteful loops, unresolved approvals, missing attribution, high-risk work without mitigation, repeated failures, and budget anomalies.
-- Explainability schema support (decision.explained or decision.made with rationale metadata).
-- Feedback events (feedback.recorded) and per-loop feedback summaries.
-- Deterministic oversight score (0–100) with levels: healthy | watch | needs_review | critical and recommended actions.
-
-This release warns, scores, and reports — it does not block execution. See docs and /api/dashboard for the oversight payload shape.
-
-## Live Agent Activity + Handoff Flow
-
-v0.8.0 includes a first Live Agent Activity slice for the monitor. This small, testable feature makes the local monitor feel active and operational:
-
-* active agents (recently active)
-* recent activity stream (event-level feed)
-* handoff-to-handoff flow (chronological handoffs)
-* warnings and blockers
-* approvals, risks, artifacts, feedback
-* token-cost pulse (recent token usage and cost trend)
-
-Limitations:
-
-* v0.8.0 visualizes and surfaces signals; hard-stop enforcement is not enabled yet. That will come in a future release after operators validate the live flows.
-
-## Configurable oversight thresholds
-
-Safeloop Oversight Intelligence uses a set of default thresholds to decide when to surface warnings and anomalies. For v0.8.0 these defaults live in `src/oversightConfig.ts` and are applied by the centralized analyzer in `src/oversightAnalyzer.ts`.
-
-Key points:
-
-- Defaults are defined in `src/oversightConfig.ts` (example fields: `staleLoopMs`, `maxLoopCost`, `maxLoopTokens`, `maxLoopDurationMs`, `penalties`, etc.).
-- Analyzer calls can override thresholds by passing an `options` object to the analyzer call. This is useful for tests or one-off recalculations with different sensitivity.
-- The live monitor exposes the active configuration in the dashboard API under `oversight.config` so UI clients and operators can inspect which thresholds were used to compute the oversight score.
-- Safeloop remains runtime/model/agent agnostic — the analyzer consumes event streams and does not assume any specific underlying model provider or agent runtime.
-
-Example: overriding thresholds when calling the analyzer (Node/TypeScript)
-
-```typescript
-import { analyzeLoopOversight } from './src/oversightAnalyzer';
-
-// loop and collection are the analyzer inputs (a single loop object and the full collection)
-const overrideOptions = {
-  staleLoopMs: 1000 * 60, // 1 minute — useful for fast tests
-  maxLoopCost: 0.0001,    // extremely low cost threshold for forcing cost warnings
-  maxLoopTokens: 10,      // tiny token budget to force token warnings
-};
-
-const result = analyzeLoopOversight(loop, collection, overrideOptions);
-
-console.log('Oversight score:', result.oversightScore);
-console.log('Active config used by analyzer:', result.config);
+```
+Agent → SafeLoop Guard → Action
 ```
 
-Notes:
+Blocked commands never reach the shell. Approval-required commands are held. Only allowed commands execute.
 
-- For v0.8.0 we do NOT load project-level runtime config files (e.g., `.safeloop/oversight-config.json`). That is a future enhancement. The current approach keeps defaults in code and supports per-call overrides via the analyzer API.
-- Because the analyzer returns the active config with its output (`result.config`), the monitor view model includes `oversight.config` in `/api/dashboard` so UI clients can show thresholds alongside scores and warnings.
+### Scenario Loop
 
-## Why this exists
+```
+Scenario Contract → Dimension-Coded Step → Loop Decision → Guarded Action → Audit Evidence → Continue/Stop
+```
 
-Local AI agent loops fail in predictable ways:
-- repeated retries on the same error
-- uncontrolled scope expansion
-- token burn on unproductive attempts
-- unsafe actions that should be reviewed before execution
+Multi-step agent loops are governed with decisions: continue, block, escalate, success, stop.
 
-This package gives you small governance primitives instead of a full agent stack. It is designed to stay boring, auditable, and easy to reason about.
+### Connector Layer
 
-## How Safeloop is different
+```
+Agent Connector → Check-only Preflight → Allow / Deny / Approval
+```
 
-Safeloop is not an enterprise AI governance platform or full agent runtime.
+External agents connect through a CLI wrapper with execute mode and check-only preflight.
 
-It is a lightweight TypeScript SDK for local agentic coding workflows. It gives developers simple primitives they can embed around tools like OpenCode, Claude Code, Codex, Hermes-style operators, or custom scripts.
+---
 
-Use Safeloop when you want a small, understandable control layer:
+## Quick Start
 
-- policy gates before execution
-- circuit breakers during execution
+```bash
+npm install
+npm test -- --no-cache
+npm run build
+```
+
+### Run demos
+
+```bash
+# Command guard proof (allowed / blocked / approval-required)
+npx ts-node examples/command-guard-demo.ts
+
+# Scenario loop proof (continue / block / escalate / success / stop)
+npx ts-node examples/scenario-loop-demo.ts
+
+# Connector status
+npx ts-node examples/connector-status-demo.ts
+
+# Full Command Center governance story
+npx ts-node examples/command-center-demo.ts
+npm run monitor -- --baseDir .safeloop-command-demo
+```
+
+### CLI wrapper
+
+```bash
+# Execute mode — runs command through SafeLoop guard
+npx ts-node examples/safeloop-command.ts --command "node -e \"console.log('hello')\"" --agent-id my-agent
+
+# Check-only preflight — evaluates without executing
+npx ts-node examples/safeloop-command.ts --check-only --command "rm -rf ." --agent-id my-agent
+
+# Approval-required — held, does not execute
+npx ts-node examples/safeloop-command.ts --command "git push origin master" --agent-id my-agent
+```
+
+Expected:
+- Safe command → executed, exit 0
+- Dangerous command → blocked, exit 10
+- Approval-required → held, exit 20
+- Check-only → decision only, never executes
+
+---
+
+## Agent Connectors
+
+SafeLoop includes a connector system so external agents can connect in minutes.
+
+- **Generic CLI connector** — any agent routes commands through `safeloop-command.ts`
+- **Hermes connector** — dry-run detection of bootstrap-runner.cjs integration
+
+See **[docs/CONNECTORS.md](docs/CONNECTORS.md)** for full quickstart.
+
+---
+
+## Enforcement Boundary
+
+SafeLoop Core is a cooperative enforcement layer.
+
+It can enforce actions that pass through its guard, CLI wrapper, scenario loop, or connector preflight path. Blocked commands never reach the shell — the enforcement is real.
+
+It cannot intercept direct shell, file, network, or process actions that bypass SafeLoop. For full non-cooperative interception, a system sandbox or proxy would be required.
+
+**Hermes integration:** The current proof guards the `bootstrap-runner.cjs` `spawnPowerShell` path when `SAFELOOP_HERMES_POWERSHELL_GUARD=1`. Other Hermes exec/spawn paths require separate coverage.
+
+---
+
+## Command Center
+
+SafeLoop includes a local monitor dashboard:
+
+```bash
+npx ts-node examples/command-center-demo.ts
+npm run monitor -- --baseDir .safeloop-command-demo
+# Open http://127.0.0.1:3777
+```
+
+Features:
+- Agent Circuit Map (visual topology)
+- Evidence Stream (typed event timeline)
+- Operator Console (attention queue, approve/resolve actions)
+- Billable Timecard Summary
+- Timecard Export API (`GET /api/timecards/export`)
+- Local/cloud deployment metadata
+- Historical ledger with state preservation
+
+---
+
+## Current Status
+
+### Delivered
+
+- Command Guard (enforced local circuit breaker)
+- Scenario Loop (dimension-coded governance)
+- `safeloop-command` CLI wrapper
+- `--check-only` preflight mode
+- Local agent connector foundation
+- Connector quickstart docs
+- Command Center dashboard
+- Agent Circuit Map
+- Evidence Stream
+- Billable timecards and export API
+- UI state preservation (details/scroll survive refresh)
+- Mission-control visual upgrade
+- 204 tests passing, TypeScript clean, build successful
+
+### Architecture
+
+- Local-first, file-based (`.safeloop/events.jsonl`)
+- No cloud service required
+- No database required
+- No hosted platform
+- TypeScript-native
+- Zero external runtime dependencies
+
+---
+
+## Next Hardening
+
+- Replace `npx ts-node` preflight with compiled JS CLI entrypoint
+- Add one-command connector install/uninstall (`safeloop connect hermes`)
+- Scan additional Hermes exec/spawn paths
+- Add more agent connectors (OpenCode, Claude Code, Cursor)
+- Policy configuration file (`.safeloop/policy.json`)
+- Prepare `v1.0.0` release tag and changelog
+
+---
+
+## Why SafeLoop Exists
+
+Git tracks code. SafeLoop tracks agent work.
+
+- Git answers: "What changed?"
+- SafeLoop answers: "Why? Who decided? What evidence? What should happen next? Was it allowed?"
+
+---
+
+## License
+
+MIT
