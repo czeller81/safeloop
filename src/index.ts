@@ -968,6 +968,9 @@ export { createScenarioLoop } from './scenarioLoop';
 export type { ScenarioLoop, ScenarioLoopConfig, ScenarioContract, ScenarioLoopStep, ScenarioLoopDecision, ScenarioLoopResult } from './scenarioLoop';
 export { createGenericCliConnector, createHermesConnector } from './connectors';
 export type { AgentConnector, ConnectorId, ConnectorMode, ConnectorDetectionResult, ConnectorStatus, ConnectorVerifyResult, ConnectorCheck } from './connectors';
+export { createMcpGateway } from './mcp';
+export type { McpGateway, McpGatewayConfig } from './mcp';
+export type { McpToolInput, McpCheckResult, McpRunResult, McpRecordResult, McpStatusResult, McpToolName, McpRequest, McpResponse } from './mcp';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
   setModelPricing,
