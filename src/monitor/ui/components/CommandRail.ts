@@ -19,6 +19,44 @@ function renderRailOperator(viewModel: MonitorViewModel): string {
   `;
 }
 
+function renderRailNav(viewModel: MonitorViewModel): string {
+  const approvals = viewModel.current.approvals.filter((approval) => approval.status === 'pending').length;
+  const risks = viewModel.current.risks.length + viewModel.oversight.summary.warningCount + viewModel.oversight.summary.anomalyCount;
+  const events = viewModel.status.eventCount;
+
+  const links = [
+    ['Overview', '#circuit-map', ''],
+    ['Live Events', '#evidence-stream', formatCompact(events)],
+    ['Scenario Loops', '#latest-run', formatNumber(viewModel.current.currentLoops.length)],
+    ['Guard Decisions', '#operator-console', formatNumber(viewModel.operatorConsole?.attentionQueue.length ?? 0)],
+    ['Human Review', '#human-review', formatNumber(approvals)],
+    ['Risks', '#risks', formatNumber(risks)],
+    ['Evidence', '#historical-details', formatNumber(viewModel.historical.eventCount)],
+    ['Cost & Tokens', '#spend', formatCompact(viewModel.tokens.totalTokens)],
+    ['Diagnostics', '#diagnostics', ''],
+  ];
+
+  return `
+    <nav class="rail-nav" aria-label="Dashboard sections">
+      <div class="rail-product">
+        <div class="rail-product-mark">SL</div>
+        <div>
+          <div class="rail-product-name">SafeLoop</div>
+          <div class="rail-product-subtitle">Local command center</div>
+        </div>
+      </div>
+      <div class="rail-nav-links">
+        ${links.map(([label, href, count]) => `
+          <a href="${escapeHtml(href)}">
+            <span>${escapeHtml(label)}</span>
+            ${count ? `<strong>${escapeHtml(count)}</strong>` : ''}
+          </a>
+        `).join('')}
+      </div>
+    </nav>
+  `;
+}
+
 function renderRailRisk(viewModel: MonitorViewModel): string {
   const riskCount = viewModel.current.risks.length;
   const pendingApprovals = viewModel.current.approvals.filter(a => a.status === 'pending').length;
@@ -87,6 +125,7 @@ function renderRailSession(viewModel: MonitorViewModel): string {
 export function renderCommandRail(viewModel: MonitorViewModel): string {
   return `
     <aside class="sl-command-rail" aria-label="Command center rail">
+      ${renderRailNav(viewModel)}
       ${renderRailOperator(viewModel)}
       ${renderRailRisk(viewModel)}
       ${renderRailCost(viewModel)}

@@ -1,66 +1,88 @@
 import type { MonitorViewModel, SectionItem } from '../../viewModel';
 import { escapeHtml, formatTimestamp } from '../lib/formatters';
 
-// --- Event type → icon + label mapping ---
+type EventTone = 'neutral' | 'good' | 'warn' | 'bad' | 'info';
 
 interface EventTypeInfo {
-  icon: string;
   label: string;
   cssClass: string;
+  tone: EventTone;
 }
 
 function getEventTypeInfo(eventType: string | undefined): EventTypeInfo {
   switch (eventType) {
     case 'handoff.created':
-      return { icon: '\u2197', label: 'Handoff', cssClass: 'ev--handoff' }; // ↗
+      return { label: 'Handoff', cssClass: 'ev--handoff', tone: 'info' };
     case 'task.started':
-      return { icon: '\u25B6', label: 'Started', cssClass: 'ev--started' }; // ▶
+      return { label: 'Started', cssClass: 'ev--started', tone: 'info' };
     case 'task.completed':
-      return { icon: '\u2713', label: 'Completed', cssClass: 'ev--completed' }; // ✓
+      return { label: 'Completed', cssClass: 'ev--completed', tone: 'good' };
     case 'artifact.changed':
-      return { icon: '\uD83D\uDCC4', label: 'Artifact', cssClass: 'ev--artifact' }; // 📄
+      return { label: 'Artifact', cssClass: 'ev--artifact', tone: 'neutral' };
     case 'token.cost':
     case 'model.usage':
-      return { icon: '\u26A1', label: 'Model call', cssClass: 'ev--model' }; // ⚡
+      return { label: 'Model call', cssClass: 'ev--model', tone: 'info' };
     case 'risk.detected':
-      return { icon: '\u26A0', label: 'Risk', cssClass: 'ev--risk' }; // ⚠
+      return { label: 'Risk', cssClass: 'ev--risk', tone: 'bad' };
     case 'approval.requested':
-      return { icon: '\u25C6', label: 'Approval needed', cssClass: 'ev--approval-req' }; // ◆
+      return { label: 'Approval needed', cssClass: 'ev--approval-req', tone: 'warn' };
     case 'approval.resolved':
-      return { icon: '\u2713\u25C6', label: 'Approval resolved', cssClass: 'ev--approval-res' }; // ✓◆
+      return { label: 'Approval resolved', cssClass: 'ev--approval-res', tone: 'good' };
     case 'decision.made':
     case 'decision.explained':
-      return { icon: '\uD83D\uDCA1', label: 'Decision', cssClass: 'ev--decision' }; // 💡
+      return { label: 'Decision', cssClass: 'ev--decision', tone: 'info' };
     case 'feedback.recorded':
-      return { icon: '\uD83D\uDCAC', label: 'Feedback', cssClass: 'ev--feedback' }; // 💬
+      return { label: 'Feedback', cssClass: 'ev--feedback', tone: 'neutral' };
     case 'operator.action.recorded':
-      return { icon: '\uD83D\uDC64', label: 'Operator', cssClass: 'ev--operator' }; // 👤
+      return { label: 'Operator', cssClass: 'ev--operator', tone: 'good' };
     case 'steering.applied':
-      return { icon: '\uD83C\uDFAF', label: 'Steering', cssClass: 'ev--steering' }; // 🎯
+      return { label: 'Steering', cssClass: 'ev--steering', tone: 'info' };
     case 'test.completed':
-      return { icon: '\u2714', label: 'Test', cssClass: 'ev--test' }; // ✔
+      return { label: 'Test', cssClass: 'ev--test', tone: 'good' };
     case 'context.loaded':
-      return { icon: '\uD83D\uDCE5', label: 'Context', cssClass: 'ev--context' }; // 📥
+      return { label: 'Context', cssClass: 'ev--context', tone: 'neutral' };
     case 'report.generated':
-      return { icon: '\uD83D\uDCCB', label: 'Report', cssClass: 'ev--report' }; // 📋
+      return { label: 'Report', cssClass: 'ev--report', tone: 'neutral' };
     default:
-      return { icon: '\u25CB', label: 'Event', cssClass: 'ev--unknown' }; // ○
+      return { label: 'Event', cssClass: 'ev--unknown', tone: 'neutral' };
   }
 }
 
 function renderEventRow(item: SectionItem): string {
   const info = getEventTypeInfo(item.eventType);
+  const context = [
+    item.caseId ? `case ${item.caseId}` : '',
+    item.loopKey ? `loop ${item.loopKey}` : '',
+  ].filter(Boolean).join(' / ');
+  const detail = {
+    id: item.id,
+    eventType: item.eventType ?? 'unknown',
+    timestamp: item.timestamp,
+    agent: item.agent ?? item.agentId ?? 'System',
+    caseId: item.caseId ?? null,
+    loopKey: item.loopKey ?? null,
+    summary: item.summary,
+  };
 
   return `
-    <div class="ev-row ${escapeHtml(info.cssClass)}">
-      <div class="ev-icon" title="${escapeHtml(info.label)}">${info.icon}</div>
-      <div class="ev-badge">${escapeHtml(info.label)}</div>
-      <div class="ev-body">
-        <span class="ev-agent">${escapeHtml(item.agent || 'System')}</span>
+    <details class="ev-row ${escapeHtml(info.cssClass)}">
+      <summary class="ev-row-summary">
+        <span class="ev-ts">${escapeHtml(formatTimestamp(item.timestamp))}</span>
+        <span class="ev-badge ev-badge--${escapeHtml(info.tone)}">${escapeHtml(item.eventType || info.label)}</span>
+        <span class="ev-agent">${escapeHtml(item.agent || item.agentId || 'System')}</span>
+        <span class="ev-context">${escapeHtml(context || 'no case/session')}</span>
         <span class="ev-summary">${escapeHtml(item.summary)}</span>
+      </summary>
+      <div class="ev-detail">
+        <div class="ev-detail-grid">
+          <div><span>Event</span><strong>${escapeHtml(item.id)}</strong></div>
+          <div><span>Type</span><strong>${escapeHtml(item.eventType || 'unknown')}</strong></div>
+          <div><span>Agent</span><strong>${escapeHtml(item.agent || item.agentId || 'System')}</strong></div>
+          <div><span>Case</span><strong>${escapeHtml(item.caseId || 'unavailable')}</strong></div>
+        </div>
+        <pre>${escapeHtml(JSON.stringify(detail, null, 2))}</pre>
       </div>
-      <div class="ev-ts">${escapeHtml(formatTimestamp(item.timestamp))}</div>
-    </div>
+    </details>
   `;
 }
 
@@ -70,21 +92,19 @@ export function renderEvidenceStream(viewModel: MonitorViewModel): string {
   const hasCurrentSession = live?.hasCurrentSession ?? false;
   const recentActivity: SectionItem[] = live?.recentActivity ?? [];
 
-  // Session cue
   let sessionCueHtml = '';
   if (isHistoricalOnly) {
-    sessionCueHtml = '<div class="ev-cue ev-cue--historical">Historical evidence \u2014 no live activity. Events below are from a past session.</div>';
+    sessionCueHtml = '<div class="ev-cue ev-cue--historical">Historical evidence only. Events below are from a past session.</div>';
   } else if (hasCurrentSession) {
-    sessionCueHtml = `<div class="ev-cue ev-cue--live">Recording live evidence \u2014 ${escapeHtml(String(recentActivity.length))} events in current session</div>`;
+    sessionCueHtml = `<div class="ev-cue ev-cue--live">Recording live evidence: ${escapeHtml(String(recentActivity.length))} events in the current session</div>`;
   }
 
-  // Empty state
   if (recentActivity.length === 0) {
     return `
       <section class="ev-stream" id="evidence-stream">
         <div class="ev-header">
           <div class="panel-kicker">Evidence Stream</div>
-          <h3>Black-box recorder</h3>
+          <h3>Live event trace</h3>
         </div>
         ${sessionCueHtml}
         <div class="ev-empty">
@@ -94,24 +114,28 @@ export function renderEvidenceStream(viewModel: MonitorViewModel): string {
     `;
   }
 
-  // Render event rows (max 30 for performance)
-  const visibleItems = recentActivity.slice(0, 30);
+  const visibleItems = recentActivity.slice(0, 40);
   const hiddenCount = recentActivity.length - visibleItems.length;
-
-  const rowsHtml = visibleItems.map(renderEventRow).join('');
 
   return `
     <section class="ev-stream${isHistoricalOnly ? ' ev-stream--historical' : ''}" id="evidence-stream">
       <div class="ev-header">
         <div class="panel-kicker">Evidence Stream</div>
-        <h3>Black-box recorder</h3>
+        <h3>Live event trace</h3>
         <span class="ev-count">${escapeHtml(String(recentActivity.length))} events</span>
       </div>
       ${sessionCueHtml}
-      <div class="ev-timeline" data-scroll-key="ev-timeline">
-        ${rowsHtml}
+      <div class="ev-table-head" aria-hidden="true">
+        <span>Time</span>
+        <span>Type</span>
+        <span>Agent</span>
+        <span>Context</span>
+        <span>Summary</span>
       </div>
-      ${hiddenCount > 0 ? `<div class="ev-overflow muted">${escapeHtml(String(hiddenCount))} more events in this session. Full ledger available in historical section.</div>` : ''}
+      <div class="ev-timeline" data-scroll-key="ev-timeline">
+        ${visibleItems.map(renderEventRow).join('')}
+      </div>
+      ${hiddenCount > 0 ? `<div class="ev-overflow muted">${escapeHtml(String(hiddenCount))} more events in this session. Full ledger remains available in the historical section.</div>` : ''}
     </section>
   `;
 }

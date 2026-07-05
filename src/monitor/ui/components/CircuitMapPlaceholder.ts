@@ -95,6 +95,24 @@ export function renderCircuitMapPlaceholder(viewModel: MonitorViewModel): string
   const graph = viewModel.circuitGraph;
   const isHistoricalOnly = viewModel.liveActivity?.isHistoricalOnly ?? false;
   const currency = viewModel.spend?.currency ?? 'USD';
+  const flowSteps = [
+    { label: 'Agent Activity', value: formatNumber(viewModel.liveActivity?.activeAgents.length ?? 0), tone: 'active' },
+    { label: 'SafeLoop Decision', value: formatNumber(viewModel.operatorConsole?.attentionQueue.length ?? 0), tone: viewModel.operatorConsole?.status ?? 'watch' },
+    { label: 'Human Review', value: formatNumber(viewModel.current.approvals.filter((approval) => approval.status === 'pending').length), tone: 'waiting' },
+    { label: 'Audit Evidence', value: formatNumber(viewModel.status.eventCount), tone: 'completed' },
+    { label: 'Outcome', value: viewModel.current.latestRun?.status ?? 'idle', tone: viewModel.current.latestRun?.status ?? 'idle' },
+  ];
+  const flowHtml = `
+    <div class="cmap-governance-flow" aria-label="SafeLoop governance flow">
+      ${flowSteps.map((step, index) => `
+        <div class="cmap-flow-step cmap-flow-step--${escapeHtml(String(step.tone))}">
+          <span>${escapeHtml(step.label)}</span>
+          <strong>${escapeHtml(step.value)}</strong>
+        </div>
+        ${index < flowSteps.length - 1 ? '<div class="cmap-flow-link" aria-hidden="true"></div>' : ''}
+      `).join('')}
+    </div>
+  `;
 
   if (!graph || (graph.nodes.length === 0 && graph.edges.length === 0)) {
     return `
@@ -109,6 +127,7 @@ export function renderCircuitMapPlaceholder(viewModel: MonitorViewModel): string
         <div class="cmap-empty">
           <div class="muted">No agent activity detected. The circuit map will populate when agents, models, and handoffs are active.</div>
         </div>
+        ${flowHtml}
       </section>
     `;
   }
@@ -185,6 +204,7 @@ export function renderCircuitMapPlaceholder(viewModel: MonitorViewModel): string
         </div>
       </div>
       ${sessionCueHtml}
+      ${flowHtml}
       <div class="cmap-topology">
         ${renderNodeGroup('Agents', agentNodes)}
         ${renderNodeGroup('Models', modelNodes)}

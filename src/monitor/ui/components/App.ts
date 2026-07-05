@@ -4,6 +4,7 @@ import { renderCommandRail } from './CommandRail';
 import { renderCircuitMapPlaceholder } from './CircuitMapPlaceholder';
 import { renderDiagnosticsPanel } from './DiagnosticsPanel';
 import { renderHumanReviewPanel } from './HumanReviewPanel';
+import { renderKpiGrid } from './KpiGrid';
 import { renderLatestRunCard } from './LatestRunCard';
 import { renderLoopTimecards } from './LoopTimecards';
 import { renderOversightPanel } from './OversightPanel';
@@ -18,7 +19,9 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
     <div class="sl-command-center" data-monitor-ui="vite">
       ${renderCommandBar(viewModel)}
       <div class="sl-command-body">
+        ${renderCommandRail(viewModel)}
         <main class="sl-canvas">
+          ${renderKpiGrid(viewModel)}
           ${renderCircuitMapPlaceholder(viewModel)}
           ${renderLatestRunCard(viewModel)}
           ${renderLiveActivityPanel(viewModel)}
@@ -39,7 +42,6 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
             </div>
           </details>
         </main>
-        ${renderCommandRail(viewModel)}
       </div>
     </div>
   `;
