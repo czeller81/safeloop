@@ -1,135 +1,60 @@
 import type { MonitorViewModel } from '../../viewModel';
-import { escapeHtml, formatCompact, formatCostOrUnavailable, formatDuration, formatNumber } from '../lib/formatters';
+import { escapeHtml, formatCompact, formatNumber } from '../lib/formatters';
 
-function renderRailOperator(viewModel: MonitorViewModel): string {
-  const oc = viewModel.operatorConsole;
-  if (!oc) return '';
+const NAV_ITEMS = [
+  ['Overview', '#overview', 'OV'],
+  ['Traces', '#trace-console', 'TR'],
+  ['Loops', '#operational-details', 'LP'],
+  ['Approvals', '#operational-details', 'HR'],
+  ['Evidence', '#operational-details', 'EV'],
+  ['Costs', '#operational-details', 'CO'],
+  ['Diagnostics', '#operational-details', 'DX'],
+] as const;
 
-  const openItems = oc.attentionQueue.filter(i => i.state === 'open').length;
-  return `
-    <div class="rail-card">
-      <div class="rail-card-title">Operator</div>
-      <div class="rail-card-status rail-card-status--${escapeHtml(oc.status)}">${escapeHtml(oc.status.toUpperCase())}</div>
-      <div class="rail-card-body">
-        <div class="rail-metric"><span>Queue</span><strong>${escapeHtml(formatNumber(openItems))} open</strong></div>
-        <div class="rail-metric"><span>Agents</span><strong>${escapeHtml(formatNumber(oc.summary.activeAgents))}</strong></div>
-        <div class="rail-metric"><span>Loops</span><strong>${escapeHtml(formatNumber(oc.summary.activeLoops))}</strong></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderRailNav(viewModel: MonitorViewModel): string {
-  const approvals = viewModel.current.approvals.filter((approval) => approval.status === 'pending').length;
-  const risks = viewModel.current.risks.length + viewModel.oversight.summary.warningCount + viewModel.oversight.summary.anomalyCount;
-  const events = viewModel.status.eventCount;
-
-  const links = [
-    ['Overview', '#circuit-map', ''],
-    ['Live Events', '#evidence-stream', formatCompact(events)],
-    ['Scenario Loops', '#latest-run', formatNumber(viewModel.current.currentLoops.length)],
-    ['Guard Decisions', '#operator-console', formatNumber(viewModel.operatorConsole?.attentionQueue.length ?? 0)],
-    ['Human Review', '#human-review', formatNumber(approvals)],
-    ['Risks', '#risks', formatNumber(risks)],
-    ['Evidence', '#historical-details', formatNumber(viewModel.historical.eventCount)],
-    ['Cost & Tokens', '#spend', formatCompact(viewModel.tokens.totalTokens)],
-    ['Diagnostics', '#diagnostics', ''],
-  ];
-
-  return `
-    <nav class="rail-nav" aria-label="Dashboard sections">
-      <div class="rail-product">
-        <div class="rail-product-mark">SL</div>
-        <div>
-          <div class="rail-product-name">SafeLoop</div>
-          <div class="rail-product-subtitle">Local command center</div>
-        </div>
-      </div>
-      <div class="rail-nav-links">
-        ${links.map(([label, href, count]) => `
-          <a href="${escapeHtml(href)}">
-            <span>${escapeHtml(label)}</span>
-            ${count ? `<strong>${escapeHtml(count)}</strong>` : ''}
-          </a>
-        `).join('')}
-      </div>
-    </nav>
-  `;
-}
-
-function renderRailRisk(viewModel: MonitorViewModel): string {
-  const riskCount = viewModel.current.risks.length;
-  const pendingApprovals = viewModel.current.approvals.filter(a => a.status === 'pending').length;
-  const oversightScore = viewModel.oversight.summary.oversightScore;
-  const oversightLevel = viewModel.oversight.summary.oversightLevel;
-
-  return `
-    <div class="rail-card">
-      <div class="rail-card-title">Risk &amp; Approval</div>
-      <div class="rail-card-body">
-        <div class="rail-metric"><span>Oversight</span><strong>${escapeHtml(formatNumber(oversightScore))}/100 <em class="oversight-level ${escapeHtml(oversightLevel)}">${escapeHtml(oversightLevel)}</em></strong></div>
-        <div class="rail-metric"><span>Risks</span><strong>${escapeHtml(formatNumber(riskCount))}</strong></div>
-        <div class="rail-metric"><span>Approvals pending</span><strong>${escapeHtml(formatNumber(pendingApprovals))}</strong></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderRailCost(viewModel: MonitorViewModel): string {
-  const pulse = viewModel.liveActivity?.tokenCostPulse;
-  const pricingAvailable = viewModel.spend.pricingAvailable;
-
-  return `
-    <div class="rail-card">
-      <div class="rail-card-title">Cost &amp; Tokens</div>
-      <div class="rail-card-body">
-        <div class="rail-metric"><span>Latest run</span><strong>${escapeHtml(formatCostOrUnavailable(viewModel.spend.latestRunCost, pricingAvailable, viewModel.spend.currency))}</strong></div>
-        <div class="rail-metric"><span>Tokens (60m)</span><strong>${escapeHtml(formatCompact(pulse?.recentTokenTotal ?? 0))}</strong></div>
-        <div class="rail-metric"><span>Trend</span><strong>${pricingAvailable ? escapeHtml(pulse?.costTrend ?? 'unknown') : escapeHtml('\u2014')}</strong></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderRailSession(viewModel: MonitorViewModel): string {
-  const latest = viewModel.current.latestRun;
-  const live = viewModel.liveActivity;
-  const loopState = live?.currentLoopState;
-  const tc = viewModel.timecardSummary;
-
-  const billableCount = tc?.totals.billableCandidateCount ?? 0;
-  const billableLabel = billableCount > 0
-    ? `${formatNumber(billableCount)} billable`
-    : 'Not billable yet';
-
-  return `
-    <div class="rail-card">
-      <div class="rail-card-title">Session &amp; Timecards</div>
-      <div class="rail-card-body">
-        <div class="rail-metric"><span>Latest run</span><strong>${escapeHtml(latest?.taskName || 'None')}</strong></div>
-        <div class="rail-metric"><span>Status</span><strong>${escapeHtml(latest?.status || 'idle')}</strong></div>
-        <div class="rail-metric"><span>Duration</span><strong>${escapeHtml(formatDuration(latest?.durationMs))}</strong></div>
-        <div class="rail-metric"><span>Running</span><strong>${escapeHtml(formatNumber(loopState?.running ?? 0))}</strong></div>
-        <div class="rail-metric"><span>Completed</span><strong>${escapeHtml(formatNumber(loopState?.completed ?? 0))}</strong></div>
-        <div class="rail-metric rail-metric--separator"><span>Billable</span><strong class="${billableCount > 0 ? 'rail-billable' : ''}">${escapeHtml(billableLabel)}</strong></div>
-        <div class="rail-metric"><span>Total tokens</span><strong>${escapeHtml(formatCompact(tc?.totals.totalTokens ?? 0))}</strong></div>
-        <div class="rail-metric"><span>Total cost</span><strong>${escapeHtml(formatCostOrUnavailable(tc?.totals.totalEstimatedCost ?? 0, tc?.totals.pricingAvailable ?? false, viewModel.spend.currency))}</strong></div>
-      </div>
-      <div class="rail-card-action">
-        <a href="/api/timecards/export" target="_blank" rel="noopener" class="rail-export-link">\uD83D\uDCCB Export timecards</a>
-      </div>
-    </div>
-  `;
+function countFor(label: string, viewModel: MonitorViewModel): string {
+  switch (label) {
+    case 'Traces':
+      return formatCompact(viewModel.status.eventCount);
+    case 'Loops':
+      return formatNumber(viewModel.current.currentLoops.length);
+    case 'Approvals':
+      return formatNumber(viewModel.current.approvals.filter((approval) => approval.status === 'pending').length);
+    case 'Evidence':
+      return formatNumber(viewModel.current.artifacts.length + viewModel.historical.artifacts.length);
+    case 'Costs':
+      return formatCompact(viewModel.tokens.totalTokens);
+    default:
+      return '';
+  }
 }
 
 export function renderCommandRail(viewModel: MonitorViewModel): string {
   return `
-    <aside class="sl-command-rail" aria-label="Command center rail">
-      ${renderRailNav(viewModel)}
-      ${renderRailOperator(viewModel)}
-      ${renderRailRisk(viewModel)}
-      ${renderRailCost(viewModel)}
-      ${renderRailSession(viewModel)}
+    <aside class="sl-command-rail" aria-label="Dashboard navigation">
+      <nav class="rail-nav rail-nav--quiet">
+        <div class="rail-product">
+          <div class="rail-product-mark" aria-hidden="true">
+            <span></span>
+          </div>
+          <div>
+            <div class="rail-product-name">SafeLoop</div>
+            <div class="rail-product-subtitle">Local governance</div>
+          </div>
+        </div>
+        <div class="rail-nav-caption">Workspace</div>
+        <div class="rail-nav-links">
+          ${NAV_ITEMS.map(([label, href, icon]) => {
+            const count = countFor(label, viewModel);
+            return `
+              <a href="${escapeHtml(href)}" data-nav-section="${escapeHtml(label.toLowerCase())}">
+                <span class="rail-nav-icon" aria-hidden="true">${escapeHtml(icon)}</span>
+                <span class="rail-nav-label">${escapeHtml(label)}</span>
+                ${count ? `<strong>${escapeHtml(count)}</strong>` : ''}
+              </a>
+            `;
+          }).join('')}
+        </div>
+      </nav>
     </aside>
   `;
 }

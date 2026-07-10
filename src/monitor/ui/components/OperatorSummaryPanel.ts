@@ -26,14 +26,14 @@ export function renderOperatorSummaryPanel(viewModel: MonitorViewModel): string 
 
   const renderQueueItem = (it: typeof oc.attentionQueue[number]) => {
     const stateLabel = it.state ? `<span class="state state-${escapeHtml(it.state)}">${escapeHtml(it.state)}</span>` : '';
+    const priorityLabel = it.priority ? `<span class="queue-meta-chip">${escapeHtml(it.priority)} priority</span>` : '';
     return `
       <li class="queue-item queue-${escapeHtml(it.priority)}">
         <div class="queue-head"><strong>${escapeHtml(it.title)}</strong> ${stateLabel}</div>
         <div class="queue-summary">${escapeHtml(it.summary)}</div>
-        <div class="queue-actions">
-          <button class="sl-btn sl-btn--subtle" data-action="acknowledged" data-target-id="${escapeHtml(it.id)}">Acknowledge</button>
-          <button class="sl-btn sl-btn--subtle" data-action="reviewed" data-target-id="${escapeHtml(it.id)}">Mark reviewed</button>
-          <button class="sl-btn sl-btn--primary" data-action="resolved" data-target-id="${escapeHtml(it.id)}">Resolve</button>
+        <div class="queue-meta">
+          ${priorityLabel}
+          <span class="queue-meta-note">Review state is recorded by SafeLoop events.</span>
         </div>
       </li>`;
   };
@@ -91,29 +91,6 @@ export function renderOperatorSummaryPanel(viewModel: MonitorViewModel): string 
       ${reviewGroups}
       <h4>Human attention queue</h4>
       <ul class="attention-queue">${openQueue.slice(0, 8).map(renderQueueItem).join('') || '<li class="empty-state">No open attention items.</li>'}</ul>
-      <script>
-        (function(){
-          function postAction(action,targetId){
-            return fetch('/api/operator/actions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,targetId})});
-          }
-          document.querySelectorAll('.sl-btn[data-action]').forEach(function(b){
-            b.addEventListener('click',function(){
-              var act = b.getAttribute('data-action');
-              var id = b.getAttribute('data-target-id');
-              if(!act||!id) return;
-              b.disabled = true;
-              var refresher = window.safeloopRefresh;
-              postAction(act,id).then(function(){
-                if (typeof refresher === 'function') {
-                  try { refresher(); } catch (e) { window.location.reload(); }
-                } else {
-                  window.location.reload();
-                }
-              }).catch(function(){ b.disabled = false; });
-            });
-          });
-        })();
-      </script>
     </section>
   `;
 }
