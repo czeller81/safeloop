@@ -1,64 +1,60 @@
-# SafeLoop Agent Connectors
+# SafeLoop Connectors and MCP
 
 > Connect your agent. Guard its actions. Prove what happened.
 
-SafeLoop provides a local connector system so any AI agent can be governed in minutes. Agents route their shell commands through SafeLoop before execution. SafeLoop evaluates each command against policy, blocks dangerous actions, holds approval-required actions, and produces an auditable evidence trail.
+SafeLoop provides a local connector and MCP foundation for cooperative agent governance. Agents and MCP hosts can route shell commands through SafeLoop so commands are checked before execution and recorded in the local audit ledger.
 
----
+## Boundary First
+
+SafeLoop connectors are not magic interception layers.
+
+SafeLoop can enforce decisions only when the action is routed through one of these paths:
+
+- `createCommandGuard().run()`
+- `examples/safeloop-command.ts`
+- `safeloop.runCommand` through the MCP gateway or stdio server
+- `createScenarioLoop().step()` for command steps
+- a runtime hook that calls SafeLoop before executing a command
+
+SafeLoop does not provide OS-level sandboxing by itself. Direct shell calls, direct file writes, direct network calls, private agent tools, and process launches that bypass SafeLoop also bypass SafeLoop guardrails. Use an OS sandbox, container, VM, or system policy layer when non-cooperative containment is required.
 
 ## Quick Start
 
-### 1. Check connector status
+Check connector status:
 
 ```bash
 npx ts-node examples/connector-status-demo.ts
 ```
 
-This shows which connectors are available and their current status.
-
-### 2. Run a command through SafeLoop (execute mode)
+Run a command through SafeLoop:
 
 ```bash
 npx ts-node examples/safeloop-command.ts --command "echo hello" --agent-id my-agent
 ```
 
-SafeLoop evaluates the command, executes it if allowed, and returns structured JSON:
-
-```json
-{
-  "decision": "allow",
-  "executed": true,
-  "exitCode": 0,
-  "output": "hello",
-  "eventId": "guard-allowed-..."
-}
-```
-
-### 3. Preflight check (does not execute)
+Preflight without executing:
 
 ```bash
 npx ts-node examples/safeloop-command.ts --check-only --command "rm -rf ." --agent-id my-agent
 ```
 
-Returns the policy decision without executing:
+Run the MCP gateway demo:
 
-```json
-{
-  "decision": "deny",
-  "executed": false,
-  "violations": ["blocked command: rm -rf ."]
-}
+```bash
+npx ts-node examples/safeloop-mcp-gateway-demo.ts
 ```
 
----
+Start the MCP stdio server:
+
+```bash
+npx ts-node examples/safeloop-mcp-stdio-server.ts
+```
 
 ## Generic CLI Connector
 
-Any agent that can call a shell command can connect to SafeLoop.
+The generic CLI connector works with any agent that can call a shell command.
 
-### Execute mode
-
-Route every command through:
+Execute mode:
 
 ```bash
 npx ts-node examples/safeloop-command.ts \
@@ -71,9 +67,7 @@ npx ts-node examples/safeloop-command.ts \
   --base-dir <PROJECT_DIR>
 ```
 
-### Check-only preflight mode
-
-Evaluate without executing:
+Check-only mode:
 
 ```bash
 npx ts-node examples/safeloop-command.ts \
@@ -82,135 +76,121 @@ npx ts-node examples/safeloop-command.ts \
   --agent-id <AGENT_ID>
 ```
 
-### Exit codes
+Exit codes:
 
 | Code | Meaning |
 |:----:|---------|
-| `0`  | Allowed and executed successfully (or allowed in check-only mode) |
-| `2`  | Invalid CLI input (missing --command) |
+| `0` | Allowed and executed successfully, or allowed in check-only mode |
+| `2` | Invalid CLI input |
 | `10` | Blocked by SafeLoop policy |
-| `20` | Approval required — command held |
-| Other | Allowed command ran but the command itself returned non-zero |
+| `20` | Approval required and command held |
+| Other | Allowed command ran and returned its own non-zero exit code |
 
-### Default policy
+Default blocked command patterns:
 
-The CLI wrapper ships with a default policy:
-
-**Blocked commands:**
 - `rm -rf`
 - `sudo rm`
 - `del /s`
 - `Remove-Item -Recurse -Force`
 - `DROP TABLE`
 
-**Requires approval:**
+Default approval-required patterns:
+
 - `git push`
 - `deploy`
 - `npm publish`
 
-You can customize the policy by modifying `examples/safeloop-command.ts` or creating your own wrapper using `createCommandGuard()` from the SafeLoop SDK.
+## MCP Command Gateway
 
----
+The MCP gateway is a local API wrapper around SafeLoop command governance.
+
+Available tools:
+
+- `safeloop.checkCommand`: preflight a command without executing it.
+- `safeloop.runCommand`: execute a command through `CommandGuard`.
+- `safeloop.recordActivity`: record an audit-only activity event.
+- `safeloop.status`: return gateway status and boundary information.
+
+Run the gateway demo:
+
+```bash
+npx ts-node examples/safeloop-mcp-gateway-demo.ts
+```
+
+The gateway records events in the same local `.safeloop/events.jsonl` ledger.
+
+## MCP Stdio Server
+
+The stdio server exposes SafeLoop tools through MCP JSON-RPC over stdin/stdout. Stdout is reserved for protocol responses; server logging goes to stderr.
+
+Start it directly:
+
+```bash
+npx ts-node examples/safeloop-mcp-stdio-server.ts
+```
+
+Example MCP host configuration shape:
+
+```json
+{
+  "mcpServers": {
+    "safeloop": {
+      "command": "npx",
+      "args": ["ts-node", "examples/safeloop-mcp-stdio-server.ts"]
+    }
+  }
+}
+```
+
+Configure the host to use `safeloop.checkCommand` or `safeloop.runCommand` instead of raw command execution tools when SafeLoop governance is required. Calls made through other host tools are outside SafeLoop's enforcement boundary.
 
 ## Hermes Connector
 
-The Hermes connector detects a local Hermes agent installation and reports integration status.
+The Hermes connector currently detects a local Hermes agent installation and reports whether the known PowerShell execution path appears to be patched for SafeLoop preflight.
 
-### Detection
+Detection checks:
 
-The connector checks:
+1. `~/.hermes/hermes-agent/apps/desktop/electron/bootstrap-runner.cjs`
+2. `SAFELOOP_HERMES_POWERSHELL_GUARD` patch marker
+3. `.safeloop-backup` file
+4. `SAFELOOP_HERMES_POWERSHELL_GUARD` environment variable
 
-1. `~/.hermes/hermes-agent/apps/desktop/electron/bootstrap-runner.cjs` exists
-2. Whether the `SAFELOOP_HERMES_POWERSHELL_GUARD` patch marker is present in the file
-3. Whether a `.safeloop-backup` copy exists
-4. Whether the `SAFELOOP_HERMES_POWERSHELL_GUARD` environment variable is set
+When configured, the Hermes `spawnPowerShell` path can preflight commands before execution. Other Hermes execution paths are not covered unless they are separately routed through SafeLoop.
 
-### Integration path
+Set the environment variable on Windows:
 
-When fully connected, Hermes routes PowerShell commands through SafeLoop's preflight check before execution via the patched `spawnPowerShell` function in `bootstrap-runner.cjs`.
-
-### Environment variable
-
-```bash
+```bat
 set SAFELOOP_HERMES_POWERSHELL_GUARD=1
 ```
 
-When set, the patched bootstrap-runner calls SafeLoop's CLI in check-only mode before executing PowerShell commands. If SafeLoop returns `deny` or `requires_approval`, the command is blocked.
-
-### Patch backup
-
-When the SafeLoop patch is applied to `bootstrap-runner.cjs`, the original file is saved as:
-
-```
-bootstrap-runner.cjs.safeloop-backup
-```
-
-This allows clean rollback if needed.
-
-### Check status
+Check status:
 
 ```bash
 npx ts-node examples/connector-status-demo.ts
 ```
 
-Example output when Hermes is detected but not yet patched:
+## What SafeLoop Can Govern
 
-```
-Hermes Connector:
-  Found: true
-  Connected: false
-  Mode: observer
-  Notes:
-    • SafeLoop preflight patch NOT detected in bootstrap-runner.cjs.
-    • Honest boundary: only spawnPowerShell path is coverable.
-```
+Can govern when routed through SafeLoop:
 
----
+- Shell commands passed to `safeloop-command.ts`
+- Shell commands passed to `createCommandGuard().run()`
+- MCP `safeloop.runCommand` calls
+- Scenario loop command steps
+- Hermes `spawnPowerShell` calls when the SafeLoop hook is installed and enabled
 
-## What SafeLoop Can and Cannot Intercept
+Cannot govern by itself:
 
-### Connector vs Runtime Hook
-
-A **connector** provides detection, status reporting, integration instructions, and an adoption path. It makes SafeLoop easy to connect to.
-
-A **runtime hook** is the actual command/file/git execution path routed through SafeLoop. Enforcement happens only at the runtime hook — not at the connector level.
-
-| Layer | What It Does | Enforces? |
-|-------|-------------|:-:|
-| Connector | Detects agent, reports status, documents integration | No |
-| CLI Wrapper (`safeloop-command.ts`) | Evaluates + executes commands through guard | **Yes** |
-| CommandGuard API (`guard.run()`) | Blocks before shell execution | **Yes** |
-| Hermes patch (spawnPowerShell + env flag) | Preflights PowerShell commands | **Yes** |
-| Agent calling commands directly | Bypasses SafeLoop entirely | No |
-
-**Key principle:** Connectors make SafeLoop easy to adopt. They do not magically intercept private agent runtimes. Real enforcement begins when an agent routes actions through SafeLoop.
-
-### Can intercept (when agent uses the guard)
-
-- Shell commands routed through `safeloop-command.ts`
-- PowerShell commands via Hermes `spawnPowerShell` (when patch is applied)
-- Any command passed through `createCommandGuard().run()`
-- Any scenario step passed through `createScenarioLoop().step()`
-
-### Cannot intercept
-
-- Direct `child_process.exec()` or `spawn()` calls that bypass SafeLoop
-- Internal Node.js API calls within an agent
-- Network requests made directly by agent code
-- File system operations not routed through the guard
-- Hermes execution paths other than `spawnPowerShell` (e.g., internal tool calls, direct Node APIs)
-
-### Honest boundary statement
-
-SafeLoop Core is a **cooperative enforcement layer**. It can only govern actions that agents voluntarily route through the SafeLoop guard. The enforcement is real (blocked commands never reach the shell), but the boundary requires agent cooperation.
-
-For full interception without cooperation, a system-level sandbox or proxy would be required. That is outside SafeLoop Core's current scope.
-
----
+- Direct `child_process.exec()` or `spawn()` calls
+- Internal Node.js APIs
+- Direct file system writes
+- Direct network requests
+- Agent tools that do not call SafeLoop
+- Hermes execution paths other than the covered `spawnPowerShell` path
 
 ## Programmatic API
 
-### createCommandGuard()
+### Command Guard
 
 ```typescript
 import { createCommandGuard } from 'safeloop';
@@ -222,16 +202,14 @@ const guard = createCommandGuard({
     requireApprovalFor: ['git push', 'deploy'],
   },
   agentId: 'my-agent',
-  agentName: 'MyAgent',
+  agentName: 'My Agent',
   storageOptions: { baseDir: '/path/to/project' },
 });
 
 const result = guard.run('echo hello');
-// result.decision: 'allow' | 'deny' | 'requires_approval'
-// result.executed: boolean
 ```
 
-### createScenarioLoop()
+### Scenario Loop
 
 ```typescript
 import { createScenarioLoop } from 'safeloop';
@@ -253,82 +231,37 @@ const result = loop.step({
   actionType: 'command',
   command: 'npm test',
 });
-// result.decision: 'continue' | 'block' | 'escalate' | 'success' | 'stop'
 ```
 
-### Connector detection
+### Connector Detection
 
 ```typescript
 import { createGenericCliConnector, createHermesConnector } from 'safeloop';
 
 const generic = createGenericCliConnector();
-console.log(generic.detect());  // { found: true, path: '...', notes: [...] }
-console.log(generic.status());  // { connected: true, mode: 'execute-wrapper', ... }
+console.log(generic.detect());
+console.log(generic.status());
 
 const hermes = createHermesConnector();
-console.log(hermes.detect());   // { found: true/false, ... }
-console.log(hermes.verify());   // { ok: true/false, checks: [...] }
+console.log(hermes.detect());
+console.log(hermes.verify());
 ```
 
----
+## Examples
 
-## Kiro Governance Roadmap
-
-Kiro (the AI coding agent in this workspace) is not currently governed by SafeLoop unless explicitly configured. Its internal `execute_bash`, file edit, and git tools run directly without SafeLoop preflight.
-
-### Phase 1: Cooperative steering (smallest step)
-
-Add a `.kiro/steering/` file instructing Kiro to preflight shell commands through `safeloop-command.ts --check-only` before execution. This is advisory — Kiro reads steering but its tools still execute directly.
-
-### Phase 2: SafeLoop MCP command tool
-
-Create a SafeLoop MCP server that Kiro calls instead of raw `execute_bash`. This would be a real enforcement point because Kiro would use SafeLoop as its primary command execution tool.
-
-### Phase 3: File/git activity event adapter
-
-Emit SafeLoop events for file edits and git operations so the Evidence Stream and audit trail capture all Kiro work, not just shell commands.
-
-### Phase 4: Stronger runtime wrapper
-
-System-level shell wrapping or sandbox integration that intercepts all command execution regardless of which tool is used. This provides non-cooperative enforcement but requires infrastructure changes.
-
-### Current honest status
-
-Kiro is governed by SafeLoop **only when it voluntarily calls `safeloop-command.ts`**. Without steering or MCP integration, Kiro's normal operation bypasses SafeLoop entirely.
-
----
+```bash
+npx ts-node examples/command-guard-demo.ts
+npx ts-node examples/scenario-loop-demo.ts
+npx ts-node examples/connector-status-demo.ts
+npx ts-node examples/safeloop-mcp-gateway-demo.ts
+npx ts-node examples/safeloop-mcp-stdio-server.ts
+```
 
 ## Future Hardening
 
-The current connector layer is a v1 foundation. Planned improvements:
-
-1. **Compiled JS CLI** — replace `npx ts-node` with a pre-compiled `safeloop` binary for faster cold-start
-2. **Scan all exec/spawn paths** — detect and optionally wrap all shell execution points in an agent's codebase
-3. **One-command connector install/uninstall** — `safeloop connect hermes` / `safeloop disconnect hermes`
-4. **Policy configuration file** — `.safeloop/policy.json` for per-project policy rules
-5. **Connector health monitoring** — detect when a connected agent starts bypassing the guard
-6. **Multiple agent support** — dashboard shows all connected agents and their connector status
-
----
-
-## Demo Commands
-
-```bash
-# Check connector status
-npx ts-node examples/connector-status-demo.ts
-
-# Run safe command (execute mode)
-npx ts-node examples/safeloop-command.ts --command "echo hello" --agent-id hermes
-
-# Run dangerous command (blocked)
-npx ts-node examples/safeloop-command.ts --command "rm -rf ." --agent-id hermes
-
-# Check-only preflight (does not execute)
-npx ts-node examples/safeloop-command.ts --check-only --command "git push origin master" --agent-id hermes
-
-# Run scenario loop demo
-npx ts-node examples/scenario-loop-demo.ts
-
-# Run command guard demo
-npx ts-node examples/command-guard-demo.ts
-```
+- Compiled CLI path for faster startup than `npx ts-node`
+- Policy configuration file under `.safeloop/`
+- Connector install/uninstall workflows
+- Additional connector guides for more agent runtimes
+- Connector health checks that detect expected routing gaps
+- Optional stronger runtime wrappers outside SafeLoop Core
