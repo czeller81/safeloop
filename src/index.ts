@@ -961,7 +961,7 @@ export {
   exportAgentSessionMarkdown,
   exportAgentSessionJSON,
 } from './agentAdapter';
-export { appendEvent, readEvents, streamEvents } from './eventStream';
+export { appendEvent, readEvents, readEventsWithDiagnostics, streamEvents } from './eventStream';
 export { createCommandGuard } from './commandGuard';
 export type { CommandGuard, CommandGuardConfig, GuardDecision, GuardResult } from './commandGuard';
 export { createScenarioLoop } from './scenarioLoop';
@@ -1054,6 +1054,9 @@ export type {
   SafeloopStreamEvent,
   SafeloopStreamEventType,
   SafeloopStreamEventInput,
+  EventReadDiagnostics,
+  EventReadResult,
+  MalformedEventLine,
 } from './eventStream';
 export type {
   ModelUsageRecord,

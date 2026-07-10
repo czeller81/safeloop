@@ -1,6 +1,6 @@
 import { calculateReadinessScore, type ReadinessScoreResult } from '../readinessScore';
 import type { DashboardSnapshot } from './dashboardData';
-import type { SafeloopStreamEvent } from '../eventStream';
+import type { EventReadDiagnostics, SafeloopStreamEvent } from '../eventStream';
 import type { ModelUsageRecord } from '../modelUsage';
 import { analyzeLoopOversight as analyzeLoopOversightImpl } from '../oversightAnalyzer';
 
@@ -278,6 +278,7 @@ export interface DiagnosticsSection {
   lastHttpStatus: string;
   responseKeys: string[];
   lastRenderError: string | null;
+  eventRead?: EventReadDiagnostics;
 }
 
 export type OperatorPriority = 'low' | 'medium' | 'high' | 'critical';
@@ -1145,6 +1146,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     lastHttpStatus: '200 OK',
     responseKeys: [],
     lastRenderError: null,
+    eventRead: snapshot.eventDiagnostics,
   };
   const oversightLoopTimecards = collection.all.map(stripInternalFields);
   const oversightWarnings = collection.all.flatMap((loop) => loop.warnings);

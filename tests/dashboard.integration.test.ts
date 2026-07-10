@@ -82,7 +82,7 @@ describe('Dashboard /api/dashboard integration (deterministic fixtures)', () => 
       });
 
     // healthy first so latestLoop is healthy
-    writeFileSync(join(safeloopDir, 'events.jsonl'), `${healthyLines.join('\n')}\n${problematicLines.join('\n')}\n`, 'utf8');
+    writeFileSync(join(safeloopDir, 'events.jsonl'), `${healthyLines.join('\n')}\n{ malformed dashboard fixture line\n${problematicLines.join('\n')}\n`, 'utf8');
 
     // start monitor server programmatically with baseDir
     serverHandle = await startMonitorServer({ port, baseDir });
@@ -102,6 +102,7 @@ describe('Dashboard /api/dashboard integration (deterministic fixtures)', () => 
     const json = await waitForDashboard(url, 60000);
     expect(json).toBeDefined();
     expect(json.oversight).toBeDefined();
+    expect(json.viewModel?.diagnostics?.eventRead?.malformedLineCount).toBe(1);
 
     const oversight = json.oversight;
     // Required top-level oversight keys
