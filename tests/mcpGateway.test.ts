@@ -47,7 +47,20 @@ describe('SafeLoop MCP Gateway', () => {
     expect(r.decision).toBe('allow');
     expect(r.executed).toBe(true);
     expect(r.output).toContain('SAFELOOP_MCP_OK');
+    expect(r.stdout).toContain('SAFELOOP_MCP_OK');
     expect(r.exitCode).toBe(0);
+    expect(r.failureKind).toBe('process_succeeded');
+  });
+
+  test('runCommand returns real nonzero exit code and stderr', () => {
+    const baseDir = makeTempBaseDir();
+    const gw = createMcpGateway({ baseDir });
+    const r = gw.runCommand({ command: 'node -e "console.error(\'MCP_ERR\'); process.exit(9)"', agentId: 'test' });
+    expect(r.decision).toBe('allow');
+    expect(r.executed).toBe(true);
+    expect(r.exitCode).toBe(9);
+    expect(r.stderr).toContain('MCP_ERR');
+    expect(r.failureKind).toBe('process_nonzero');
   });
 
   test('runCommand dangerous command: deny, not executed', () => {
@@ -89,6 +102,8 @@ describe('SafeLoop MCP Gateway', () => {
     expect(s.tools).toContain('safeloop.recordActivity');
     expect(s.tools).toContain('safeloop.status');
     expect(s.enforcementBoundary).toContain('does not intercept');
+    expect(s.enforcementDiagnostics?.registeredAdapters).toContain('terminal_execute');
+    expect(s.enforcementDiagnostics?.knownCoverageGaps).toContain('deploy');
   });
 
   test('call() dispatches correctly', () => {

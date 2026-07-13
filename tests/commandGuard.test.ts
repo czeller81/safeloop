@@ -1,6 +1,7 @@
 import { createCommandGuard } from '../src/commandGuard';
 import { readEvents } from '../src/eventStream';
-import { mkdtempSync, mkdirSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -162,6 +163,75 @@ describe('commandGuard: enforced local circuit breaker', () => {
     expect(result.decision).toBe('allow');
     expect(result.executed).toBe(true);
     expect(result.exitCode).not.toBe(0);
+    expect(result.failureKind).toBe('process_timeout');
+    expect(result.timedOut).toBe(true);
+  });
+
+  test('captures stdout, stderr, and real nonzero exit code', () => {
+    const baseDir = makeTempBaseDir();
+    const guard = createCommandGuard({
+      policy: { oversightMode: 'HOOTL' },
+      storageOptions: { baseDir },
+    });
+
+    const result = guard.run('node -e "console.log(\'OUT_OK\'); console.error(\'ERR_OK\'); process.exit(7)"');
+
+    expect(result.decision).toBe('allow');
+    expect(result.executed).toBe(true);
+    expect(result.exitCode).toBe(7);
+    expect(result.stdout).toContain('OUT_OK');
+    expect(result.stderr).toContain('ERR_OK');
+    expect(result.failureKind).toBe('process_nonzero');
+  });
+
+  test('handles working directory containing spaces', () => {
+    const baseDir = makeTempBaseDir();
+    const spaced = join(baseDir, 'dir with spaces');
+    mkdirSync(spaced, { recursive: true });
+    writeFileSync(join(spaced, 'marker.txt'), 'ok');
+    const guard = createCommandGuard({
+      policy: { oversightMode: 'HOOTL' },
+      storageOptions: { baseDir },
+    });
+
+    const result = guard.run('node -e "const fs=require(\'fs\'); console.log(fs.existsSync(\'marker.txt\') ? \'FOUND\' : \'MISSING\')"', { cwd: spaced });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('FOUND');
+    expect(result.cwd).toBe(spaced);
+    expect(result.failureKind).toBe('process_succeeded');
+  });
+
+  test('distinguishes spawn failure from process nonzero', () => {
+    const baseDir = makeTempBaseDir();
+    const guard = createCommandGuard({
+      policy: { oversightMode: 'HOOTL' },
+      storageOptions: { baseDir },
+    });
+
+    const result = guard.run('definitely-not-a-safeloop-command', { args: [] });
+
+    expect(result.decision).toBe('allow');
+    expect(result.executed).toBe(true);
+    expect(result.failureKind).toBe('spawn_failed');
+    expect(result.spawnError).toBeDefined();
+  });
+
+  test('invokes Python when available', () => {
+    const python = spawnSync('python', ['--version'], { encoding: 'utf8' });
+    if (python.error) {
+      return;
+    }
+    const baseDir = makeTempBaseDir();
+    const guard = createCommandGuard({
+      policy: { oversightMode: 'HOOTL' },
+      storageOptions: { baseDir },
+    });
+
+    const result = guard.run('python -c "print(\'PY_SAFELOOP_OK\')"');
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PY_SAFELOOP_OK');
   });
 
   test('guard uses correct session and agent metadata in events', () => {

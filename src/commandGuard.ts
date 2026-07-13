@@ -12,7 +12,7 @@
  * controls whether the action runs.
  */
 
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { createPolicyGate, type PolicyGateConfig, type OversightMode } from './index';
 import { appendEvent } from './eventStream';
 import type { SafeloopStorageOptions } from './localStorage';
@@ -25,7 +25,19 @@ export interface GuardResult {
   decision: GuardDecision;
   executed: boolean;
   output?: string;
+  stdout?: string;
+  stderr?: string;
   exitCode?: number;
+  signal?: NodeJS.Signals | string | null;
+  timedOut?: boolean;
+  spawnError?: string;
+  failureKind?: 'policy_denied' | 'approval_required' | 'spawn_failed' | 'process_nonzero' | 'process_timeout' | 'process_succeeded' | 'output_capture_failed';
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
   violations?: string[];
   reasons?: string[];
   eventId: string;
@@ -42,16 +54,28 @@ export interface CommandGuardConfig {
   timeoutMs?: number;
   /** Maximum output buffer size in bytes (default: 1MB) */
   maxOutputBytes?: number;
+  cwd?: string;
 }
 
 export interface CommandGuard {
-  run(command: string): GuardResult;
+  run(command: string, options?: CommandGuardRunOptions): GuardResult;
+}
+
+export interface CommandGuardRunOptions {
+  cwd?: string;
+  args?: string[];
 }
 
 // --- Implementation ---
 
 function generateEventId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+function outputToString(value: string | Buffer | null | undefined): string {
+  if (typeof value === 'string') return value;
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  return '';
 }
 
 export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
@@ -65,7 +89,8 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
   const agentName = config.agentName ?? 'CommandGuard';
 
   return {
-    run(command: string): GuardResult {
+    run(command: string, options?: CommandGuardRunOptions): GuardResult {
+      const cwd = options?.cwd ?? config.cwd ?? process.cwd();
       // Evaluate command against policy gate
       const decision = gate.evaluate({
         task: command,
@@ -85,6 +110,7 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
           summary: `Command blocked: ${command}`,
           metadata: {
             command,
+            cwd,
             decision: 'deny',
             violations: decision.violations,
             reasons: decision.reasons,
@@ -95,6 +121,9 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
         return {
           decision: 'deny',
           executed: false,
+          failureKind: 'policy_denied',
+          command,
+          cwd,
           violations: decision.violations,
           reasons: decision.reasons,
           eventId,
@@ -114,6 +143,7 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
           summary: `Approval required before executing: ${command}`,
           metadata: {
             command,
+            cwd,
             decision: 'requires_approval',
             reasons: decision.reasons,
             oversightMode: decision.oversightMode,
@@ -123,6 +153,9 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
         return {
           decision: 'requires_approval',
           executed: false,
+          failureKind: 'approval_required',
+          command,
+          cwd,
           reasons: decision.reasons,
           eventId,
         };
@@ -130,23 +163,55 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
 
       // --- ALLOWED: execute the command ---
       const eventId = generateEventId('guard-allowed');
+      const startedAt = new Date().toISOString();
+      const started = Date.now();
+      let stdout = '';
+      let stderr = '';
       let output = '';
-      let exitCode = 0;
+      let exitCode: number | undefined = 0;
+      let signal: NodeJS.Signals | string | null = null;
+      let timedOut = false;
+      let spawnError: string | undefined;
+      let failureKind: GuardResult['failureKind'] = 'process_succeeded';
 
       try {
-        const result = execSync(command, {
+        const result = spawnSync(command, options?.args ?? [], {
+          shell: !options?.args,
+          cwd,
           timeout: timeoutMs,
           maxBuffer: maxOutputBytes,
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'pipe'],
         });
-        output = typeof result === 'string' ? result.trim() : '';
-        exitCode = 0;
+        stdout = outputToString(result.stdout);
+        stderr = outputToString(result.stderr);
+        output = stdout.trim();
+        exitCode = typeof result.status === 'number' ? result.status : undefined;
+        signal = result.signal;
+        spawnError = result.error?.message;
+        timedOut = result.error
+          ? result.error.name === 'TimeoutError' ||
+            (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ||
+            /timed out|timeout/i.test(result.error.message)
+          : false;
+        if (timedOut) {
+          failureKind = 'process_timeout';
+        } else if (result.error) {
+          failureKind = 'spawn_failed';
+        } else if (exitCode && exitCode !== 0) {
+          failureKind = 'process_nonzero';
+        } else {
+          failureKind = 'process_succeeded';
+        }
       } catch (err: any) {
-        // execSync throws on non-zero exit code
-        output = (err.stdout ?? err.message ?? '').toString().trim();
-        exitCode = typeof err.status === 'number' ? err.status : 1;
+        stderr = err?.message ? String(err.message) : String(err);
+        output = '';
+        exitCode = undefined;
+        spawnError = stderr;
+        failureKind = 'spawn_failed';
       }
+      const completedAt = new Date().toISOString();
+      const durationMs = Date.now() - started;
 
       appendEvent({
         id: eventId,
@@ -158,10 +223,18 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
         summary: `Command allowed and executed: ${command}`,
         metadata: {
           command,
+          cwd,
           decision: 'allow',
           exitCode,
+          signal,
+          timedOut,
+          failureKind,
+          stderrLength: stderr.length,
           outputLength: output.length,
           oversightMode: decision.oversightMode,
+          startedAt,
+          completedAt,
+          durationMs,
         },
       }, storageOptions);
 
@@ -169,7 +242,19 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
         decision: 'allow',
         executed: true,
         output,
+        stdout,
+        stderr,
         exitCode,
+        signal,
+        timedOut,
+        spawnError,
+        failureKind,
+        command,
+        args: options?.args,
+        cwd,
+        startedAt,
+        completedAt,
+        durationMs,
         eventId,
       };
     },

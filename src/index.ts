@@ -971,6 +971,35 @@ export type { AgentConnector, ConnectorId, ConnectorMode, ConnectorDetectionResu
 export { createMcpGateway } from './mcp';
 export type { McpGateway, McpGatewayConfig } from './mcp';
 export type { McpToolInput, McpCheckResult, McpRunResult, McpRecordResult, McpStatusResult, McpToolName, McpRequest, McpResponse } from './mcp';
+export {
+  routeSpecialistTask,
+  validateSpecialistTool,
+  evaluateSpecialistAction,
+  reviewSpecialistResult,
+  delegateSpecialistStep,
+  createEffectGuard,
+} from './specialistGovernance';
+export type {
+  SpecialistId,
+  SpecialistTool,
+  SpecialistDecision,
+  ReasonCode,
+  EffectClass,
+  RouteSpecialistTaskInput,
+  RouteSpecialistTaskResult,
+  SpecialistToolValidation,
+  SpecialistActionInput,
+  SpecialistActionDecision,
+  SpecialistReviewInput,
+  SpecialistReviewResult,
+  SpecialistReviewValidationError,
+  DelegatedSpecialistStepInput,
+  DelegatedSpecialistStepResult,
+  EffectGuardInput,
+  EffectGuardResult,
+  EffectGuardConfig,
+  EnforcementStatus,
+} from './specialistGovernance';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
   setModelPricing,
