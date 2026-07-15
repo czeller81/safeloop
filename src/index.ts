@@ -383,6 +383,29 @@ function commandIsAllowed(
   );
 }
 
+/**
+ * Detect dangerous shell metacharacters that could enable command chaining
+ * or substitution when a command is executed through a shell.
+ *
+ * Strips single-quoted and double-quoted segments before checking, so
+ * metacharacters inside string literals (e.g. node -e "a; b") are not
+ * treated as shell chaining.
+ *
+ * Returns true if the unquoted portion of the command contains characters
+ * that could be used to chain commands (;, |, &&, ||), perform command
+ * substitution ($(), ``), or redirect output in ways that bypass policy.
+ */
+const SHELL_METACHAR_RE = /[;|`]|\$\(|&&|\|\|/;
+
+function stripQuotedSegments(command: string): string {
+  // Remove single-quoted and double-quoted segments
+  return command.replace(/'[^']*'|"[^"]*"/g, '');
+}
+
+function containsShellMetacharacters(command: string): boolean {
+  return SHELL_METACHAR_RE.test(stripQuotedSegments(command));
+}
+
 function createDecisionMessage(
   allowed: boolean,
   requiresApproval: boolean,
@@ -454,6 +477,12 @@ export function createPolicyGate(policy: PolicyGateConfig): PolicyGate {
           !commandIsAllowed(allowedCommands, command)
         ) {
           violations.push(`command not allowed: ${command.trim()}`);
+        }
+
+        // Shell metacharacter protection: deny dangerous chaining when
+        // the command will be executed through a shell.
+        if (containsShellMetacharacters(command)) {
+          violations.push(`shell metacharacters blocked: ${command.trim()}`);
         }
       }
 

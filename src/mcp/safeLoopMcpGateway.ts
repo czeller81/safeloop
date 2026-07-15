@@ -19,6 +19,7 @@ import { resolve } from 'path';
 import { mkdirSync } from 'fs';
 import type { SafeloopStorageOptions } from '../localStorage';
 import { createEffectGuard, evaluateSpecialistAction } from '../specialistGovernance';
+import { createPolicyGate } from '../index';
 import type {
   McpToolInput,
   McpCheckResult,
@@ -176,7 +177,6 @@ export function createMcpGateway(config?: McpGatewayConfig): McpGateway {
     // Use the guard's internal policy evaluation without executing
     // We create a guard but call it in a way that matches check-only behavior
     // by evaluating the policy directly
-    const { createPolicyGate } = require('../index');
     const gate = createPolicyGate({
       oversightMode: 'HOTL',
       blockedCommands,

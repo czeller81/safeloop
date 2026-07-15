@@ -14,9 +14,11 @@ SafeLoop can enforce decisions only when the action is routed through one of the
 - `examples/safeloop-command.ts`
 - `safeloop.runCommand` through the MCP gateway or stdio server
 - `createScenarioLoop().step()` for command steps
+- `guardEffect` through an integration that registers an effect adapter
+- a specialist delegation path that records `specialist.delegated` before execution
 - a runtime hook that calls SafeLoop before executing a command
 
-SafeLoop does not provide OS-level sandboxing by itself. Direct shell calls, direct file writes, direct network calls, private agent tools, and process launches that bypass SafeLoop also bypass SafeLoop guardrails. Use an OS sandbox, container, VM, or system policy layer when non-cooperative containment is required.
+SafeLoop does not provide OS-level sandboxing by itself. Direct shell calls, direct file writes, direct API calls, direct network calls, publishing, messaging, deployments, private agent tools, and process launches that bypass SafeLoop also bypass SafeLoop guardrails. Use an OS sandbox, container, VM, or system policy layer when non-cooperative containment is required.
 
 ## Quick Start
 
@@ -109,7 +111,23 @@ Available tools:
 - `safeloop.checkCommand`: preflight a command without executing it.
 - `safeloop.runCommand`: execute a command through `CommandGuard`.
 - `safeloop.recordActivity`: record an audit-only activity event.
-- `safeloop.status`: return gateway status and boundary information.
+- `safeloop.status`: return gateway status, boundary information, and enforcement diagnostics.
+
+When input includes `specialistId`, `safeloop.checkCommand` and `safeloop.runCommand` share the same specialist permission evaluation. For example, `sales` cannot use `terminal`; both preflight and execution return denial with `specialist-tool-not-permitted`.
+
+`safeloop.runCommand` returns richer `CommandGuard` diagnostics:
+
+- `stdout`
+- `stderr`
+- `exitCode`
+- `signal`
+- `cwd`
+- `durationMs`
+- `timedOut`
+- `spawnError`
+- `failureKind`
+
+`failureKind` distinguishes policy denial, approval required, spawn failure, nonzero process exit, timeout, and success.
 
 Run the gateway demo:
 
@@ -118,6 +136,7 @@ npx ts-node examples/safeloop-mcp-gateway-demo.ts
 ```
 
 The gateway records events in the same local `.safeloop/events.jsonl` ledger.
+Its status response includes `enforcementDiagnostics` with registered adapters, expected adapters, known coverage gaps, and an explicit cooperative-boundary statement.
 
 ## MCP Stdio Server
 
@@ -143,6 +162,8 @@ Example MCP host configuration shape:
 ```
 
 Configure the host to use `safeloop.checkCommand` or `safeloop.runCommand` instead of raw command execution tools when SafeLoop governance is required. Calls made through other host tools are outside SafeLoop's enforcement boundary.
+
+For specialist-aware hosts, pass `specialistId`, `taskId`, `executionPlanId`, `stepId`, `environment`, and `target` where available. Those fields help SafeLoop bind decisions and delegated authorizations to the actual execution context.
 
 ## Hermes Connector
 
@@ -177,6 +198,9 @@ Can govern when routed through SafeLoop:
 - Shell commands passed to `createCommandGuard().run()`
 - MCP `safeloop.runCommand` calls
 - Scenario loop command steps
+- Specialist-aware MCP calls that include `specialistId`
+- Effects routed through `guardEffect`
+- Registered connector/runtime adapters that call SafeLoop before performing an effect
 - Hermes `spawnPowerShell` calls when the SafeLoop hook is installed and enabled
 
 Cannot govern by itself:
@@ -184,7 +208,11 @@ Cannot govern by itself:
 - Direct `child_process.exec()` or `spawn()` calls
 - Internal Node.js APIs
 - Direct file system writes
+- Direct file system deletes
 - Direct network requests
+- Direct external API writes
+- Direct messages or customer communications
+- Publishing, deployments, DNS changes, credential changes, purchases, and production changes that bypass SafeLoop
 - Agent tools that do not call SafeLoop
 - Hermes execution paths other than the covered `spawnPowerShell` path
 
@@ -232,6 +260,78 @@ const result = loop.step({
   command: 'npm test',
 });
 ```
+
+### Specialist Routing and Permissions
+
+```typescript
+import {
+  routeSpecialistTask,
+  validateSpecialistTool,
+  evaluateSpecialistAction,
+} from 'safeloop';
+
+const route = routeSpecialistTask({
+  objective: 'Run a four-video visual-only MCP pipeline',
+});
+// route.specialistId === 'video_director'
+
+const tool = validateSpecialistTool('sales', 'terminal');
+// tool.allowed === false
+
+const decision = evaluateSpecialistAction({
+  specialistId: 'sales',
+  command: 'npm test',
+  environment: 'development',
+});
+// decision.decision === 'DENY'
+```
+
+`video_director` is preferred for video/media work. Terminal-backed support can be delegated to `coding` or `operations`; do not silently replace the evaluated specialist identity during execution.
+
+### Delegated Specialist Step
+
+```typescript
+import { delegateSpecialistStep } from 'safeloop';
+
+const delegated = delegateSpecialistStep({
+  fromSpecialistId: 'video_director',
+  toSpecialistId: 'coding',
+  taskId: 'video-task-1',
+  executionPlanId: 'plan-1',
+  stepId: 'proxy-setup',
+  reason: 'Proxy generation requires terminal-backed setup',
+  tool: 'terminal',
+  command: 'npm test',
+  environment: 'development',
+});
+```
+
+The delegated authorization is bound to the specialist, task, execution plan, step, tool, environment, target, and command fingerprint. Reusing it after changing context is rejected.
+
+### Effect Guard
+
+```typescript
+import { createEffectGuard } from 'safeloop';
+
+const effects = createEffectGuard({
+  registeredAdapters: ['terminal_execute'],
+  expectedAdapters: ['terminal_execute', 'deploy'],
+});
+
+const result = effects.guardEffect({
+  specialistId: 'coding',
+  effectClass: 'terminal_execute',
+  action: 'run local verification',
+  environment: 'development',
+  execute: () => 'ok',
+});
+
+const coverage = effects.status();
+```
+
+`coverage.registeredAdapters` shows mediated effects. `coverage.expectedAdapters` shows effects the integration expects to mediate. `coverage.knownCoverageGaps` shows effect classes without registered adapters. Production-impacting effects fail closed when an expected adapter is missing.
+
+See [SPECIALIST_GOVERNANCE.md](SPECIALIST_GOVERNANCE.md) for the focused specialist governance and effect guard guide.
 
 ### Connector Detection
 

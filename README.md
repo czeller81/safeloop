@@ -11,6 +11,8 @@ SafeLoop helps teams observe agent work, route risky actions through guardrails,
 SafeLoop is an open-source, local-first TypeScript toolkit for cooperative AI agent governance:
 
 - **Command guard / circuit breaker**: allow, block, or hold shell commands before execution when agents route commands through SafeLoop.
+- **Specialist governance**: route tasks to specialists, validate specialist tool access, bind delegated authorizations to execution context, and record specialist review evidence.
+- **Effect guard coverage**: mediate externally meaningful effects through registered adapters and report known coverage gaps honestly.
 - **Scenario loop governance**: evaluate multi-step agent work against a scenario contract and emit auditable decisions.
 - **MCP stdio tools**: expose SafeLoop command checks, governed command execution, activity recording, and status through a stdio MCP server.
 - **Agent connector foundation**: provide connector detection and integration paths for generic CLI agents and Hermes.
@@ -30,7 +32,9 @@ When an agent or tool routes a command through SafeLoop, SafeLoop can:
 - block the command before it reaches the shell,
 - or require human approval and hold the command.
 
-SafeLoop does **not** automatically intercept private agent tools, direct shell calls, direct file writes, network requests, or process launches that bypass SafeLoop. Agents and MCP hosts must be configured to use SafeLoop's command guard, CLI wrapper, MCP tools, or connector runtime hook. For non-cooperative containment, use an OS-level sandbox, container, VM, or system policy layer in addition to SafeLoop.
+SafeLoop records and mediates effects routed through `guardEffect`, MCP gateway tools, `createCommandGuard().run()`, scenario-loop command steps, or registered adapters.
+
+SafeLoop does **not** universally intercept private agent tools, direct shell calls, direct file writes, direct API calls, publishing, messaging, deployments, network requests, or process launches that bypass SafeLoop. Agents and MCP hosts must be configured to use SafeLoop's command guard, CLI wrapper, MCP tools, effect guard, or connector runtime hook. For non-cooperative containment, use an OS-level sandbox, container, VM, or system policy layer in addition to SafeLoop.
 
 ## Quick Start
 
@@ -79,9 +83,108 @@ Results include:
 
 - `decision`: `allow`, `deny`, or `requires_approval`
 - `executed`: whether the command reached the shell
+- `stdout` and `stderr`: captured process output
+- `exitCode`: the real process exit code when available
+- `signal`: terminating signal when applicable
+- `cwd`: working directory used for execution
+- `durationMs`: elapsed process duration
+- `timedOut`: whether the process timed out
+- `spawnError`: process spawn failure details when available
+- `failureKind`: `policy_denied`, `approval_required`, `spawn_failed`, `process_nonzero`, `process_timeout`, or `process_succeeded`
 - `eventId`: the audit event written to the local ledger
 
 Blocked and approval-required commands do not execute.
+
+## Specialist Governance
+
+Specialist governance keeps routing, tool permission checks, delegated execution, and review evidence consistent.
+
+```typescript
+import {
+  routeSpecialistTask,
+  validateSpecialistTool,
+  evaluateSpecialistAction,
+  delegateSpecialistStep,
+  reviewSpecialistResult,
+  createEffectGuard,
+} from 'safeloop';
+
+const route = routeSpecialistTask({
+  objective: 'Run a four-video visual-only MCP pipeline for the Video Director project',
+  requiresInfrastructureSupport: true,
+});
+// route.specialistId === 'video_director'
+// route.delegatedSupport === 'coding'
+
+const toolCheck = validateSpecialistTool('sales', 'terminal');
+// toolCheck.allowed === false
+
+const action = evaluateSpecialistAction({
+  specialistId: 'sales',
+  command: 'npm test',
+  environment: 'development',
+});
+// action.decision === 'DENY'
+// action.reasonCodes includes 'specialist-tool-not-permitted'
+```
+
+Video and media work routes deterministically to `video_director`. Terminal-backed infrastructure work can be delegated to `coding` or `operations`, but the delegated specialist receives a new authorization bound to the task, execution plan, step, specialist, tool, environment, target, and command fingerprint.
+
+`coding`, `operations`, and `video_director` permissions are context-aware: an allowed tool can still be blocked or held for approval because of command risk, production environment, target, or authorization mismatch.
+
+```typescript
+const delegated = delegateSpecialistStep({
+  fromSpecialistId: 'video_director',
+  toSpecialistId: 'coding',
+  taskId: 'video-task-1',
+  executionPlanId: 'plan-1',
+  stepId: 'proxy-setup',
+  reason: 'Proxy generation requires terminal-backed setup',
+  tool: 'terminal',
+  command: 'npm test',
+  environment: 'development',
+});
+```
+
+Reusing an authorization token after changing specialist identity or execution context is rejected with `authorization-context-mismatch`.
+
+Specialist reviews can be minimal:
+
+```typescript
+reviewSpecialistResult({
+  specialistId: 'video_director',
+  reviewerId: 'malu',
+  status: 'approved',
+  summary: 'Visual review completed.',
+  recommendedNextStep: 'Proceed with guarded proxy generation.',
+});
+```
+
+Or extended with `buildResults`, `testsRun`, `unresolvedIssues`, `artifacts`, and `evidence`. Invalid review payloads return field-level validation errors with the field, expected type, and required status.
+
+## Effect Guard
+
+Use `createEffectGuard` when an integration can mediate externally meaningful effects such as terminal execution, filesystem writes/deletes, external API calls, messages, publishing, deployments, credential changes, DNS changes, purchases, database writes, or production changes.
+
+```typescript
+const effects = createEffectGuard({
+  registeredAdapters: ['terminal_execute'],
+  expectedAdapters: ['terminal_execute', 'deploy'],
+});
+
+const result = effects.guardEffect({
+  specialistId: 'coding',
+  effectClass: 'terminal_execute',
+  action: 'run local verification',
+  environment: 'development',
+  execute: () => 'ok',
+});
+
+const coverage = effects.status();
+// coverage.knownCoverageGaps includes effect classes without registered adapters
+```
+
+If an effect adapter is expected but missing for a production-impacting effect, SafeLoop fails closed instead of claiming coverage it does not have. See [docs/SPECIALIST_GOVERNANCE.md](docs/SPECIALIST_GOVERNANCE.md) for the focused specialist and effect guard guide.
 
 ## Scenario Loop
 
@@ -161,6 +264,8 @@ npx ts-node examples/safeloop-mcp-stdio-server.ts
 
 MCP hosts should call `safeloop.checkCommand` or `safeloop.runCommand` instead of raw command tools when SafeLoop governance is required. The same cooperative boundary applies: actions outside SafeLoop's tools are outside SafeLoop's enforcement path.
 
+When a caller provides `specialistId`, MCP `safeloop.checkCommand` and `safeloop.runCommand` share the same specialist permission evaluation. A specialist denied terminal access, such as `sales`, is denied consistently in both preflight and execution.
+
 See [docs/CONNECTORS.md](docs/CONNECTORS.md) for connector and MCP details.
 
 ## Event Ledger
@@ -192,9 +297,9 @@ Malformed JSONL lines are skipped during reads; valid events before and after a 
 
 Current local verification for this branch includes:
 
-- `npm test`: 32 suites / 227 tests
+- `npm test`: 33 suites / 241 tests
 - `npm run build`
-- `npm run build:ui`
+- `npx tsc --noEmit`
 
 The exact test count can change as coverage is added. Treat these as current branch verification signals, not a permanent compatibility promise.
 
