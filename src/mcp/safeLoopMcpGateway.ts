@@ -18,6 +18,8 @@ import { appendEvent } from '../eventStream';
 import { resolve } from 'path';
 import { mkdirSync } from 'fs';
 import type { SafeloopStorageOptions } from '../localStorage';
+import { createEffectGuard, evaluateSpecialistAction } from '../specialistGovernance';
+import { createPolicyGate } from '../index';
 import type {
   McpToolInput,
   McpCheckResult,
@@ -67,6 +69,11 @@ export function createMcpGateway(config?: McpGatewayConfig): McpGateway {
   // Ensure ledger directory exists
   const safeloopDir = resolve(baseDir, '.safeloop');
   mkdirSync(safeloopDir, { recursive: true });
+  const effectGuard = createEffectGuard({
+    storageOptions,
+    registeredAdapters: ['terminal_execute'],
+    expectedAdapters: ['terminal_execute', 'deploy', 'publish', 'external_message', 'production_change'],
+  });
 
   function makeGuard(input: McpToolInput) {
     return createCommandGuard({
@@ -97,10 +104,79 @@ export function createMcpGateway(config?: McpGatewayConfig): McpGateway {
     }
 
     const guard = makeGuard(input);
+    const specialistDecision = input.specialistId ? evaluateSpecialistAction({
+      specialistId: input.specialistId,
+      actionKind: 'command',
+      command: input.command,
+      tool: 'terminal',
+      environment: input.environment,
+      target: input.target,
+      taskId: input.taskId,
+      executionPlanId: input.executionPlanId,
+      stepId: input.stepId,
+      authorizationToken: input.authorizationToken,
+    }) : undefined;
+    if (specialistDecision?.decision === 'DENY') {
+      const eventId = generateEventId('mcp-check');
+      appendEvent({
+        id: eventId,
+        type: 'preflight.blocked',
+        agentId: input.agentId ?? defaultAgentId,
+        agentName: input.agentName ?? defaultAgentName,
+        caseId: input.caseId ?? defaultCaseId,
+        summary: `MCP checkCommand: deny — ${input.command}`,
+        metadata: {
+          tool: 'safeloop.checkCommand',
+          command: input.command,
+          specialistId: input.specialistId,
+          decision: 'deny',
+          checkOnly: true,
+          reasonCodes: specialistDecision.reasonCodes,
+          reasons: specialistDecision.reasons,
+        },
+      }, storageOptions);
+      return {
+        decision: 'deny',
+        executed: false,
+        checkOnly: true,
+        violations: specialistDecision.reasons,
+        reasons: specialistDecision.reasons,
+        reasonCodes: specialistDecision.reasonCodes,
+        eventId,
+      };
+    }
+    if (specialistDecision?.decision === 'REQUIRES_APPROVAL') {
+      const eventId = generateEventId('mcp-check');
+      appendEvent({
+        id: eventId,
+        type: 'preflight.approval_required',
+        agentId: input.agentId ?? defaultAgentId,
+        agentName: input.agentName ?? defaultAgentName,
+        caseId: input.caseId ?? defaultCaseId,
+        summary: `MCP checkCommand: requires_approval — ${input.command}`,
+        metadata: {
+          tool: 'safeloop.checkCommand',
+          command: input.command,
+          specialistId: input.specialistId,
+          decision: 'requires_approval',
+          checkOnly: true,
+          reasonCodes: specialistDecision.reasonCodes,
+          reasons: specialistDecision.reasons,
+        },
+      }, storageOptions);
+      return {
+        decision: 'requires_approval',
+        executed: false,
+        checkOnly: true,
+        reasons: specialistDecision.reasons,
+        reasonCodes: specialistDecision.reasonCodes,
+        authorizationToken: specialistDecision.authorizationToken,
+        eventId,
+      };
+    }
     // Use the guard's internal policy evaluation without executing
     // We create a guard but call it in a way that matches check-only behavior
     // by evaluating the policy directly
-    const { createPolicyGate } = require('../index');
     const gate = createPolicyGate({
       oversightMode: 'HOTL',
       blockedCommands,
@@ -140,6 +216,7 @@ export function createMcpGateway(config?: McpGatewayConfig): McpGateway {
       checkOnly: true,
       violations: decision.violations.length > 0 ? decision.violations : undefined,
       reasons: decision.reasons.length > 0 ? decision.reasons : undefined,
+      authorizationToken: specialistDecision?.authorizationToken,
       eventId,
     };
   }
@@ -156,15 +233,39 @@ export function createMcpGateway(config?: McpGatewayConfig): McpGateway {
     }
 
     const guard = makeGuard(input);
-    const guardResult: GuardResult = guard.run(input.command);
+    const preflight = checkCommand(input);
+    if (preflight.decision !== 'allow') {
+      return {
+        decision: preflight.decision,
+        executed: false,
+        output: undefined,
+        violations: preflight.violations,
+        reasons: preflight.reasons,
+        reasonCodes: preflight.reasonCodes,
+        failureKind: preflight.decision === 'deny' ? 'policy_denied' : 'approval_required',
+        eventId: preflight.eventId,
+      };
+    }
+    const guardResult: GuardResult = guard.run(input.command, { cwd: input.cwd });
 
     return {
       decision: guardResult.decision,
       executed: guardResult.executed,
       exitCode: guardResult.exitCode,
       output: guardResult.output,
+      stdout: guardResult.stdout,
+      stderr: guardResult.stderr,
+      signal: guardResult.signal,
+      timedOut: guardResult.timedOut,
+      spawnError: guardResult.spawnError,
+      failureKind: guardResult.failureKind,
+      cwd: guardResult.cwd,
+      startedAt: guardResult.startedAt,
+      completedAt: guardResult.completedAt,
+      durationMs: guardResult.durationMs,
       violations: guardResult.violations,
       reasons: guardResult.reasons,
+      authorizationToken: preflight.authorizationToken,
       eventId: guardResult.eventId,
     };
   }
@@ -199,6 +300,7 @@ export function createMcpGateway(config?: McpGatewayConfig): McpGateway {
       version: '1.0.0',
       tools: ['safeloop.checkCommand', 'safeloop.runCommand', 'safeloop.recordActivity', 'safeloop.status'],
       enforcementBoundary: 'SafeLoop governs commands routed through this gateway. It does not intercept private agent tools automatically.',
+      enforcementDiagnostics: effectGuard.status(),
       baseDir,
       ledgerPath: resolve(baseDir, '.safeloop', 'events.jsonl'),
     };

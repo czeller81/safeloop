@@ -383,6 +383,29 @@ function commandIsAllowed(
   );
 }
 
+/**
+ * Detect dangerous shell metacharacters that could enable command chaining
+ * or substitution when a command is executed through a shell.
+ *
+ * Strips single-quoted and double-quoted segments before checking, so
+ * metacharacters inside string literals (e.g. node -e "a; b") are not
+ * treated as shell chaining.
+ *
+ * Returns true if the unquoted portion of the command contains characters
+ * that could be used to chain commands (;, |, &&, ||), perform command
+ * substitution ($(), ``), or redirect output in ways that bypass policy.
+ */
+const SHELL_METACHAR_RE = /[;|`]|\$\(|&&|\|\|/;
+
+function stripQuotedSegments(command: string): string {
+  // Remove single-quoted and double-quoted segments
+  return command.replace(/'[^']*'|"[^"]*"/g, '');
+}
+
+function containsShellMetacharacters(command: string): boolean {
+  return SHELL_METACHAR_RE.test(stripQuotedSegments(command));
+}
+
 function createDecisionMessage(
   allowed: boolean,
   requiresApproval: boolean,
@@ -454,6 +477,12 @@ export function createPolicyGate(policy: PolicyGateConfig): PolicyGate {
           !commandIsAllowed(allowedCommands, command)
         ) {
           violations.push(`command not allowed: ${command.trim()}`);
+        }
+
+        // Shell metacharacter protection: deny dangerous chaining when
+        // the command will be executed through a shell.
+        if (containsShellMetacharacters(command)) {
+          violations.push(`shell metacharacters blocked: ${command.trim()}`);
         }
       }
 
@@ -961,7 +990,7 @@ export {
   exportAgentSessionMarkdown,
   exportAgentSessionJSON,
 } from './agentAdapter';
-export { appendEvent, readEvents, streamEvents } from './eventStream';
+export { appendEvent, readEvents, readEventsWithDiagnostics, streamEvents } from './eventStream';
 export { createCommandGuard } from './commandGuard';
 export type { CommandGuard, CommandGuardConfig, GuardDecision, GuardResult } from './commandGuard';
 export { createScenarioLoop } from './scenarioLoop';
@@ -971,6 +1000,35 @@ export type { AgentConnector, ConnectorId, ConnectorMode, ConnectorDetectionResu
 export { createMcpGateway } from './mcp';
 export type { McpGateway, McpGatewayConfig } from './mcp';
 export type { McpToolInput, McpCheckResult, McpRunResult, McpRecordResult, McpStatusResult, McpToolName, McpRequest, McpResponse } from './mcp';
+export {
+  routeSpecialistTask,
+  validateSpecialistTool,
+  evaluateSpecialistAction,
+  reviewSpecialistResult,
+  delegateSpecialistStep,
+  createEffectGuard,
+} from './specialistGovernance';
+export type {
+  SpecialistId,
+  SpecialistTool,
+  SpecialistDecision,
+  ReasonCode,
+  EffectClass,
+  RouteSpecialistTaskInput,
+  RouteSpecialistTaskResult,
+  SpecialistToolValidation,
+  SpecialistActionInput,
+  SpecialistActionDecision,
+  SpecialistReviewInput,
+  SpecialistReviewResult,
+  SpecialistReviewValidationError,
+  DelegatedSpecialistStepInput,
+  DelegatedSpecialistStepResult,
+  EffectGuardInput,
+  EffectGuardResult,
+  EffectGuardConfig,
+  EnforcementStatus,
+} from './specialistGovernance';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
   setModelPricing,
@@ -1054,6 +1112,9 @@ export type {
   SafeloopStreamEvent,
   SafeloopStreamEventType,
   SafeloopStreamEventInput,
+  EventReadDiagnostics,
+  EventReadResult,
+  MalformedEventLine,
 } from './eventStream';
 export type {
   ModelUsageRecord,

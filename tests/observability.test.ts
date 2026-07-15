@@ -1,5 +1,5 @@
 import { createServer } from 'http';
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -16,6 +16,7 @@ import {
   recordTokenCost,
   recordSteeringProfile,
   readEvents,
+  readEventsWithDiagnostics,
   renderMonitorHtml,
   setModelPricing,
   startMonitorServer,
@@ -78,6 +79,94 @@ describe('Safeloop v0.7 observability layer', () => {
     const jsonl = readFileSync(join(baseDir, '.safeloop', 'events.jsonl'), 'utf8');
     expect(jsonl).toContain('task.started');
     expect(jsonl).toContain('decision.made');
+  });
+
+  it('skips malformed JSONL event lines while preserving valid events', () => {
+    const safeloopDir = join(baseDir, '.safeloop');
+    mkdirSync(safeloopDir, { recursive: true });
+    writeFileSync(
+      join(safeloopDir, 'events.jsonl'),
+      [
+        JSON.stringify({
+          id: 'evt-before',
+          type: 'task.started',
+          timestamp: '2026-06-14T10:00:00.000Z',
+          agentId: 'agent-1',
+          summary: 'Before malformed line',
+        }),
+        '',
+        '{ this is not json',
+        JSON.stringify({
+          id: 'evt-after',
+          type: 'task.completed',
+          timestamp: '2026-06-14T10:01:00.000Z',
+          agentId: 'agent-1',
+          summary: 'After malformed line',
+        }),
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const events = readEvents({ baseDir });
+    const result = readEventsWithDiagnostics({ baseDir });
+
+    expect(events.map((event) => event.id)).toEqual(['evt-before', 'evt-after']);
+    expect(result.events.map((event) => event.id)).toEqual(['evt-before', 'evt-after']);
+    expect(result.diagnostics.malformedLineCount).toBe(1);
+    expect(result.diagnostics.skippedEmptyLineCount).toBeGreaterThanOrEqual(1);
+    expect(result.diagnostics.malformedLines[0]).toMatchObject({
+      lineNumber: 3,
+      preview: '{ this is not json',
+    });
+  });
+
+  it('keeps monitor dashboard payload available when the event ledger contains a malformed line', () => {
+    const safeloopDir = join(baseDir, '.safeloop');
+    mkdirSync(safeloopDir, { recursive: true });
+    writeFileSync(
+      join(safeloopDir, 'events.jsonl'),
+      [
+        JSON.stringify({
+          id: 'evt-dashboard-1',
+          type: 'task.started',
+          timestamp: '2026-06-14T10:00:00.000Z',
+          agentId: 'agent-1',
+          caseId: 'case-dashboard',
+          summary: 'Dashboard still loads',
+        }),
+        '{ bad dashboard json',
+        JSON.stringify({
+          id: 'evt-dashboard-2',
+          type: 'task.completed',
+          timestamp: '2026-06-14T10:01:00.000Z',
+          agentId: 'agent-1',
+          caseId: 'case-dashboard',
+          summary: 'Dashboard loaded',
+        }),
+      ].join('\n'),
+      'utf8',
+    );
+
+    const payload = buildMonitorDashboardPayload(getDashboardSnapshot({ baseDir }));
+
+    expect(payload.events.map((event) => event.id)).toEqual(['evt-dashboard-1', 'evt-dashboard-2']);
+    expect(payload.eventCount).toBe(2);
+    expect(payload.viewModel.diagnostics.eventRead?.malformedLineCount).toBe(1);
+    expect(payload).toEqual(expect.objectContaining({
+      activeLoops: expect.any(Array),
+      events: expect.any(Array),
+      costSummary: expect.any(Object),
+      modelUsage: expect.any(Array),
+      risks: expect.any(Array),
+      approvals: expect.any(Array),
+      artifacts: expect.any(Array),
+      handoffs: expect.any(Array),
+      readiness: expect.any(Object),
+      steeringInsights: expect.any(Array),
+      viewModel: expect.any(Object),
+      oversight: expect.any(Object),
+    }));
   });
 
   it('summarizes a complete loop into an AI worker timecard', () => {
@@ -729,6 +818,34 @@ describe('Safeloop v0.7 observability layer', () => {
     expect(summary.costByProject['Safeloop']).toBeCloseTo(0.0065, 6);
     expect(summary.costByProject['PLOTS']).toBeCloseTo(0.00225, 6);
     expect(summary.usageCount).toBe(2);
+  });
+
+  it('reads token costs when an unrelated malformed event line exists', () => {
+    recordTokenCost(
+      {
+        provider: 'OpenAI',
+        model: 'gpt-5-mini',
+        modelArchitecture: 'hosted',
+        inputTokens: 100,
+        outputTokens: 20,
+        agentId: 'agent-1',
+        caseId: 'case-token',
+        timestamp: '2026-06-14T10:10:00.000Z',
+      },
+      { baseDir },
+    );
+    appendFileSync(join(baseDir, '.safeloop', 'events.jsonl'), '{ malformed unrelated event\n', 'utf8');
+
+    const tokenEvents = readTokenCosts({ baseDir });
+    const events = readEventsWithDiagnostics({ baseDir });
+
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]).toMatchObject({
+      provider: 'OpenAI',
+      model: 'gpt-5-mini',
+      caseId: 'case-token',
+    });
+    expect(events.diagnostics.malformedLineCount).toBe(1);
   });
 
   it('compares steering runs, detects drift, and scores readiness', () => {

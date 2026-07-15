@@ -6,9 +6,14 @@ export interface McpToolInput {
   command?: string;
   agentId?: string;
   agentName?: string;
+  specialistId?: string;
   caseId?: string;
   taskId?: string;
   taskName?: string;
+  executionPlanId?: string;
+  stepId?: string;
+  environment?: string;
+  authorizationToken?: string;
   cwd?: string;
   activityType?: string;
   target?: string;
@@ -22,6 +27,8 @@ export interface McpCheckResult {
   checkOnly: true;
   violations?: string[];
   reasons?: string[];
+  reasonCodes?: string[];
+  authorizationToken?: string;
   eventId: string;
 }
 
@@ -30,9 +37,21 @@ export interface McpRunResult {
   executed: boolean;
   exitCode?: number;
   output?: string;
+  stdout?: string;
+  stderr?: string;
   error?: string;
+  signal?: NodeJS.Signals | string | null;
+  timedOut?: boolean;
+  spawnError?: string;
+  failureKind?: string;
+  cwd?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
   violations?: string[];
   reasons?: string[];
+  reasonCodes?: string[];
+  authorizationToken?: string;
   eventId: string;
 }
 
@@ -46,6 +65,12 @@ export interface McpStatusResult {
   version: string;
   tools: string[];
   enforcementBoundary: string;
+  enforcementDiagnostics?: {
+    registeredAdapters: string[];
+    expectedAdapters: string[];
+    knownCoverageGaps: string[];
+    boundary: string;
+  };
   baseDir: string;
   ledgerPath: string;
 }

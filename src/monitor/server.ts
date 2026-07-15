@@ -5,6 +5,7 @@ import { getDashboardSnapshot } from './dashboardData';
 import { appendEvent } from '../eventStream';
 import { buildMonitorDashboardPayload, summarizeLoopSummaries } from './viewModel';
 import { renderAppBody, renderFallbackDocument } from './ui/components/App';
+import { redactSensitive } from './redact';
 import type { SafeloopStorageOptions } from '../localStorage';
 
 export { summarizeLoopSummaries } from './viewModel';
@@ -115,7 +116,7 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
     const url = req.url ?? '/';
 
     if (url.startsWith('/api/dashboard')) {
-      sendJson(res, 200, buildMonitorDashboardPayload(getDashboardSnapshot(options)));
+      sendJson(res, 200, redactSensitive(buildMonitorDashboardPayload(getDashboardSnapshot(options))));
       return;
     }
 
@@ -145,21 +146,25 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
         },
       };
 
-      sendJson(res, 200, exportPayload);
+      sendJson(res, 200, redactSensitive(exportPayload));
       return;
     }
 
     // Operator action endpoint: record local operator events into the SafeLoop ledger
     if (url === '/api/operator/actions' && req.method === 'POST') {
+      const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
       let body = '';
+      let tooLarge = false;
       req.on('data', (chunk) => {
-        try {
-          body += chunk;
-        } catch (_) {
-          // ignore
+        if (tooLarge) return;
+        body += chunk;
+        if (Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES) {
+          tooLarge = true;
+          sendJson(res, 413, { error: 'request body exceeds 1MB limit' });
         }
       });
       req.on('end', () => {
+        if (tooLarge) return;
         try {
           const payload = body ? JSON.parse(body) : {};
           const action = typeof payload.action === 'string' ? payload.action.trim() : '';

@@ -1,7 +1,7 @@
 import { resolve } from 'path';
 import { calculateReadinessScore, type ReadinessScoreResult } from '../readinessScore';
 import { getCaseCostSummary } from '../costTracker';
-import { readEvents, type SafeloopStreamEvent } from '../eventStream';
+import { readEventsWithDiagnostics, type EventReadDiagnostics, type SafeloopStreamEvent } from '../eventStream';
 import { readTokenCosts, type ModelUsageRecord } from '../modelUsage';
 import {
   compareSteeringRuns,
@@ -36,6 +36,7 @@ export interface DashboardSnapshot {
   handoffs: Array<{ id: string; currentOwner?: string; nextOwner?: string; summary: string }>;
   readiness: ReadinessScoreResult;
   steeringInsights: SteeringComparison[];
+  eventDiagnostics?: EventReadDiagnostics;
 }
 
 function now(): number {
@@ -294,7 +295,8 @@ function normalizeExternalEvent(raw: unknown, sourcePath?: string): SafeloopStre
 }
 
 export function getDashboardSnapshot(options: SafeloopStorageOptions = {}): DashboardSnapshot {
-  let events = readEvents(options);
+  const eventRead = readEventsWithDiagnostics(options);
+  let events = eventRead.events;
   const modelUsage = deriveModelUsage(options);
   const steeringProfiles = readSteeringProfiles(options);
   const monitoredPath = resolve(options.baseDir ?? process.cwd(), '.safeloop');
@@ -369,5 +371,6 @@ export function getDashboardSnapshot(options: SafeloopStorageOptions = {}): Dash
     handoffs: deriveHandoffs(events),
     readiness: deriveReadiness(events, modelUsage),
     steeringInsights: buildSteeringInsights(steeringProfiles),
+    eventDiagnostics: eventRead.diagnostics,
   };
 }

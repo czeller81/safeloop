@@ -19,6 +19,12 @@ function renderMetricList(title: string, entries: Record<string, number>, curren
 }
 
 export function renderSpendPanel(viewModel: MonitorViewModel): string {
+  const timecards = viewModel.timecardSummary;
+  const tokenTotal = viewModel.tokens.totalTokens || timecards?.totals.totalTokens || 0;
+  const billableCount = timecards?.totals.billableCandidateCount ?? 0;
+  const currentTimecards = timecards?.totals.currentCount ?? 0;
+  const historicalTimecards = timecards?.totals.historicalCount ?? 0;
+
   return `
     <section class="panel-block" id="spend">
       <div class="section-heading section-heading-top">
@@ -43,6 +49,21 @@ export function renderSpendPanel(viewModel: MonitorViewModel): string {
           <span>Full ledger cost</span>
           <strong>${escapeHtml(formatCostOrUnavailable(viewModel.spend.totalLedgerCost, viewModel.spend.pricingAvailable, viewModel.spend.currency))}</strong>
           <em>Full history</em>
+        </article>
+        <article class="metric-card">
+          <span>Total tokens</span>
+          <strong>${escapeHtml(formatCompact(tokenTotal))}</strong>
+          <em>${escapeHtml(formatCompact(viewModel.tokens.records.length))} usage records</em>
+        </article>
+        <article class="metric-card">
+          <span>Billable candidates</span>
+          <strong>${escapeHtml(formatCompact(billableCount))}</strong>
+          <em>${escapeHtml(String(currentTimecards))} current / ${escapeHtml(String(historicalTimecards))} historical</em>
+        </article>
+        <article class="metric-card">
+          <span>Timecard cost</span>
+          <strong>${escapeHtml(formatCostOrUnavailable(timecards?.totals.totalEstimatedCost ?? 0, timecards?.totals.pricingAvailable ?? false, viewModel.spend.currency))}</strong>
+          <em>Derived from loop evidence</em>
         </article>
       </div>
       <div class="metric-panels">

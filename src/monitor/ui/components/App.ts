@@ -2,8 +2,10 @@ import type { MonitorDashboardPayload, MonitorViewModel } from '../../viewModel'
 import { renderCommandBar } from './CommandBar';
 import { renderCommandRail } from './CommandRail';
 import { renderCircuitMapPlaceholder } from './CircuitMapPlaceholder';
+import { renderDecisionInspector } from './DecisionInspector';
 import { renderDiagnosticsPanel } from './DiagnosticsPanel';
 import { renderHumanReviewPanel } from './HumanReviewPanel';
+import { renderKpiGrid } from './KpiGrid';
 import { renderLatestRunCard } from './LatestRunCard';
 import { renderLoopTimecards } from './LoopTimecards';
 import { renderOversightPanel } from './OversightPanel';
@@ -18,19 +20,23 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
     <div class="sl-command-center" data-monitor-ui="vite">
       ${renderCommandBar(viewModel)}
       <div class="sl-command-body">
+        ${renderCommandRail(viewModel)}
         <main class="sl-canvas">
           ${renderCircuitMapPlaceholder(viewModel)}
-          ${renderLatestRunCard(viewModel)}
           ${renderLiveActivityPanel(viewModel)}
-          ${renderOperatorSummaryPanel(viewModel)}
-          ${renderOversightPanel(viewModel)}
-          ${renderSpendPanel(viewModel)}
-          <details class="sl-lower-section" id="historical-details" data-state-key="historical-details">
+          <details class="operational-details" id="operational-details" data-state-key="operational-details">
             <summary class="sl-lower-summary">
-              <span class="sl-lower-title">Historical Ledger, Timecards &amp; Debug</span>
-              <span class="sl-lower-caption">Full audit trail \u2014 loop history, handoff detail, risks, human review, and diagnostics</span>
+              <span class="sl-lower-title">Operational Details</span>
+              <span class="sl-lower-caption">Loop analysis, cost, approvals, evidence ledger, and diagnostics</span>
             </summary>
             <div class="sl-lower-body">
+              <section class="overview-metrics" id="overview-metrics">
+                ${renderKpiGrid(viewModel)}
+                ${renderLatestRunCard(viewModel)}
+              </section>
+              ${renderOperatorSummaryPanel(viewModel)}
+              ${renderOversightPanel(viewModel)}
+              ${renderSpendPanel(viewModel)}
               ${renderHandoffsCard(viewModel)}
               ${renderLoopTimecards(viewModel)}
               ${renderRiskPanel(viewModel)}
@@ -39,7 +45,7 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
             </div>
           </details>
         </main>
-        ${renderCommandRail(viewModel)}
+        ${renderDecisionInspector(viewModel)}
       </div>
     </div>
   `;
