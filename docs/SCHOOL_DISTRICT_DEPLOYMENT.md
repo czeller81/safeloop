@@ -93,6 +93,7 @@ Start with the K-12 profile:
 ```bash
 npx safeloop init --profile k12-offline-rag
 npx safeloop policy doctor
+npx safeloop appliance doctor --profile k12-offline-rag
 ```
 
 This writes:
@@ -112,6 +113,30 @@ After editing `policy.md`, compile and check it:
 npx safeloop policy compile
 npx safeloop policy doctor
 ```
+
+Run an appliance readiness check before use:
+
+```bash
+npx safeloop appliance doctor --profile k12-offline-rag
+```
+
+The appliance doctor checks policy readiness, ledger seal status, malformed event diagnostics, optional deployment metadata, K-12 network/export/update approval patterns, and MCP readiness.
+
+Export an audit bundle for district review:
+
+```bash
+npx safeloop audit export
+```
+
+The audit bundle is local JSON. It includes policy state, policy doctor results, ledger verification, MCP doctor results, event diagnostics, approvals, risks, artifacts, cost/readiness summaries, timecards, and redacted events.
+
+Run the local demo:
+
+```bash
+npm run demo:k12-local-rag
+```
+
+The demo writes to `.safeloop-k12-demo` and keeps simulation data separate from production ledgers.
 
 The K-12 profile uses `.safeloop/policy.json` to require review for actions that can move or destroy district data:
 
@@ -155,6 +180,8 @@ Adjust this with district IT. For offline appliances, network and removable-medi
 - [ ] SafeLoop policy is initialized and reviewed by district IT.
 - [ ] Human approval is required for exports, deletes, network, removable media, publishing, and production changes.
 - [ ] Ledger seal and verification workflow is documented.
+- [ ] `safeloop appliance doctor --profile k12-offline-rag` has been reviewed.
+- [ ] `safeloop audit export` output location and retention are approved.
 - [ ] Backup and restore have been tested.
 - [ ] Staff know that SafeLoop is cooperative governance, not a sandbox.
 
@@ -166,6 +193,7 @@ Adjust this with district IT. For offline appliances, network and removable-medi
 - Audit event ledger and dashboard visibility.
 - Ledger sealing to detect post-seal edits.
 - Cost/token/timecard accountability.
+- Local K-12 demo and starter templates under `examples/`.
 
 ## What Must Be Provided Outside SafeLoop
 

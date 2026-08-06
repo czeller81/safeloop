@@ -1031,6 +1031,26 @@ export type {
 } from './specialistGovernance';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
+  runApplianceDoctor,
+} from './applianceDoctor';
+export type {
+  ApplianceDoctorCheck,
+  ApplianceDoctorOptions,
+  ApplianceDoctorResult,
+  ApplianceDoctorStatus,
+} from './applianceDoctor';
+export {
+  createAuditExportBundle,
+  resolveAuditExportPath,
+  writeAuditExportBundle,
+} from './auditExport';
+export type {
+  AuditExportBundle,
+  AuditExportOptions,
+  AuditExportSummary,
+  AuditExportWriteResult,
+} from './auditExport';
+export {
   compileSafeloopPolicyMarkdown,
   DEFAULT_SAFELOOP_POLICY,
   initializeSafeloopPolicyConfig,

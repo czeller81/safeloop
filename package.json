@@ -31,6 +31,7 @@
     "example": "ts-node examples/wrap-agent.ts",
     "example:live-simulation": "ts-node examples/breaker-live-simulation.ts",
     "demo:codex-governed": "ts-node examples/codex-governed-workflow-demo.ts",
+    "demo:k12-local-rag": "ts-node examples/k12-local-rag-demo.ts",
     "prepare": "npm run build"
   },
   "keywords": [

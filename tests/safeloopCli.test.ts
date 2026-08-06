@@ -128,4 +128,20 @@ describe('safeloop main CLI', () => {
     expect(verified.exitCode).toBe(30);
     expect(verified.json.ok).toBe(false);
   });
+
+  test('appliance doctor and audit export commands run against initialized profile', () => {
+    const baseDir = makeBaseDir();
+    runCli('init --profile k12-offline-rag --json', baseDir);
+
+    const doctor = runCli('appliance doctor --json --host generic', baseDir);
+    expect(doctor.exitCode).toBe(0);
+    expect(doctor.json.profile).toBe('k12-offline-rag');
+    expect(doctor.json.ok).toBe(true);
+
+    const outPath = join(baseDir, 'audit.json');
+    const exported = runCli(`audit export --json --host generic --out "${outPath}"`, baseDir);
+    expect(exported.exitCode).toBe(0);
+    expect(existsSync(outPath)).toBe(true);
+    expect(exported.json.bundle.localOnly).toBe(true);
+  });
 });

@@ -64,6 +64,18 @@ npx safeloop init --profile k12-offline-rag
 npx safeloop policy doctor
 ```
 
+Run local appliance readiness checks:
+
+```bash
+npx safeloop appliance doctor --profile k12-offline-rag
+```
+
+Export a local audit bundle for review:
+
+```bash
+npx safeloop audit export
+```
+
 Check a command without executing it:
 
 ```bash
@@ -285,6 +297,8 @@ Starter command:
 
 ```bash
 npx safeloop init --profile k12-offline-rag
+npx safeloop appliance doctor --profile k12-offline-rag
+npx safeloop audit export
 ```
 
 See [docs/SCHOOL_DISTRICT_DEPLOYMENT.md](docs/SCHOOL_DISTRICT_DEPLOYMENT.md) and [docs/K12_COMPLIANCE_MATRIX.md](docs/K12_COMPLIANCE_MATRIX.md).
@@ -348,6 +362,9 @@ npx safeloop mcp doctor --host hermes
 
 # Codex-labeled local governance demo
 npm run demo:codex-governed
+
+# K-12 local RAG appliance demo
+npm run demo:k12-local-rag
 ```
 
 ## Current Verification

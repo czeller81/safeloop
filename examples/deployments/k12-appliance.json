@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "profile": "k12-offline-rag",
+  "deploymentName": "District Local AI Appliance",
+  "internetMode": "offline",
+  "agentRuntime": "Hermes",
+  "vectorDatabase": {
+    "location": "local-or-district-nas",
+    "encryptedAtRest": true
+  },
+  "storage": {
+    "sourceDocuments": "district-controlled",
+    "auditLedger": ".safeloop/events.jsonl",
+    "auditExports": ".safeloop/"
+  },
+  "reviewRoles": {
+    "systemChange": "it_admin",
+    "studentDataExport": "records_officer",
+    "schoolOperations": "principal_or_designee"
+  },
+  "boundary": "SafeLoop governs actions routed through SafeLoop. It is not an OS sandbox."
+}

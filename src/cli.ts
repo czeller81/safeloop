@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { createPolicyGate } from './index';
+import { runApplianceDoctor } from './applianceDoctor';
+import { writeAuditExportBundle } from './auditExport';
 import { createCommandGuard } from './commandGuard';
 import { sealLedger, verifyLedger } from './ledgerIntegrity';
 import { createMcpGateway, startStdioServer } from './mcp';
@@ -320,6 +322,64 @@ function runPolicy(args: string[]): void {
   throw new Error('Usage: safeloop policy <compile|doctor> [policy.md] [--profile <profile>] [--baseDir <path>]');
 }
 
+function printSimpleChecks(title: string, checks: Array<{ status: string; name: string; message: string }>): void {
+  console.log(title);
+  for (const entry of checks) {
+    const marker = entry.status === 'pass' ? 'PASS' : entry.status === 'warn' ? 'WARN' : 'FAIL';
+    console.log(`[${marker}] ${entry.name}: ${entry.message}`);
+  }
+}
+
+function runAppliance(args: string[]): void {
+  const action = args[0];
+  if (action !== 'doctor') {
+    throw new Error('Usage: safeloop appliance doctor [--profile <profile>] [--host <host>] [--baseDir <path>]');
+  }
+  const baseDir = resolveCliBaseDir(args);
+  const result = runApplianceDoctor({
+    baseDir,
+    profile: parsePolicyProfile(args),
+    host: parseFlagValue(args, '--host') ?? 'hermes',
+    projectRoot: process.cwd(),
+  });
+  if (parseJsonFlag(args)) {
+    printJson(result);
+  } else {
+    printSimpleChecks(`SafeLoop appliance doctor (${result.profile})`, result.checks);
+    console.log('');
+    for (const note of result.notes) {
+      console.log(`Note: ${note}`);
+    }
+  }
+  if (!result.ok) {
+    process.exitCode = 60;
+  }
+}
+
+function runAudit(args: string[]): void {
+  const action = args[0];
+  if (action !== 'export') {
+    throw new Error('Usage: safeloop audit export [--out <path>] [--host <host>] [--baseDir <path>]');
+  }
+  const baseDir = resolveCliBaseDir(args);
+  const outPath = parseFlagValue(args, '--out');
+  const result = writeAuditExportBundle({
+    baseDir,
+    outPath,
+    host: parseFlagValue(args, '--host') ?? 'hermes',
+    projectRoot: process.cwd(),
+  });
+  if (parseJsonFlag(args)) {
+    printJson(result);
+  } else {
+    console.log(`SafeLoop audit bundle written to ${result.path}`);
+    console.log(`Events: ${result.bundle.summary.eventCount}`);
+    console.log(`Approvals: ${result.bundle.summary.approvalCount}`);
+    console.log(`Risks: ${result.bundle.summary.riskCount}`);
+    console.log(`Artifacts: ${result.bundle.summary.artifactCount}`);
+  }
+}
+
 function printDoctor(result: ReturnType<typeof runMcpDoctor>): void {
   console.log(`SafeLoop MCP doctor (${result.host})`);
   for (const entry of result.checks) {
@@ -415,6 +475,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'appliance') {
+    runAppliance(process.argv.slice(3));
+    return;
+  }
+
+  if (command === 'audit') {
+    runAudit(process.argv.slice(3));
+    return;
+  }
+
   if (command === 'mcp') {
     runMcp(process.argv.slice(3));
     return;
@@ -431,6 +501,8 @@ async function main(): Promise<void> {
   console.log('  safeloop check --command "<command>" [--baseDir <path>]');
   console.log('  safeloop run --command "<command>" [--baseDir <path>]');
   console.log('  safeloop policy <compile|doctor> [policy.md] [--profile <profile>] [--baseDir <path>]');
+  console.log('  safeloop appliance doctor [--profile <profile>] [--host <host>] [--baseDir <path>]');
+  console.log('  safeloop audit export [--out <path>] [--host <host>] [--baseDir <path>]');
   console.log('  safeloop ledger <seal|verify> [--baseDir <path>]');
   console.log('  safeloop mcp <serve|doctor|print-config|mcporter>');
   console.log('  safeloop monitor [--port <port>] [--baseDir <path>] [--externalEvents <path1,path2>]');
