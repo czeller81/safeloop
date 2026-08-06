@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-This project currently supports the current `0.8.x` development line on this branch.
+This project currently supports the current `0.1.x` release line on this branch.
 
 Security fixes will be backported to the latest published release where practical.
 
@@ -33,6 +33,8 @@ It is not a sandbox and is not a complete security boundary.
 
 SafeLoop can govern actions routed through its command guard, MCP gateway tools, scenario loop, `guardEffect`, or registered adapters. Actions that bypass those paths bypass SafeLoop.
 
+For K-12 or other regulated local deployments, SafeLoop should be treated as one governance layer inside a broader district-controlled environment. It can help record and mediate actions that are routed through SafeLoop, but it is not by itself a FERPA, COPPA, CIPA, NIST, or district policy compliance program.
+
 ## What This Package Does Not Protect Against
 
 This package does not replace:
@@ -54,3 +56,4 @@ This package does not replace:
 - Require human approval for high-risk actions.
 - Review `git diff` before commit or push.
 - Treat demos and simulations as proof of control logic, not as a security boundary.
+- For student data, keep deployments local by default, minimize ingested records, restrict access to authorized staff, test backup/restore, and route export, delete, network, publishing, and removable-media actions through explicit approval paths.

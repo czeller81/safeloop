@@ -252,6 +252,14 @@ Dashboard endpoints:
 - `GET /api/timecards/export`
 - `GET /health`
 
+## School District and Offline RAG Deployments
+
+SafeLoop can support district-controlled local AI appliances where Hermes or another local agent runtime works against internal documents and a local vector database.
+
+For this pattern, SafeLoop should be used to govern agent commands, approvals, evidence, and audit trails. It should be paired with district controls for identity, storage encryption, network isolation, backups, retention, content filtering, incident response, and legal/privacy workflows.
+
+See [docs/SCHOOL_DISTRICT_DEPLOYMENT.md](docs/SCHOOL_DISTRICT_DEPLOYMENT.md) and [docs/K12_COMPLIANCE_MATRIX.md](docs/K12_COMPLIANCE_MATRIX.md).
+
 ## Codex Demo
 
 SafeLoop is agent-agnostic. Codex is one possible actor that can route local work through SafeLoop.
@@ -331,6 +339,8 @@ The exact test count can change as coverage is added.
 - [Codex Integration](docs/CODEX.md)
 - [MCP](docs/MCP.md)
 - [Security Model](docs/SECURITY_MODEL.md)
+- [School District Deployment](docs/SCHOOL_DISTRICT_DEPLOYMENT.md)
+- [K-12 Compliance Matrix](docs/K12_COMPLIANCE_MATRIX.md)
 - [Connectors](docs/CONNECTORS.md)
 - [Specialist Governance](docs/SPECIALIST_GOVERNANCE.md)
 - [Roadmap](ROADMAP.md)

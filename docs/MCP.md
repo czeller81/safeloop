@@ -106,6 +106,8 @@ npx mcporter call safeloop.safeloop.checkCommand command:"rm -rf ."
 
 SafeLoop does not require MCPorter at runtime. MCPorter is a good diagnostic bridge when host configuration is unclear.
 
+In locked-down appliance deployments, use MCPorter during setup only. Production Hermes configuration should call the SafeLoop stdio server directly and should avoid exposing unmanaged raw command tools to agents that are expected to stay inside SafeLoop governance.
+
 ## Command Gateway
 
 Run the gateway demo:

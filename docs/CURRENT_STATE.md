@@ -7,7 +7,7 @@ Last audited on this branch: 2026-07-27.
 - Current checkout during audit: `master`
 - HEAD during audit: `ee027de`
 - Latest merged work includes `feature/dashboard-v1`, malformed JSONL tolerance, trace-first monitor UI, MCP stdio server support, specialist governance, and effect guard coverage.
-- Package version: `0.8.0`
+- Package version: `0.1.0`
 - Package manager: npm
 - Build system: TypeScript compiler plus Vite for the local monitor UI
 - Website source in this repository: none found beyond the local monitor UI served by SafeLoop
@@ -48,7 +48,7 @@ Status labels:
 | Delegated specialist authorization | IMPLEMENTED | Authorization token is bound to specialist/action context fingerprint. |
 | Specialist review | IMPLEMENTED | Minimal and extended review payload validation with audit events. |
 | Effect guard | IMPLEMENTED | Registered/expected adapters, coverage diagnostics, fail-closed behavior for expected missing production-impacting adapters. |
-| Connectors | EXPERIMENTAL | Generic CLI connector and Hermes detection/status foundation. |
+| Connectors | EXPERIMENTAL | Generic CLI connector and Hermes detection/status foundation. MCPorter remains a useful diagnostic bridge for Hermes setup. |
 | Codex integration | DEMO | Local `examples/codex-governed-workflow-demo.ts`; no fake OpenAI API integration. |
 | Local dashboard | IMPLEMENTED | Trace-first monitor at `http://127.0.0.1:3777`; `/api/dashboard` compatibility preserved. |
 | Token/cost visibility | IMPLEMENTED | Explicit `token.cost`/`model.usage` events and cost summaries. |
@@ -61,6 +61,7 @@ Status labels:
 | Telemetry/tracing | IMPLEMENTED | Local explicit event traces. No external telemetry pipeline. |
 | CLI | IMPLEMENTED | `safeloop` bin plus example command wrapper and monitor commands. |
 | Public hosted website | ABSENT | No standalone website source or deployment config was found in this repository. |
+| School district offline RAG guidance | DOCUMENTED | Local appliance architecture and K-12 compliance/security matrix are documented. SafeLoop is not a standalone compliance product. |
 
 ## Public API Surface
 
@@ -129,6 +130,7 @@ P1:
 
 - No OS-level sandboxing, credential isolation, network egress control, or universal process interception.
 - Agent/tool paths that bypass SafeLoop bypass SafeLoop governance.
+- FERPA, COPPA, CIPA, and district security requirements require deployment controls outside SafeLoop.
 - Public website source is absent from this repository, so website synchronization cannot be completed locally.
 
 P2:

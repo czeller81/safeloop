@@ -75,3 +75,17 @@ For meaningful containment, combine SafeLoop with:
 ## Honest Product Claim
 
 SafeLoop provides deterministic local governance and accountability for actions routed through it. It does not promise universal production containment without platform-level controls.
+
+## K-12 and Regulated Data
+
+For school districts, SafeLoop should be deployed as part of a controlled local AI appliance pattern, not as the only compliance control. A district deployment still needs identity management, endpoint hardening, storage encryption, backups, content filtering where internet access exists, retention rules, incident response, staff training, and written data governance procedures.
+
+SafeLoop can support that environment by:
+
+- routing agent commands and production-impacting effects through policy checks
+- requiring human approval for risky actions
+- recording local evidence of agent actions and decisions
+- sealing ledgers to detect post-seal edits
+- keeping governance data local unless the operator exports it
+
+SafeLoop does not classify student records, grant legal consent, filter internet content, replace access controls, or universally prevent tools from bypassing it. MCP hosts, connectors, ingestion jobs, RAG tools, and maintenance scripts should be configured so sensitive effects route through SafeLoop.

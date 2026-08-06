@@ -205,6 +205,8 @@ npx safeloop mcp mcporter
 
 This prints `mcporter` commands for listing, schema inspection, status calls, and command checks. SafeLoop does not require MCPorter at runtime.
 
+For district appliances, treat MCPorter as a setup and troubleshooting tool, not a production dependency. Once Hermes can see SafeLoop tools, configure governed workflows to call SafeLoop directly and remove or restrict unmanaged command tools where possible.
+
 ## Hermes Connector
 
 The Hermes connector currently detects a local Hermes agent installation and reports whether the known PowerShell execution path appears to be patched for SafeLoop preflight.
@@ -408,3 +410,4 @@ For Codex-specific local governance guidance, see [CODEX.md](CODEX.md). The Code
 - Additional connector guides for more agent runtimes
 - Connector health checks that detect expected routing gaps
 - Optional stronger runtime wrappers outside SafeLoop Core
+- Offline appliance profile for Hermes plus SafeLoop, including MCP config checks, blocked raw-tool detection, and district deployment diagnostics

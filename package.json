@@ -1,6 +1,6 @@
 {
   "name": "safeloop",
-  "version": "0.8.0",
+  "version": "0.1.0",
   "description": "SafeLoop puts deterministic identity, authorization, approvals, risk controls, audit trails, evidence, and execution boundaries around AI agents.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
