@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve `Safeloop`.
+Thanks for helping improve SafeLoop.
 
 ## Install
 
@@ -32,17 +32,30 @@ node ./node_modules/typescript/bin/tsc --noEmit
 npm run example:live-simulation
 ```
 
+## Useful local checks
+
+```bash
+npm run demo:codex-governed
+npx safeloop init
+npx safeloop check --command "rm -rf ."
+npx safeloop ledger seal
+npx safeloop ledger verify
+```
+
 ## Contribution principles
 
-- Keep the package dependency-free where possible.
+- Keep the package dependency-free where practical.
 - Prefer small, boring APIs over broad abstractions.
 - Add or update tests for behavior changes.
 - Document any new public API in the README.
 - Do not add hidden network, publish, or push behavior.
 - Keep local validation passing before asking for review.
+- Be explicit about the cooperative enforcement boundary. SafeLoop is not an OS sandbox by itself.
+- Do not change MCP stdio behavior or event ledger schema without calling that out clearly.
 
 ## Scope
 
-This project is intentionally small and focused on local AI agent governance:
-policy gate, circuit breaker, action ledger, markdown reports, and live
-simulation.
+This project is intentionally focused on local-first AI agent governance:
+policy gates, command guard, scenario loops, MCP gateway tools, specialist
+governance, effect guard coverage, local event ledgers, dashboard visibility,
+and evidence/cost accountability.

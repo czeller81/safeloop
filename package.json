@@ -1,7 +1,7 @@
 {
   "name": "safeloop",
   "version": "0.8.0",
-  "description": "Safeloop v0.8.0 is a local-first Agent Accountability + Live Loop Monitor SDK for AI-assisted work with Case Files, event streams, Oversight Intelligence, handoff flow, cost/token tracking, explainability, feedback, warnings, and release readiness.",
+  "description": "SafeLoop puts deterministic identity, authorization, approvals, risk controls, audit trails, evidence, and execution boundaries around AI agents.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -23,11 +23,14 @@
     "build": "npm run build:ui && tsc",
     "test": "jest --config jest.config.js",
     "monitor": "npm run build:ui && ts-node src/cli.ts monitor",
+    "mcp:doctor": "ts-node src/cli.ts mcp doctor",
+    "mcp:doctor:hermes": "ts-node src/cli.ts mcp doctor --host hermes",
     "monitor:dogfood": "npm run monitor -- --baseDir .safeloop-dogfood",
     "dogfood:handoff": "ts-node examples/case-handoff-monitor-dogfood.ts",
     "safeloop": "ts-node src/cli.ts",
     "example": "ts-node examples/wrap-agent.ts",
     "example:live-simulation": "ts-node examples/breaker-live-simulation.ts",
+    "demo:codex-governed": "ts-node examples/codex-governed-workflow-demo.ts",
     "prepare": "npm run build"
   },
   "keywords": [
@@ -39,6 +42,12 @@
     "workflow",
     "audit",
     "safety",
+    "local-first",
+    "mcp",
+    "command-guard",
+    "policy-gate",
+    "agent-governance",
+    "ai-observability",
     "typescript",
     "monitor",
     "cost",

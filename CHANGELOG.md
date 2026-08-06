@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## Current branch - unreleased
+
+This branch consolidates SafeLoop as a local-first agent governance and accountability layer.
+
+### Added
+
+- MCP stdio server support for `safeloop.checkCommand`, `safeloop.runCommand`, `safeloop.recordActivity`, and `safeloop.status`.
+- MCP command gateway with specialist-aware command checks and guarded execution.
+- Specialist governance APIs for deterministic routing, tool validation, context-bound delegation, review validation, and effect guard coverage.
+- CommandGuard process diagnostics including `stdout`, `stderr`, `exitCode`, `signal`, `cwd`, `durationMs`, `timedOut`, `spawnError`, and `failureKind`.
+- Trace-first local dashboard shell with Decision Inspector, governance strip, operational diagnostics, timecard/cost visibility, and malformed JSONL tolerance.
+- Local Codex-governed workflow demo that proves allow, review, block, specialist-denied, and effect-guard-denied paths without fake OpenAI API integration.
+- Local policy config and CLI commands: `safeloop init`, `safeloop check`, and `safeloop run`.
+- Sidecar ledger integrity commands: `safeloop ledger seal` and `safeloop ledger verify`.
+- MCP usability commands: `safeloop mcp serve`, `safeloop mcp doctor`, `safeloop mcp print-config hermes`, and `safeloop mcp mcporter`.
+
+### Notes
+
+- SafeLoop remains a cooperative local governance layer, not an OS-level sandbox.
+- The project now has 42 suites / 277 tests passing locally after the Codex demo, policy/ledger/CLI, and MCP compatibility coverage added in this branch.
+- No npm publish, GitHub release, tag, merge, or production website deployment has been performed by this changelog update.
+
 ## v0.7.0
 
 Safeloop v0.7.0 adds the local live loop monitor, event stream, cost tracking, steering intelligence, goal drift detection, and release readiness scoring.

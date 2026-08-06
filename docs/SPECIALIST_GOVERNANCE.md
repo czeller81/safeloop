@@ -338,7 +338,7 @@ The MCP gateway status also exposes enforcement diagnostics through `enforcement
 
 Current branch verification for the specialist governance and effect guard work:
 
-- `npm test`: 33 suites / 241 tests
+- `npm test`: 37 suites / 262 tests
 - `npm run build`
 - `npx tsc --noEmit`
 

@@ -1,0 +1,77 @@
+# SafeLoop Architecture
+
+SafeLoop sits between an AI agent and the actions that can change local or external state.
+
+```mermaid
+flowchart LR
+  A["Agent or MCP host"] --> B["SafeLoop identity and context"]
+  B --> C["Policy gate / specialist evaluation"]
+  C --> D{"Decision"}
+  D -->|allow| E["Guarded execution or mediated effect"]
+  D -->|requires approval| F["Human review"]
+  D -->|deny| G["Blocked before execution"]
+  E --> H["Local event ledger"]
+  F --> H
+  G --> H
+  H --> I["Trace-first monitor dashboard"]
+  H --> J["Reports, handoffs, cost/timecards"]
+```
+
+## Core Boundary
+
+SafeLoop is cooperative and local-first. It can govern work only when an agent or tool routes that work through SafeLoop:
+
+- `createCommandGuard().run()`
+- `createScenarioLoop().step()`
+- MCP gateway tools
+- MCP stdio server tools
+- `guardEffect`
+- connector/runtime adapters that explicitly call SafeLoop
+- explicit event recording APIs
+
+SafeLoop does not universally intercept direct shell calls, private tools, direct file edits, direct API calls, publishing, messaging, or deployments that bypass those paths.
+
+## Data Flow
+
+1. An agent identifies itself with agent/case/session/task metadata.
+2. SafeLoop evaluates the requested action through policy and optional specialist context.
+3. SafeLoop returns `allow`, `deny`, or `requires_approval`.
+4. Allowed guarded commands execute and capture diagnostics.
+5. Denied and approval-required commands do not execute.
+6. SafeLoop records explicit local events to `.safeloop/events.jsonl`.
+7. The monitor derives UI-ready dashboard data from the same local ledger.
+
+## Storage
+
+SafeLoop uses local file storage. The event ledger is JSONL at:
+
+```text
+.safeloop/events.jsonl
+```
+
+Reads are tolerant of malformed lines. Valid events before and after a bad line are preserved, and diagnostics identify skipped malformed lines.
+
+SafeLoop can also create a sidecar ledger seal:
+
+```bash
+safeloop ledger seal
+safeloop ledger verify
+```
+
+The seal stores a SHA-256 hash-chain root for valid JSONL event lines. It does not change the event schema.
+
+## Monitor
+
+The local monitor serves the trace-first dashboard at `http://127.0.0.1:3777`.
+
+Key endpoints:
+
+- `GET /api/dashboard`
+- `GET /api/timecards/export`
+- `GET /health`
+
+`/api/dashboard` remains the compatibility surface for the monitor UI and external local tools.
+
+## Release Principle
+
+SafeLoop should not claim sandbox-level containment unless an OS/container/platform sandbox is also part of the deployment. The product promise is deterministic local governance for actions routed through SafeLoop.

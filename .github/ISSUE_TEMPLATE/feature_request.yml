@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a SafeLoop governance, connector, dashboard, or documentation improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What agent governance problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What would you like SafeLoop to add or change?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Command guard
+        - MCP
+        - Connectors
+        - Specialist governance
+        - Effect guard
+        - Dashboard
+        - Event ledger
+        - CLI
+        - Documentation
+        - Other
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Enforcement boundary
+      description: Should this be cooperative SafeLoop governance, or does it require OS/container/platform enforcement?
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples
+      description: Commands, agent flows, event examples, or comparable local-first tools.

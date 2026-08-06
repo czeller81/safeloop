@@ -1,0 +1,48 @@
+name: Bug report
+description: Report something that is broken or confusing in SafeLoop.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve SafeLoop. Please include local reproduction details where possible.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Exact commands, policy config, event ledger shape, or MCP call that reproduced the issue.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should SafeLoop have done?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node.js version, SafeLoop version/commit, agent or MCP host if relevant.
+      placeholder: |
+        OS:
+        Node:
+        SafeLoop:
+        Agent/MCP host:
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Logs, redacted event snippets, screenshots, or links.

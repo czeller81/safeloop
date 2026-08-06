@@ -1031,6 +1031,37 @@ export type {
 } from './specialistGovernance';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
+  DEFAULT_SAFELOOP_POLICY,
+  normalizeSafeloopPolicyConfig,
+  readSafeloopPolicyConfig,
+  resolvePolicyConfigPath,
+  writeDefaultSafeloopPolicyConfig,
+} from './policyConfig';
+export type {
+  PolicyConfigReadResult,
+  SafeloopPolicyConfig,
+} from './policyConfig';
+export {
+  resolveLedgerSealPath,
+  sealLedger,
+  verifyLedger,
+} from './ledgerIntegrity';
+export type {
+  LedgerSeal,
+  LedgerVerificationResult,
+} from './ledgerIntegrity';
+export {
+  buildHermesMcpConfig,
+  buildMcporterCommands,
+  runMcpDoctor,
+} from './mcpDiagnostics';
+export type {
+  McpDoctorCheck,
+  McpDoctorResult,
+  McpDoctorStatus,
+  McpConfigOptions,
+} from './mcpDiagnostics';
+export {
   setModelPricing,
   calculateCost,
   getCaseCostSummary,

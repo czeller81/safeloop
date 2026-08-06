@@ -34,6 +34,14 @@ Run a command through SafeLoop:
 npx ts-node examples/safeloop-command.ts --command "echo hello" --agent-id my-agent
 ```
 
+Or use the package CLI against `.safeloop/policy.json`:
+
+```bash
+npx safeloop init
+npx safeloop check --command "rm -rf ."
+npx safeloop run --command "echo hello"
+```
+
 Preflight without executing:
 
 ```bash
@@ -49,7 +57,15 @@ npx ts-node examples/safeloop-mcp-gateway-demo.ts
 Start the MCP stdio server:
 
 ```bash
-npx ts-node examples/safeloop-mcp-stdio-server.ts
+npx safeloop mcp serve
+```
+
+Check MCP/Hermes compatibility:
+
+```bash
+npx safeloop mcp doctor --host hermes
+npx safeloop mcp print-config hermes
+npx safeloop mcp mcporter
 ```
 
 ## Generic CLI Connector
@@ -145,7 +161,7 @@ The stdio server exposes SafeLoop tools through MCP JSON-RPC over stdin/stdout. 
 Start it directly:
 
 ```bash
-npx ts-node examples/safeloop-mcp-stdio-server.ts
+npx safeloop mcp serve
 ```
 
 Example MCP host configuration shape:
@@ -155,7 +171,7 @@ Example MCP host configuration shape:
   "mcpServers": {
     "safeloop": {
       "command": "npx",
-      "args": ["ts-node", "examples/safeloop-mcp-stdio-server.ts"]
+      "args": ["safeloop", "mcp", "serve"]
     }
   }
 }
@@ -164,6 +180,30 @@ Example MCP host configuration shape:
 Configure the host to use `safeloop.checkCommand` or `safeloop.runCommand` instead of raw command execution tools when SafeLoop governance is required. Calls made through other host tools are outside SafeLoop's enforcement boundary.
 
 For specialist-aware hosts, pass `specialistId`, `taskId`, `executionPlanId`, `stepId`, `environment`, and `target` where available. Those fields help SafeLoop bind decisions and delegated authorizations to the actual execution context.
+
+## Hermes MCP Setup
+
+SafeLoop can print a Hermes `mcp_servers` block:
+
+```bash
+npx safeloop mcp print-config hermes
+```
+
+Run the doctor:
+
+```bash
+npx safeloop mcp doctor --host hermes
+```
+
+The doctor validates SafeLoop MCP initialize, tool discovery, status response, dangerous-command denial, local build readiness, and whether the usual Hermes config path exists.
+
+MCPorter can be used as a diagnostic bridge when Hermes configuration is unclear:
+
+```bash
+npx safeloop mcp mcporter
+```
+
+This prints `mcporter` commands for listing, schema inspection, status calls, and command checks. SafeLoop does not require MCPorter at runtime.
 
 ## Hermes Connector
 
@@ -355,7 +395,10 @@ npx ts-node examples/scenario-loop-demo.ts
 npx ts-node examples/connector-status-demo.ts
 npx ts-node examples/safeloop-mcp-gateway-demo.ts
 npx ts-node examples/safeloop-mcp-stdio-server.ts
+npx ts-node examples/codex-governed-workflow-demo.ts
 ```
+
+For Codex-specific local governance guidance, see [CODEX.md](CODEX.md). The Codex demo labels Codex as an agent actor and routes representative actions through SafeLoop; it does not call OpenAI APIs or claim private-tool interception.
 
 ## Future Hardening
 

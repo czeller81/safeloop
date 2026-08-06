@@ -10,16 +10,17 @@
 * ✓ v0.6 Agent Adapter Protocol
 * ✓ v0.7 Live Loop Monitor + Cost & Steering Intelligence
 * ✓ v0.8 Oversight Intelligence + Live Agent Activity
+* ✓ v0.8.x Command Guard, MCP stdio, specialist governance, effect guard coverage, trace-first dashboard
 
 ## Planned
 
-* □ v0.8.x live dashboard refinements
-* □ v0.9 hard-stop guardrails / pause before next model call
+* □ v0.9 stronger connector install/verification workflows
+* □ v0.9 async approval resume for scenario loops
 * □ v1.0 Agent Collaboration Protocol
 
 ## Product Direction
 
-Safeloop is evolving from a local governance SDK into a local-first Agent Accountability + Handoff SDK.
+SafeLoop is a local-first agent governance and accountability layer. It should stay focused on putting deterministic identity, authorization, approvals, risk controls, audit trails, evidence, and execution boundaries around AI agents.
 
 It should remain:
 
@@ -39,6 +40,6 @@ Do not add:
 
 Notes on next work
 
-- v0.8.x: live dashboard refinements (polish live activity, handoff reconciliation, token-cost alerts)
-- v0.9: hard-stop guardrails and operator approval flows
+- v0.8.x: docs/current-state consolidation and local demo hardening
+- v0.9: connector hardening, approval resume, and clearer policy configuration
 - v1.0: formal agent collaboration protocol and exchange formats

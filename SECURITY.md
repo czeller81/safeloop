@@ -2,9 +2,9 @@
 
 ## Supported Versions
 
-This project currently supports the v0.7.x line.
+This project currently supports the current `0.8.x` development line on this branch.
 
-Security fixes will be backported to the latest published v0.7 release where practical.
+Security fixes will be backported to the latest published release where practical.
 
 ## Reporting a Vulnerability
 
@@ -20,13 +20,18 @@ We aim to acknowledge good-faith reports promptly and will coordinate disclosure
 
 ## Security Model
 
-`Safeloop` provides governance primitives for local AI agent loops:
-- policy gating before execution
-- circuit breaking during execution
-- action ledgers for review and auditability
-- markdown reports for human review
+`SafeLoop` provides cooperative governance primitives for local AI agent work:
+
+- policy gating before guarded execution
+- command guard and circuit breaker controls
+- specialist permission evaluation
+- effect guard coverage diagnostics
+- local event ledgers for review and auditability
+- monitor/dashboard visibility for human review
 
 It is not a sandbox and is not a complete security boundary.
+
+SafeLoop can govern actions routed through its command guard, MCP gateway tools, scenario loop, `guardEffect`, or registered adapters. Actions that bypass those paths bypass SafeLoop.
 
 ## What This Package Does Not Protect Against
 
@@ -48,4 +53,4 @@ This package does not replace:
 - Avoid exposing `.env`, SSH keys, npm tokens, GitHub tokens, or API keys in prompts, logs, or ledger entries.
 - Require human approval for high-risk actions.
 - Review `git diff` before commit or push.
-- Treat the live simulation harness as proof of control logic, not as a security boundary.
+- Treat demos and simulations as proof of control logic, not as a security boundary.

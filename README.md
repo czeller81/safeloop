@@ -1,42 +1,49 @@
 # SafeLoop
 
-**Local-first agent governance SDK and dashboard for AI-assisted work.**
+[![CI](https://github.com/czeller81/safeloop/actions/workflows/ci.yml/badge.svg)](https://github.com/czeller81/safeloop/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-local--first-blue.svg)](tsconfig.json)
+[![MCP](https://img.shields.io/badge/MCP-stdio%20gateway-6f42c1.svg)](docs/MCP.md)
 
-SafeLoop helps teams observe agent work, route risky actions through guardrails, request human approval, and preserve audit evidence in a local ledger.
+**Local-first agent governance and accountability for AI-assisted work.**
 
-> Observe. Decide. Approve. Prove.
+SafeLoop puts deterministic identity, authorization, approvals, risk controls, audit trails, evidence, and execution boundaries around AI agents.
 
-## What SafeLoop Is
+> Observe -> Decide -> Approve -> Prove
 
-SafeLoop is an open-source, local-first TypeScript toolkit for cooperative AI agent governance:
+Git tracks code. **SafeLoop tracks agent work.**
 
-- **Command guard / circuit breaker**: allow, block, or hold shell commands before execution when agents route commands through SafeLoop.
-- **Specialist governance**: route tasks to specialists, validate specialist tool access, bind delegated authorizations to execution context, and record specialist review evidence.
-- **Effect guard coverage**: mediate externally meaningful effects through registered adapters and report known coverage gaps honestly.
-- **Scenario loop governance**: evaluate multi-step agent work against a scenario contract and emit auditable decisions.
-- **MCP stdio tools**: expose SafeLoop command checks, governed command execution, activity recording, and status through a stdio MCP server.
-- **Agent connector foundation**: provide connector detection and integration paths for generic CLI agents and Hermes.
-- **Local trace-first dashboard**: inspect agent events, SafeLoop decisions, human review, evidence, and cost/accountability signals.
-- **Audit event ledger**: append local JSONL events under `.safeloop/events.jsonl`.
-- **Token/cost/timecard accountability**: record model usage, cost estimates, billable timecard candidates, handoffs, risks, and approvals.
+## Why It Exists
+
+AI agents can write code, run commands, call tools, hand work to other agents, and produce useful output quickly. The missing layer is often the execution boundary:
+
+- What did the agent try?
+- What did SafeLoop decide?
+- Was a human needed?
+- What evidence proves what happened?
+- Did the action stay inside its authority?
+
+SafeLoop is designed for teams and solo builders who want agent speed without giving agents unlimited authority.
+
+## What SafeLoop Does
+
+| Capability | What it gives you |
+|------------|-------------------|
+| Command guard | Allow, block, or hold shell commands before execution. |
+| Local policy config | `.safeloop/policy.json` for blocked commands, approval triggers, risk limits, and defaults. |
+| MCP gateway | `safeloop.checkCommand`, `safeloop.runCommand`, `safeloop.recordActivity`, and `safeloop.status`. |
+| MCP stdio server | Local JSON-RPC stdio server for MCP hosts. |
+| Specialist governance | Route work, check tool permissions, bind delegated authorizations, and record reviews. |
+| Effect guard | Mediate production-impacting effects and report coverage gaps honestly. |
+| Scenario loop | Govern multi-step work against a scenario contract. |
+| Trace dashboard | Local monitor for agent actions, decisions, approvals, evidence, cost, and timecards. |
+| Event ledger | Local JSONL audit trail with malformed-line tolerance. |
+| Ledger seal | Sidecar SHA-256 hash-chain seal to detect post-seal ledger edits. |
+| Cost accountability | Token/cost/model usage and timecard visibility. |
 
 SafeLoop does not require a hosted service, database, cloud account, or external telemetry pipeline.
 
-## Honest Security Boundary
-
-SafeLoop is a **cooperative local governance layer**, not an OS sandbox.
-
-When an agent or tool routes a command through SafeLoop, SafeLoop can:
-
-- allow the command and execute it,
-- block the command before it reaches the shell,
-- or require human approval and hold the command.
-
-SafeLoop records and mediates effects routed through `guardEffect`, MCP gateway tools, `createCommandGuard().run()`, scenario-loop command steps, or registered adapters.
-
-SafeLoop does **not** universally intercept private agent tools, direct shell calls, direct file writes, direct API calls, publishing, messaging, deployments, network requests, or process launches that bypass SafeLoop. Agents and MCP hosts must be configured to use SafeLoop's command guard, CLI wrapper, MCP tools, effect guard, or connector runtime hook. For non-cooperative containment, use an OS-level sandbox, container, VM, or system policy layer in addition to SafeLoop.
-
-## Quick Start
+## Five-Minute Start
 
 ```bash
 npm install
@@ -44,21 +51,101 @@ npm test
 npm run build
 ```
 
-Useful local demos:
+Initialize local policy:
 
 ```bash
-# Command guard proof: allowed, blocked, approval-required
-npx ts-node examples/command-guard-demo.ts
-
-# Scenario loop proof: continue, block, escalate, success, stop
-npx ts-node examples/scenario-loop-demo.ts
-
-# Connector status
-npx ts-node examples/connector-status-demo.ts
-
-# MCP command gateway demo
-npx ts-node examples/safeloop-mcp-gateway-demo.ts
+npx safeloop init
 ```
+
+Check a command without executing it:
+
+```bash
+npx safeloop check --command "rm -rf ."
+```
+
+Run a command through the guard:
+
+```bash
+npx safeloop run --command "node -e \"console.log('hello from SafeLoop')\""
+```
+
+Seal and verify the local ledger:
+
+```bash
+npx safeloop ledger seal
+npx safeloop ledger verify
+```
+
+Start the local dashboard:
+
+```bash
+npm run monitor
+# Open http://127.0.0.1:3777
+```
+
+## What It Looks Like In Practice
+
+```text
+Agent / MCP host
+  -> SafeLoop policy + specialist evaluation
+  -> allow | requires_approval | deny
+  -> guarded execution or held review
+  -> local event ledger
+  -> trace dashboard + evidence + costs
+```
+
+```mermaid
+flowchart LR
+  A["AI agent / MCP host"] --> B["SafeLoop context"]
+  B --> C["Policy + specialist evaluation"]
+  C --> D{"Decision"}
+  D -->|allow| E["Guarded execution"]
+  D -->|requires approval| F["Human review"]
+  D -->|deny| G["Blocked"]
+  E --> H["Local event ledger"]
+  F --> H
+  G --> H
+  H --> I["Trace dashboard"]
+  H --> J["Evidence, costs, handoffs"]
+```
+
+Operating principle: **Maximum useful intelligence inside minimum necessary authority.**
+
+## Honest Security Boundary
+
+SafeLoop is a **cooperative local governance layer**, not an OS sandbox.
+
+SafeLoop can govern actions routed through:
+
+- `createCommandGuard().run()`
+- `safeloop check` / `safeloop run`
+- MCP gateway or MCP stdio tools
+- `createScenarioLoop().step()`
+- `guardEffect`
+- registered connector/runtime adapters
+
+Blocked and approval-required guarded commands do not reach the shell.
+
+SafeLoop does **not** universally intercept private agent tools, direct shell calls, direct file writes, direct API calls, publishing, messaging, deployments, network requests, or process launches that bypass SafeLoop. For non-cooperative containment, combine SafeLoop with an OS sandbox, container, VM, least-privilege credentials, and network/file-system controls.
+
+See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
+
+## Local Policy
+
+`npx safeloop init` writes:
+
+```text
+.safeloop/policy.json
+```
+
+Default policy includes:
+
+- blocked: `rm -rf`, `sudo rm`, `del /s`, recursive `Remove-Item`, `DROP TABLE`
+- approval-required: `git push`, `deploy`, `npm publish`
+- oversight mode: `HOTL`
+- max risk: `high`
+
+If no policy file exists, SafeLoop uses the same conservative defaults.
 
 ## Command Guard
 
@@ -79,169 +166,7 @@ const guard = createCommandGuard({
 const result = guard.run('echo hello');
 ```
 
-Results include:
-
-- `decision`: `allow`, `deny`, or `requires_approval`
-- `executed`: whether the command reached the shell
-- `stdout` and `stderr`: captured process output
-- `exitCode`: the real process exit code when available
-- `signal`: terminating signal when applicable
-- `cwd`: working directory used for execution
-- `durationMs`: elapsed process duration
-- `timedOut`: whether the process timed out
-- `spawnError`: process spawn failure details when available
-- `failureKind`: `policy_denied`, `approval_required`, `spawn_failed`, `process_nonzero`, `process_timeout`, or `process_succeeded`
-- `eventId`: the audit event written to the local ledger
-
-Blocked and approval-required commands do not execute.
-
-## Specialist Governance
-
-Specialist governance keeps routing, tool permission checks, delegated execution, and review evidence consistent.
-
-```typescript
-import {
-  routeSpecialistTask,
-  validateSpecialistTool,
-  evaluateSpecialistAction,
-  delegateSpecialistStep,
-  reviewSpecialistResult,
-  createEffectGuard,
-} from 'safeloop';
-
-const route = routeSpecialistTask({
-  objective: 'Run a four-video visual-only MCP pipeline for the Video Director project',
-  requiresInfrastructureSupport: true,
-});
-// route.specialistId === 'video_director'
-// route.delegatedSupport === 'coding'
-
-const toolCheck = validateSpecialistTool('sales', 'terminal');
-// toolCheck.allowed === false
-
-const action = evaluateSpecialistAction({
-  specialistId: 'sales',
-  command: 'npm test',
-  environment: 'development',
-});
-// action.decision === 'DENY'
-// action.reasonCodes includes 'specialist-tool-not-permitted'
-```
-
-Video and media work routes deterministically to `video_director`. Terminal-backed infrastructure work can be delegated to `coding` or `operations`, but the delegated specialist receives a new authorization bound to the task, execution plan, step, specialist, tool, environment, target, and command fingerprint.
-
-`coding`, `operations`, and `video_director` permissions are context-aware: an allowed tool can still be blocked or held for approval because of command risk, production environment, target, or authorization mismatch.
-
-```typescript
-const delegated = delegateSpecialistStep({
-  fromSpecialistId: 'video_director',
-  toSpecialistId: 'coding',
-  taskId: 'video-task-1',
-  executionPlanId: 'plan-1',
-  stepId: 'proxy-setup',
-  reason: 'Proxy generation requires terminal-backed setup',
-  tool: 'terminal',
-  command: 'npm test',
-  environment: 'development',
-});
-```
-
-Reusing an authorization token after changing specialist identity or execution context is rejected with `authorization-context-mismatch`.
-
-Specialist reviews can be minimal:
-
-```typescript
-reviewSpecialistResult({
-  specialistId: 'video_director',
-  reviewerId: 'malu',
-  status: 'approved',
-  summary: 'Visual review completed.',
-  recommendedNextStep: 'Proceed with guarded proxy generation.',
-});
-```
-
-Or extended with `buildResults`, `testsRun`, `unresolvedIssues`, `artifacts`, and `evidence`. Invalid review payloads return field-level validation errors with the field, expected type, and required status.
-
-## Effect Guard
-
-Use `createEffectGuard` when an integration can mediate externally meaningful effects such as terminal execution, filesystem writes/deletes, external API calls, messages, publishing, deployments, credential changes, DNS changes, purchases, database writes, or production changes.
-
-```typescript
-const effects = createEffectGuard({
-  registeredAdapters: ['terminal_execute'],
-  expectedAdapters: ['terminal_execute', 'deploy'],
-});
-
-const result = effects.guardEffect({
-  specialistId: 'coding',
-  effectClass: 'terminal_execute',
-  action: 'run local verification',
-  environment: 'development',
-  execute: () => 'ok',
-});
-
-const coverage = effects.status();
-// coverage.knownCoverageGaps includes effect classes without registered adapters
-```
-
-If an effect adapter is expected but missing for a production-impacting effect, SafeLoop fails closed instead of claiming coverage it does not have. See [docs/SPECIALIST_GOVERNANCE.md](docs/SPECIALIST_GOVERNANCE.md) for the focused specialist and effect guard guide.
-
-## Scenario Loop
-
-```typescript
-import { createScenarioLoop } from 'safeloop';
-
-const loop = createScenarioLoop({
-  contract: {
-    scenarioId: 'release-check',
-    goal: 'ship a verified change',
-    successCondition: 'tests pass and evidence is recorded',
-    maxAttempts: 5,
-    blockedCommands: ['rm -rf'],
-    requireApprovalFor: ['git push'],
-  },
-});
-
-const result = loop.step({
-  stepIndex: 0,
-  actionType: 'command',
-  command: 'npm test',
-});
-```
-
-Scenario decisions are `continue`, `warn`, `block`, `escalate`, `success`, or `stop`.
-
-## Local Dashboard
-
-SafeLoop includes a local monitor dashboard:
-
-```bash
-npm run monitor
-# Open http://127.0.0.1:3777
-```
-
-Run the dogfood ledger demo:
-
-```bash
-npm run dogfood:handoff
-npm run monitor:dogfood
-# Open http://127.0.0.1:3777
-```
-
-The current dashboard is trace-first. It focuses on:
-
-- **Trace Console**: what the agent did, what SafeLoop decided, whether human review was needed, and what evidence was created.
-- **Decision Inspector**: selected trace details, decision/status, risk, approval state, evidence, cost/tokens, and redacted raw event JSON.
-- **Governance strip**: compact Observe -> Decide -> Approve -> Prove flow.
-- **Operational Details**: collapsed diagnostics for loops, costs, approvals, evidence, handoffs, readiness, and oversight.
-
-The monitor serves:
-
-- `GET /api/dashboard`
-- `GET /api/timecards/export`
-- `GET /health`
-
-The dashboard reads local JSONL. Malformed event lines are skipped instead of crashing the monitor, and skipped-line diagnostics are exposed in monitor diagnostics.
+Results include `decision`, `executed`, `stdout`, `stderr`, `exitCode`, `signal`, `cwd`, `durationMs`, `timedOut`, `spawnError`, `failureKind`, and `eventId`.
 
 ## MCP Support
 
@@ -259,14 +184,93 @@ npx ts-node examples/safeloop-mcp-gateway-demo.ts
 Start the stdio server:
 
 ```bash
-npx ts-node examples/safeloop-mcp-stdio-server.ts
+npx safeloop mcp serve
 ```
 
-MCP hosts should call `safeloop.checkCommand` or `safeloop.runCommand` instead of raw command tools when SafeLoop governance is required. The same cooperative boundary applies: actions outside SafeLoop's tools are outside SafeLoop's enforcement path.
+MCP hosts should call `safeloop.checkCommand` or `safeloop.runCommand` instead of raw command tools when SafeLoop governance is required.
 
-When a caller provides `specialistId`, MCP `safeloop.checkCommand` and `safeloop.runCommand` share the same specialist permission evaluation. A specialist denied terminal access, such as `sales`, is denied consistently in both preflight and execution.
+Hermes setup helpers:
 
-See [docs/CONNECTORS.md](docs/CONNECTORS.md) for connector and MCP details.
+```bash
+npx safeloop mcp doctor --host hermes
+npx safeloop mcp print-config hermes
+npx safeloop mcp mcporter
+```
+
+`mcp doctor` validates initialize, tool discovery, status calls, command denial, local build readiness, and host-specific hints. `mcp print-config hermes` emits a ready-to-paste `mcp_servers` block. `mcp mcporter` prints MCPorter commands for inspecting and calling the SafeLoop MCP server.
+
+See [docs/MCP.md](docs/MCP.md) and [docs/CONNECTORS.md](docs/CONNECTORS.md).
+
+## Specialist Governance
+
+```typescript
+import {
+  routeSpecialistTask,
+  validateSpecialistTool,
+  evaluateSpecialistAction,
+} from 'safeloop';
+
+const route = routeSpecialistTask({
+  objective: 'Run a four-video visual-only MCP pipeline',
+});
+// route.specialistId === 'video_director'
+
+const toolCheck = validateSpecialistTool('sales', 'terminal');
+// toolCheck.allowed === false
+
+const action = evaluateSpecialistAction({
+  specialistId: 'sales',
+  command: 'npm test',
+  environment: 'development',
+});
+// action.decision === 'DENY'
+```
+
+Specialist governance covers deterministic routing, context-aware tool permissions, delegated authorization, review validation, and effect guard coverage.
+
+See [docs/SPECIALIST_GOVERNANCE.md](docs/SPECIALIST_GOVERNANCE.md).
+
+## Local Dashboard
+
+SafeLoop includes a local trace-first monitor:
+
+```bash
+npm run monitor
+# Open http://127.0.0.1:3777
+```
+
+The dashboard focuses on:
+
+- **Trace Console**: what the agent did, what SafeLoop decided, whether human review was needed, and what evidence was created.
+- **Decision Inspector**: selected trace details, risk, approval state, evidence, cost/tokens, and redacted raw event JSON.
+- **Governance strip**: compact Observe -> Decide -> Approve -> Prove flow.
+- **Operational Details**: diagnostics for loops, costs, approvals, evidence, handoffs, readiness, and oversight.
+
+Dashboard endpoints:
+
+- `GET /api/dashboard`
+- `GET /api/timecards/export`
+- `GET /health`
+
+## Codex Demo
+
+SafeLoop is agent-agnostic. Codex is one possible actor that can route local work through SafeLoop.
+
+```bash
+npm run demo:codex-governed
+```
+
+The demo writes to `.safeloop-codex-demo` and demonstrates:
+
+- allowed local verification
+- approval-required publish command
+- blocked destructive command
+- specialist-denied terminal access
+- effect-guard-denied production deploy
+
+It does not call OpenAI APIs and does not claim to intercept private Codex tools automatically.
+
+See [docs/CODEX.md](docs/CODEX.md).
 
 ## Event Ledger
 
@@ -276,58 +280,69 @@ SafeLoop writes local events to:
 .safeloop/events.jsonl
 ```
 
-The event ledger is intentionally simple and local. SafeLoop accepts explicit events such as:
-
-- `task.started`
-- `decision.made`
-- `decision.explained`
-- `risk.detected`
-- `approval.requested`
-- `approval.resolved`
-- `artifact.changed`
-- `token.cost`
-- `model.usage`
-- `handoff.created`
-- `task.completed`
-- `feedback.recorded`
-
 Malformed JSONL lines are skipped during reads; valid events before and after a malformed line are preserved.
 
-## Current Branch Verification
+Create and verify a sidecar integrity seal:
 
-Current local verification for this branch includes:
+```bash
+npx safeloop ledger seal
+npx safeloop ledger verify
+```
 
-- `npm test`: 33 suites / 241 tests
+The seal is stored at `.safeloop/ledger.seal.json`. It does not alter existing event records or change the JSONL event schema.
+
+## Demos
+
+```bash
+# Command guard proof
+npx ts-node examples/command-guard-demo.ts
+
+# Scenario loop proof
+npx ts-node examples/scenario-loop-demo.ts
+
+# Connector status
+npx ts-node examples/connector-status-demo.ts
+
+# MCP command gateway demo
+npx ts-node examples/safeloop-mcp-gateway-demo.ts
+
+# MCP/Hermes compatibility checks
+npx safeloop mcp doctor --host hermes
+
+# Codex-labeled local governance demo
+npm run demo:codex-governed
+```
+
+## Current Verification
+
+Current local verification for this branch:
+
+- `npm test`: 42 suites / 277 tests
 - `npm run build`
+- `npm run build:ui`
 - `npx tsc --noEmit`
 
-The exact test count can change as coverage is added. Treat these as current branch verification signals, not a permanent compatibility promise.
+The exact test count can change as coverage is added.
 
-## Architecture
+## Documentation
 
-- Local-first file storage
-- TypeScript-native public API
-- No runtime cloud dependency
-- No database requirement
-- MCP stdio support
-- Cooperative enforcement boundary
-- Dashboard API compatibility through `/api/dashboard`
+- [Current State](docs/CURRENT_STATE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Codex Integration](docs/CODEX.md)
+- [MCP](docs/MCP.md)
+- [Security Model](docs/SECURITY_MODEL.md)
+- [Connectors](docs/CONNECTORS.md)
+- [Specialist Governance](docs/SPECIALIST_GOVERNANCE.md)
+- [Roadmap](ROADMAP.md)
 
 ## Roadmap
 
-- Policy configuration file under `.safeloop/`
-- Additional connector guides for more agent runtimes
+- Approval resume with exact context fingerprint matching
 - Stronger connector install/uninstall workflows
+- Additional connector guides for more agent runtimes
 - Larger-ledger dashboard pagination/windowing
-- Optional real-time transport after polling limits become real
+- Optional real-time monitor transport after polling limits become real
 - v1.0 release checklist and changelog
-
-## Why SafeLoop Exists
-
-Git tracks code. SafeLoop tracks agent work.
-
-- Git answers: "What changed?"
-- SafeLoop answers: "What did the agent try? What did SafeLoop decide? Was a human needed? What evidence proves it?"
 
 ## License
 
