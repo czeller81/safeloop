@@ -88,7 +88,32 @@ Keep these zones explicit so the district can assign ownership, retention, and a
 
 ## SafeLoop Policy Starting Point
 
-Use `.safeloop/policy.json` to require review for actions that can move or destroy district data:
+Start with the K-12 profile:
+
+```bash
+npx safeloop init --profile k12-offline-rag
+npx safeloop policy doctor
+```
+
+This writes:
+
+```text
+.safeloop/policy.md
+.safeloop/policy.json
+```
+
+`policy.md` is human-readable district intent. `policy.json` is the deterministic enforcement file used by SafeLoop guards, CLI checks, and MCP commands.
+
+The current compiler enforces the Markdown `Blocked` and `Requires Human Review` sections. The `Allowed` section is kept as readable intent so a broad sentence does not accidentally become a strict command allowlist.
+
+After editing `policy.md`, compile and check it:
+
+```bash
+npx safeloop policy compile
+npx safeloop policy doctor
+```
+
+The K-12 profile uses `.safeloop/policy.json` to require review for actions that can move or destroy district data:
 
 ```json
 {

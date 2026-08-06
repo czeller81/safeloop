@@ -10,7 +10,11 @@ import {
 } from './mcpDiagnostics';
 import { startMonitorServer } from './monitor';
 import {
+  compileSafeloopPolicyMarkdown,
+  initializeSafeloopPolicyConfig,
   readSafeloopPolicyConfig,
+  runPolicyDoctor,
+  type SafeloopPolicyProfile,
   writeDefaultSafeloopPolicyConfig,
 } from './policyConfig';
 import { resolve } from 'path';
@@ -112,6 +116,13 @@ function parseJsonFlag(args: string[]): boolean {
   return args.includes('--json');
 }
 
+function parsePolicyProfile(args: string[]): SafeloopPolicyProfile | undefined {
+  const value = parseFlagValue(args, '--profile');
+  if (!value) return undefined;
+  if (value === 'default' || value === 'k12-offline-rag') return value;
+  throw new Error(`Unsupported SafeLoop policy profile: ${value}`);
+}
+
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
@@ -158,12 +169,22 @@ async function runMonitor(args: string[]): Promise<void> {
 
 function runInit(args: string[]): void {
   const baseDir = resolveCliBaseDir(args);
-  const result = writeDefaultSafeloopPolicyConfig({ baseDir });
+  const profile = parsePolicyProfile(args);
+  const result = profile
+    ? initializeSafeloopPolicyConfig({ baseDir, profile })
+    : {
+      ...writeDefaultSafeloopPolicyConfig({ baseDir }),
+      markdownPath: undefined,
+      markdownWritten: false,
+    };
   if (parseJsonFlag(args)) {
     printJson(result);
     return;
   }
   console.log(`SafeLoop policy written to ${result.path}`);
+  if (result.markdownPath) {
+    console.log(`SafeLoop policy intent written to ${result.markdownPath}`);
+  }
 }
 
 function runCheck(args: string[]): void {
@@ -245,6 +266,58 @@ function runLedger(args: string[]): void {
     return;
   }
   throw new Error('Usage: safeloop ledger <seal|verify> [--baseDir <path>]');
+}
+
+function printPolicyDoctor(result: ReturnType<typeof runPolicyDoctor>): void {
+  console.log(`SafeLoop policy doctor (${result.profile})`);
+  for (const entry of result.checks) {
+    const marker = entry.status === 'pass' ? 'PASS' : entry.status === 'warn' ? 'WARN' : 'FAIL';
+    console.log(`[${marker}] ${entry.name}: ${entry.message}`);
+  }
+}
+
+function runPolicy(args: string[]): void {
+  const action = args[0];
+  const baseDir = resolveCliBaseDir(args);
+
+  if (action === 'doctor') {
+    const result = runPolicyDoctor({ baseDir });
+    if (parseJsonFlag(args)) {
+      printJson(result);
+    } else {
+      printPolicyDoctor(result);
+    }
+    if (!result.ok) {
+      process.exitCode = 50;
+    }
+    return;
+  }
+
+  if (action === 'compile') {
+    const profile = parsePolicyProfile(args) ?? readSafeloopPolicyConfig({ baseDir }).policy.profile;
+    const sourceArg = args.slice(1).find((value, index, values) => {
+      if (value.startsWith('--')) return false;
+      const previous = values[index - 1];
+      return previous !== '--baseDir' && previous !== '--base-dir' && previous !== '--profile';
+    });
+    const result = compileSafeloopPolicyMarkdown({
+      baseDir,
+      sourcePath: sourceArg,
+      profile,
+    });
+    if (parseJsonFlag(args)) {
+      printJson(result);
+    } else {
+      console.log(`SafeLoop policy compiled from ${result.sourcePath}`);
+      console.log(`SafeLoop policy written to ${result.path}`);
+      for (const warning of result.warnings) {
+        console.log(`Warning: ${warning}`);
+      }
+    }
+    return;
+  }
+
+  throw new Error('Usage: safeloop policy <compile|doctor> [policy.md] [--profile <profile>] [--baseDir <path>]');
 }
 
 function printDoctor(result: ReturnType<typeof runMcpDoctor>): void {
@@ -337,6 +410,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'policy') {
+    runPolicy(process.argv.slice(3));
+    return;
+  }
+
   if (command === 'mcp') {
     runMcp(process.argv.slice(3));
     return;
@@ -349,9 +427,10 @@ async function main(): Promise<void> {
 
   console.log('Safeloop CLI');
   console.log('Usage:');
-  console.log('  safeloop init [--baseDir <path>]');
+  console.log('  safeloop init [--profile <default|k12-offline-rag>] [--baseDir <path>]');
   console.log('  safeloop check --command "<command>" [--baseDir <path>]');
   console.log('  safeloop run --command "<command>" [--baseDir <path>]');
+  console.log('  safeloop policy <compile|doctor> [policy.md] [--profile <profile>] [--baseDir <path>]');
   console.log('  safeloop ledger <seal|verify> [--baseDir <path>]');
   console.log('  safeloop mcp <serve|doctor|print-config|mcporter>');
   console.log('  safeloop monitor [--port <port>] [--baseDir <path>] [--externalEvents <path1,path2>]');

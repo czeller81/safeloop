@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { appendEvent } from '../src/eventStream';
@@ -36,6 +36,42 @@ describe('safeloop main CLI', () => {
     expect(result.exitCode).toBe(0);
     expect(existsSync(policyPath)).toBe(true);
     expect(JSON.parse(readFileSync(policyPath, 'utf8')).blockedCommands).toContain('rm -rf');
+  });
+
+  test('init k12 profile writes policy json and markdown intent', () => {
+    const baseDir = makeBaseDir();
+    const result = runCli('init --profile k12-offline-rag --json', baseDir);
+    const policyPath = join(baseDir, '.safeloop', 'policy.json');
+    const markdownPath = join(baseDir, '.safeloop', 'policy.md');
+    const policy = JSON.parse(readFileSync(policyPath, 'utf8'));
+
+    expect(result.exitCode).toBe(0);
+    expect(policy.profile).toBe('k12-offline-rag');
+    expect(policy.requireApprovalFor).toContain('curl');
+    expect(policy.blockedCommands).toContain('Remove-Item .safeloop');
+    expect(existsSync(markdownPath)).toBe(true);
+    expect(readFileSync(markdownPath, 'utf8')).toContain('K-12 Offline RAG Appliance Policy');
+  });
+
+  test('policy doctor and compile support markdown intent workflow', () => {
+    const baseDir = makeBaseDir();
+    runCli('init --profile k12-offline-rag --json', baseDir);
+
+    const doctor = runCli('policy doctor --json', baseDir);
+    expect(doctor.exitCode).toBe(0);
+    expect(doctor.json.profile).toBe('k12-offline-rag');
+    expect(doctor.json.ok).toBe(true);
+
+    const policyMarkdownPath = join(baseDir, '.safeloop', 'policy.md');
+    const existing = readFileSync(policyMarkdownPath, 'utf8');
+    writeFileSync(policyMarkdownPath, `${existing}\n## Blocked\n\n- District-specific blocked script \`bad-script.ps1\`.\n`, 'utf8');
+
+    const compiled = runCli('policy compile --profile k12-offline-rag --json', baseDir);
+    const policy = JSON.parse(readFileSync(join(baseDir, '.safeloop', 'policy.json'), 'utf8'));
+
+    expect(compiled.exitCode).toBe(0);
+    expect(compiled.json.extracted.blockedCommands).toContain('bad-script.ps1');
+    expect(policy.blockedCommands).toContain('bad-script.ps1');
   });
 
   test('check uses policy config and does not execute', () => {

@@ -57,6 +57,13 @@ Initialize local policy:
 npx safeloop init
 ```
 
+Initialize a school-district offline RAG profile:
+
+```bash
+npx safeloop init --profile k12-offline-rag
+npx safeloop policy doctor
+```
+
 Check a command without executing it:
 
 ```bash
@@ -136,6 +143,22 @@ See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 
 ```text
 .safeloop/policy.json
+```
+
+With a profile, it also writes:
+
+```text
+.safeloop/policy.md
+```
+
+`policy.md` is human-readable intent for IT, legal, reviewers, and operators. `policy.json` is the deterministic enforcement file that SafeLoop reads.
+
+The current compiler enforces the Markdown `Blocked` and `Requires Human Review` sections. The `Allowed` section remains human-readable intent unless a future strict allowlist mode is added.
+
+```bash
+npx safeloop init --profile k12-offline-rag
+npx safeloop policy compile
+npx safeloop policy doctor
 ```
 
 Default policy includes:
@@ -257,6 +280,12 @@ Dashboard endpoints:
 SafeLoop can support district-controlled local AI appliances where Hermes or another local agent runtime works against internal documents and a local vector database.
 
 For this pattern, SafeLoop should be used to govern agent commands, approvals, evidence, and audit trails. It should be paired with district controls for identity, storage encryption, network isolation, backups, retention, content filtering, incident response, and legal/privacy workflows.
+
+Starter command:
+
+```bash
+npx safeloop init --profile k12-offline-rag
+```
 
 See [docs/SCHOOL_DISTRICT_DEPLOYMENT.md](docs/SCHOOL_DISTRICT_DEPLOYMENT.md) and [docs/K12_COMPLIANCE_MATRIX.md](docs/K12_COMPLIANCE_MATRIX.md).
 

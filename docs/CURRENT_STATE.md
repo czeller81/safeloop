@@ -61,7 +61,7 @@ Status labels:
 | Telemetry/tracing | IMPLEMENTED | Local explicit event traces. No external telemetry pipeline. |
 | CLI | IMPLEMENTED | `safeloop` bin plus example command wrapper and monitor commands. |
 | Public hosted website | ABSENT | No standalone website source or deployment config was found in this repository. |
-| School district offline RAG guidance | DOCUMENTED | Local appliance architecture and K-12 compliance/security matrix are documented. SafeLoop is not a standalone compliance product. |
+| School district offline RAG guidance | IMPLEMENTED | Local appliance architecture and K-12 compliance/security matrix are documented. `safeloop init --profile k12-offline-rag`, `safeloop policy compile`, and `safeloop policy doctor` support local policy setup. SafeLoop is not a standalone compliance product. |
 
 ## Public API Surface
 

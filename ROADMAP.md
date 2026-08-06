@@ -33,9 +33,9 @@ SafeLoop should support local AI appliances used by schools and districts for in
 
 Planned hardening areas:
 
-- Appliance readiness check for network, storage, policy, and MCP configuration
+- Appliance readiness check for network, storage, and MCP configuration
 - Hermes profile that detects whether unmanaged raw command tools are still exposed
-- Safer starter policy for document ingestion, exports, deletes, network actions, removable media, and vector database resets
+- Additional policy profiles for document ingestion, exports, deletes, network actions, removable media, and vector database resets
 - Audit bundle export for district review
 - Backup and ledger verification checks
 - Additional docs for offline updates, NAS/SAN storage, retention, and incident response

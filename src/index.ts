@@ -1031,15 +1031,27 @@ export type {
 } from './specialistGovernance';
 export { recordModelUsage, recordTokenCost, readModelUsage, readTokenCosts } from './modelUsage';
 export {
+  compileSafeloopPolicyMarkdown,
   DEFAULT_SAFELOOP_POLICY,
+  initializeSafeloopPolicyConfig,
+  K12_OFFLINE_RAG_POLICY,
+  K12_OFFLINE_RAG_POLICY_MARKDOWN,
   normalizeSafeloopPolicyConfig,
   readSafeloopPolicyConfig,
   resolvePolicyConfigPath,
+  resolvePolicyMarkdownPath,
+  runPolicyDoctor,
   writeDefaultSafeloopPolicyConfig,
 } from './policyConfig';
 export type {
+  PolicyCompileResult,
   PolicyConfigReadResult,
+  PolicyDoctorCheck,
+  PolicyDoctorResult,
+  PolicyDoctorStatus,
+  PolicyInitResult,
   SafeloopPolicyConfig,
+  SafeloopPolicyProfile,
 } from './policyConfig';
 export {
   resolveLedgerSealPath,
