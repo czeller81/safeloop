@@ -119,3 +119,29 @@ For production PASS, those paths must be either wrapped, disabled, or proven non
 ## Honest Boundary
 
 SafeLoop governs Hermes actions and durable candidate memories routed through the SafeLoop adapter, SafeLoop MCP gateway, or SafeLoop APIs. It is cooperative governance, not OS-level sandboxing. Tools, users, or processes that bypass Hermes and SafeLoop can bypass SafeLoop controls.
+
+## Final Certification Coverage - 2026-08-07
+
+### Enabled Path Classification
+
+| Path | Source file | Function/class | Consequential? | SafeLoop-governed in pilot? | Disabled for pilot? | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| Model-called tool dispatcher | `agent/tool_executor.py` | `execute_tool_calls_concurrent`, `_run_agent_tool_execution_middleware` | Yes | Yes | No | `run_tool_execution_middleware()` wraps `_invoke_tool()` before the handler executes |
+| Tool middleware chain | `hermes_cli/middleware.py` | `run_tool_execution_middleware`, `_run_execution_chain` | Yes | Yes | No | Middleware calls `next_call()` only after SafeLoop plugin permits execution |
+| Terminal/shell | `tools/terminal_tool.py` | `_handle_terminal`, `terminal_tool` | Yes | Yes | No | Registered as `terminal` in toolset `terminal`; live destructive command was denied before execution |
+| Filesystem tools | `tools/file_tools.py` | `_handle_read_file`, `_handle_write_file`, `_handle_patch`, `_handle_search_files` | Yes | Yes | No | Registered in toolset `file`; isolated lifecycle read/write passed through SafeLoop |
+| Git via terminal | `tools/terminal_tool.py` | terminal command handler | Yes | Yes | No | Live `git commit` was stopped with `REQUIRE_APPROVAL` before execution |
+| Code execution | `tools/code_execution_tool.py` | registered `execute_code` handler | Yes | Yes by tool name/toolset | Not enabled in final live lifecycle | Plugin governs `execute_code` and `code_execution`; not exercised in final restricted pilot |
+| MCP dispatch | `tools/mcp_tool.py` | dynamic registry registration | Yes when MCP tool mutates state | Yes by `mcp-*` toolset | Not enabled in final live lifecycle | Dynamic MCP tools register with `toolset_name` beginning `mcp-`; plugin governs that prefix |
+| Memory tool | `tools/memory_tool.py` | registered `memory` handler | Yes for durable writes | Intended yes; live persistence unavailable | No | Plugin calls `governance memory` before `memory`; runtime reported memory unavailable |
+| Delegation | `tools/delegate_tool.py` | registered `delegate_task` handler | Yes | Yes by tool name/toolset | Not enabled in final live lifecycle | Plugin governs `delegate_task` and `delegation` |
+| Cron jobs | `tools/cronjob_tools.py` | registered cron tool handlers | Yes | Yes by toolset | Not enabled in final live lifecycle | Plugin governs `cronjob`; not exercised in restricted pilot |
+| Browser/web/computer-use | `tools/browser_tool.py`, `tools/web_tools.py`, `tools/computer_use/*` | registered browser/web/computer-use handlers | Yes when external writes/actions occur | Yes by toolset | Not enabled in final live lifecycle | Plugin governs `browser`, `web`, and `computer_use`; restricted pilot excluded them |
+| CLI setup/update/gateway/service helpers | `hermes_cli/main.py`, `hermes_cli/gateway.py`, `hermes_cli/service_manager.py`, `hermes_cli/setup.py` | CLI command handlers and service helpers | Potentially yes | Not by model tool middleware | Not globally disabled | Out of restricted pilot path; remains a production-profile limitation |
+| Browser/voice/TTS/STT helper subprocesses | `tools/browser_tool.py`, `tools/voice_mode.py`, `tools/tts_tool.py`, `tools/transcription_tools.py` | helper launchers | Potentially yes | Only when reached through governed tool call | Not enabled in final live lifecycle | Sidecar/helper subprocesses were not broadly wrapped outside their tool handlers |
+| Manual external shell/processes | outside Hermes | N/A | Yes | No | N/A | Outside SafeLoop routed-action boundary |
+
+### Final Certification Meaning
+
+`PASS_WITH_LIMITATIONS` means SafeLoop governed the configured Hermes model-called pilot tool boundary for deterministic local actions, including read/write, shell verification, Git approval hold, destructive denial, and fail-closed outage behavior. It does not mean universal OS interception, and it does not certify every Hermes CLI maintenance or sidecar path for production deployment.
+
