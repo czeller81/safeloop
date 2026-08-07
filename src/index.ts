@@ -1129,6 +1129,36 @@ export type {
   RuntimeSeverity,
   RuntimeTokenUsage,
 } from './runtimeGovernance';
+export { createApprovalGate } from './approvalToken';
+export type {
+  ApprovalGate,
+  ApprovalRequest,
+  ApprovalToken,
+  ApprovalTokenConfig,
+  ApprovalRedemptionContext,
+  ApprovalValidationFailure,
+  ApprovalValidationResult,
+} from './approvalToken';
+export { createGovernedPolicyEngine } from './failClosed';
+export type {
+  FailClosedConfig,
+  FailClosedDecision,
+  FailMode,
+  GovernedPolicyEngine,
+} from './failClosed';
+export {
+  computeArtifactHash,
+  verifyArtifactHash,
+  isValidPromotion,
+  promoteEvidence,
+} from './provenanceVerification';
+export type {
+  ArtifactHashVerification,
+  EvidencePromotionRequest,
+  EvidencePromotionResult,
+  EvidenceRecord,
+  PromotionFailure,
+} from './provenanceVerification';
 export {
   recordSteeringProfile,
   compareSteeringRuns,

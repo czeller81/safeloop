@@ -219,7 +219,8 @@ describe('commandGuard: enforced local circuit breaker', () => {
 
   test('invokes Python when available', () => {
     const python = spawnSync('python', ['--version'], { encoding: 'utf8' });
-    if (python.error) {
+    if (python.error || python.status !== 0) {
+      // Python not available in this environment — skip gracefully
       return;
     }
     const baseDir = makeTempBaseDir();
