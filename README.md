@@ -323,6 +323,16 @@ It does not call OpenAI APIs and does not claim to intercept private Codex tools
 
 See [docs/CODEX.md](docs/CODEX.md).
 
+## Claude Integration
+
+SafeLoop can also be used with Claude, Claude Code, or Claude Desktop when those workflows route commands and effects through SafeLoop.
+
+The recommended pattern is to expose SafeLoop through MCP stdio or a local wrapper, then use SafeLoop for command checks, governed execution, explicit audit events, approvals, evidence, and cost records.
+
+SafeLoop does not automatically intercept Claude private tools or direct actions that bypass SafeLoop.
+
+See [docs/CLAUDE.md](docs/CLAUDE.md).
+
 ## Event Ledger
 
 SafeLoop writes local events to:
@@ -383,6 +393,7 @@ The exact test count can change as coverage is added.
 - [Current State](docs/CURRENT_STATE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Codex Integration](docs/CODEX.md)
+- [Claude Integration](docs/CLAUDE.md)
 - [MCP](docs/MCP.md)
 - [Security Model](docs/SECURITY_MODEL.md)
 - [School District Deployment](docs/SCHOOL_DISTRICT_DEPLOYMENT.md)
