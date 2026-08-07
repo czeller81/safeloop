@@ -1,22 +1,27 @@
 import { buildHermesMcpConfig, buildMcporterCommands, runMcpDoctor } from '../src/mcpDiagnostics';
+import { resolve, sep } from 'path';
 
 describe('MCP diagnostics', () => {
   test('builds Hermes config for built mode', () => {
-    const config = buildHermesMcpConfig({ mode: 'built', projectRoot: 'C:/repo/safeloop' });
+    const projectRoot = resolve('/tmp/test-project');
+    const config = buildHermesMcpConfig({ mode: 'built', projectRoot });
 
     expect(config).toContain('mcp_servers:');
     expect(config).toContain('safeloop:');
     expect(config).toContain('"node"');
-    expect(config).toContain('dist\\\\cli.js');
+    // Platform-safe: check for the resolved path of dist/cli.js
+    expect(config).toContain(resolve(projectRoot, 'dist', 'cli.js'));
     expect(config).toContain('"mcp"');
     expect(config).toContain('"serve"');
   });
 
   test('builds Hermes config for source mode', () => {
-    const config = buildHermesMcpConfig({ mode: 'source', projectRoot: 'C:/repo/safeloop' });
+    const projectRoot = resolve('/tmp/test-project');
+    const config = buildHermesMcpConfig({ mode: 'source', projectRoot });
 
     expect(config).toContain('ts-node/register');
-    expect(config).toContain('src\\\\cli.ts');
+    // Platform-safe: check for the resolved path of src/cli.ts
+    expect(config).toContain(resolve(projectRoot, 'src', 'cli.ts'));
     expect(config).toContain('"mcp"');
     expect(config).toContain('"serve"');
   });
