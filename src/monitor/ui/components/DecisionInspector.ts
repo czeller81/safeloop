@@ -36,7 +36,7 @@ export function renderDecisionInspector(viewModel: MonitorViewModel): string {
             <h2>Decision path</h2>
           </div>
         </div>
-        <p class="inspector-hint">Select a trace to inspect the decision path.</p>
+        <p class="inspector-hint">Select a trace to inspect the decision path from captured action to SafeLoop outcome and proof.</p>
         ${inspectorList('Needs Review', needsReview, 'No pending human review')}
         ${inspectorList('Unresolved Risks', unresolvedRisks, 'No unresolved risks')}
         ${inspectorList('Latest Decision', latestDecision, 'No decisions recorded yet')}

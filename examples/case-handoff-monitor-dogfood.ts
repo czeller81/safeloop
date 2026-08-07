@@ -142,6 +142,64 @@ async function main() {
 
   appendEvent({
     id: id('evt'),
+    type: 'command.allowed',
+    agentId: agentOpenCode.agentId,
+    agentName: agentOpenCode.agent,
+    caseId,
+    sessionId: 'sess-2',
+    summary: 'SafeLoop allowed local schedule file update',
+    metadata: {
+      project: 'Safeloop',
+      command: 'node scripts/update-local-schedule.js',
+      decision: 'allow',
+      status: 'allowed',
+      reason: 'Local write stays inside approved feeder workspace',
+      taskId,
+      taskName: 'Feed the dog daily at 8am',
+    },
+    timestamp: now(6500),
+  }, options);
+
+  appendEvent({
+    id: id('evt'),
+    type: 'command.blocked',
+    agentId: agentOpenCode.agentId,
+    agentName: agentOpenCode.agent,
+    caseId,
+    sessionId: 'sess-2',
+    summary: 'SafeLoop stopped external deployment command before execution',
+    metadata: {
+      project: 'Safeloop',
+      command: 'curl https://deploy.example.local/publish',
+      decision: 'deny',
+      status: 'blocked',
+      reason: 'External publishing requires an explicit operator approval path',
+      taskId,
+      taskName: 'Feed the dog daily at 8am',
+    },
+    timestamp: now(6750),
+  }, options);
+
+  appendEvent({
+    id: id('evt'),
+    type: 'risk.detected',
+    agentId: agentOpenCode.agentId,
+    agentName: agentOpenCode.agent,
+    caseId,
+    sessionId: 'sess-2',
+    summary: 'External publish attempt flagged for operator review',
+    metadata: {
+      project: 'Safeloop',
+      severity: 'high',
+      mitigation: 'Keep deployment disabled until an operator reviews the command path',
+      taskId,
+      taskName: 'Feed the dog daily at 8am',
+    },
+    timestamp: now(6900),
+  }, options);
+
+  appendEvent({
+    id: id('evt'),
     type: 'task.completed',
     agentId: agentOpenCode.agentId,
     agentName: agentOpenCode.agent,
@@ -149,7 +207,30 @@ async function main() {
     sessionId: 'sess-2',
     summary: 'Feeder control loop implemented and scheduled',
     metadata: { project: 'Safeloop', taskId, taskName: 'Feed the dog daily at 8am' },
-    timestamp: now(7000),
+    timestamp: now(7200),
+  }, options);
+
+  appendEvent({
+    id: id('evt'),
+    type: 'token.cost',
+    agentId: agentOpenCode.agentId,
+    agentName: agentOpenCode.agent,
+    caseId,
+    sessionId: 'sess-2',
+    summary: 'Token cost recorded for local planning call',
+    metadata: {
+      project: 'Safeloop',
+      provider: 'local',
+      model: 'hermes-local',
+      inputTokens: 1200,
+      outputTokens: 340,
+      totalTokens: 1540,
+      estimatedCost: 0,
+      pricingAvailable: true,
+      taskId,
+      taskName: 'Feed the dog daily at 8am',
+    },
+    timestamp: now(7600),
   }, options);
 
   appendEvent({

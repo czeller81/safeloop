@@ -22,6 +22,15 @@ function metric(label: string, value: string, tone = 'neutral', valueId?: string
   `;
 }
 
+function liveState(): string {
+  return `
+    <div class="live-state live-state--connecting" id="safeloop-live-state" aria-live="polite">
+      <span class="live-state-dot" aria-hidden="true"></span>
+      <span id="safeloop-live-state-label">Connecting</span>
+    </div>
+  `;
+}
+
 export function renderCommandBar(viewModel: MonitorViewModel): string {
   const live = viewModel.liveActivity;
   const activeLoops = live?.currentLoopState?.running ?? viewModel.current.currentLoops.filter((loop) => loop.status === 'running').length;
@@ -37,6 +46,7 @@ export function renderCommandBar(viewModel: MonitorViewModel): string {
           <span class="top-product-eyebrow">AI agent governance</span>
           <strong>SafeLoop Command Center</strong>
           <span class="mode-chip">Local Mode</span>
+          ${liveState()}
         </div>
         <div class="top-path" title="${escapeHtml(monitoredPath)}">${escapeHtml(monitoredPath)}</div>
       </div>
@@ -47,6 +57,7 @@ export function renderCommandBar(viewModel: MonitorViewModel): string {
         ${metric('Risk', risk.label, risk.tone)}
         ${metric('Estimated cost', estimatedCost)}
         ${metric('Last updated', 'just now', 'neutral', 'safeloop-last-age')}
+        ${metric('Stream', 'connecting', 'neutral', 'safeloop-stream-mode')}
       </div>
     </header>
   `;

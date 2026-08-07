@@ -16,6 +16,9 @@ const root = getRootElement();
 
 let payload: MonitorDashboardPayload | null = readBootstrapPayload();
 let renderError: string | null = null;
+let eventSource: EventSource | null = null;
+let streamMode: 'connecting' | 'live' | 'reconnecting' | 'polling' = 'connecting';
+let pollTimer: number | undefined;
 
 // --- State preservation across innerHTML re-renders ---
 
@@ -276,6 +279,16 @@ function renderInspectorSection(title: string, body: string): string {
   `;
 }
 
+function renderLifecycleStep(label: string, value: unknown, active = false): string {
+  return `
+    <span class="inspector-path-step${active ? ' inspector-path-step--active' : ''}">
+      <i aria-hidden="true"></i>
+      <strong>${escapeHtmlClient(label)}</strong>
+      <em>${escapeHtmlClient(value || 'Unavailable')}</em>
+    </span>
+  `;
+}
+
 function renderInspectorNote(value: unknown): string {
   return `<p class="inspector-note">${escapeHtmlClient(value || 'Unavailable')}</p>`;
 }
@@ -310,6 +323,8 @@ function updateDecisionInspector(payload: Record<string, any>): void {
   const cost = payload.cost || usage.estimatedCost || 'unavailable';
   const reviewText = approval === 'none' ? 'No human review required' : approval;
   const evidenceText = evidence === 'none' ? 'No evidence artifact attached' : evidence;
+  const outcome = payload.outcome || status;
+  const execution = payload.execution || 'unavailable';
   const json = JSON.stringify(redactInspectorPayload(payload), null, 2);
   inspector.innerHTML = `
     <div class="inspector-panel inspector-panel--selected">
@@ -321,6 +336,13 @@ function updateDecisionInspector(payload: Record<string, any>): void {
         </div>
         <span class="inspector-state inspector-state--${escapeHtmlClient(statusClass)}">${escapeHtmlClient(status)}</span>
       </div>
+      <div class="inspector-path" aria-label="Selected trace lifecycle">
+        ${renderLifecycleStep('Captured', payload.type, true)}
+        ${renderLifecycleStep('Evaluated', payload.decision || 'observed', Boolean(payload.decision && payload.decision !== '-'))}
+        ${renderLifecycleStep('Outcome', outcome, true)}
+        ${renderLifecycleStep('Review', reviewText, approval !== 'none')}
+        ${renderLifecycleStep('Proof', evidenceText, evidence !== 'none')}
+      </div>
       ${renderInspectorSection('Summary', `
         ${renderInspectorNote(payload.summary || 'No summary available')}
         <div class="inspector-field-grid">
@@ -331,7 +353,8 @@ function updateDecisionInspector(payload: Record<string, any>): void {
       ${renderInspectorSection('SafeLoop Decision', `
         <div class="inspector-field-grid">
           ${renderInspectorField('Decision', payload.decision)}
-          ${renderInspectorField('Status', status)}
+          ${renderInspectorField('Outcome', outcome)}
+          ${renderInspectorField('Execution', execution)}
           ${renderInspectorField('Reason', payload.reason)}
           ${renderInspectorField('Risk / severity', risk)}
         </div>
@@ -483,6 +506,29 @@ function restoreSelectedTrace(): void {
   }
 }
 
+function updateLiveUi(mode: typeof streamMode = streamMode): void {
+  streamMode = mode;
+  try {
+    const shell = root.querySelector('.sl-command-center');
+    const state = document.getElementById('safeloop-live-state');
+    const label = document.getElementById('safeloop-live-state-label');
+    const metric = document.getElementById('safeloop-stream-mode');
+    const text = mode === 'live' ? 'Live' : mode === 'polling' ? 'Polling' : mode === 'reconnecting' ? 'Reconnecting' : 'Connecting';
+    if (label) label.textContent = text;
+    if (metric) metric.textContent = text.toLowerCase();
+    if (state) {
+      state.classList.remove('live-state--connecting', 'live-state--live', 'live-state--reconnecting', 'live-state--polling');
+      state.classList.add(`live-state--${mode}`);
+    }
+    if (shell instanceof HTMLElement) {
+      shell.classList.remove('sl-command-center--connecting', 'sl-command-center--live', 'sl-command-center--reconnecting', 'sl-command-center--polling');
+      shell.classList.add(`sl-command-center--${mode}`);
+    }
+  } catch (_) {
+    // non-fatal
+  }
+}
+
 function render(): void {
   if (!payload) {
     root.innerHTML = `
@@ -519,6 +565,7 @@ function render(): void {
   bindDetailsState();
   bindNavState();
   bindTraceConsole();
+  updateLiveUi();
 }
 
 function setError(message: string | null): void {
@@ -558,7 +605,9 @@ async function refresh(): Promise<void> {
           const ageMs = Date.now() - Date.parse(String(lastUpdated));
           if (isNaN(ageMs) || ageMs < 1000) elAge.textContent = 'just now';
           else if (ageMs < 60000) elAge.textContent = `${Math.round(ageMs/1000)}s ago`;
-          else elAge.textContent = `${Math.round(ageMs/60000)}m ago`;
+          else if (ageMs < 86400000) elAge.textContent = `${Math.round(ageMs/60000)}m ago`;
+          else if (ageMs < 604800000) elAge.textContent = `${Math.round(ageMs/86400000)}d ago`;
+          else elAge.textContent = 'historical';
         }
       }
       if (elNew) {
@@ -578,6 +627,76 @@ async function refresh(): Promise<void> {
   }
 }
 
+function applyIncomingPayload(next: MonitorDashboardPayload): void {
+  try {
+    const last = (window as any).safeloopLastCount ?? null;
+    const incoming = next?.viewModel?.status?.eventCount ?? null;
+    if (typeof last === 'number' && typeof incoming === 'number' && incoming > last) {
+      (window as any).safeloopNewEvents = incoming - last;
+      root.querySelector('.sl-command-center')?.classList.add('sl-command-center--event-pulse');
+      setTimeout(() => {
+        (window as any).safeloopNewEvents = 0;
+        root.querySelector('.sl-command-center')?.classList.remove('sl-command-center--event-pulse');
+        updateLiveUi();
+      }, 9000);
+    }
+    (window as any).safeloopLastCount = incoming;
+    (window as any).safeloopLastUpdated = next?.viewModel?.status?.lastUpdated ?? null;
+  } catch (_) {
+    // non-fatal
+  }
+  payload = next;
+  renderError = null;
+  render();
+}
+
+function startPollingFallback(): void {
+  if (pollTimer !== undefined) return;
+  updateLiveUi('polling');
+  pollTimer = window.setInterval(() => {
+    void refresh();
+  }, 5000);
+}
+
+function stopPollingFallback(): void {
+  if (pollTimer !== undefined) {
+    window.clearInterval(pollTimer);
+    pollTimer = undefined;
+  }
+}
+
+function startEventStream(): void {
+  if (!('EventSource' in window)) {
+    startPollingFallback();
+    return;
+  }
+
+  updateLiveUi('connecting');
+  try {
+    eventSource = new EventSource('/api/events/stream');
+    eventSource.addEventListener('open', () => {
+      stopPollingFallback();
+      updateLiveUi('live');
+    });
+    eventSource.addEventListener('dashboard', (event) => {
+      try {
+        const next = normalizeDashboardPayload(JSON.parse((event as MessageEvent).data) as MonitorDashboardPayload);
+        applyIncomingPayload(next);
+        updateLiveUi('live');
+      } catch (error) {
+        renderError = error instanceof Error ? error.message : String(error);
+        render();
+      }
+    });
+    eventSource.addEventListener('error', () => {
+      updateLiveUi('reconnecting');
+      startPollingFallback();
+    });
+  } catch (_) {
+    startPollingFallback();
+  }
+}
+
 async function boot(): Promise<void> {
   if (!payload) {
     await refresh();
@@ -590,6 +709,7 @@ async function boot(): Promise<void> {
   (window as any).safeloopLastCount = payload?.viewModel?.status?.eventCount ?? 0;
   (window as any).safeloopNewEvents = 0;
   (window as any).safeloopLastUpdated = payload?.viewModel?.status?.lastUpdated ?? null;
+  startEventStream();
 
   // Update age display every second
   setInterval(() => {
@@ -600,7 +720,9 @@ async function boot(): Promise<void> {
         const ageMs = Date.now() - Date.parse(String(last));
         if (isNaN(ageMs) || ageMs < 1000) elAge.textContent = 'just now';
         else if (ageMs < 60000) elAge.textContent = `${Math.round(ageMs/1000)}s ago`;
-        else elAge.textContent = `${Math.round(ageMs/60000)}m ago`;
+        else if (ageMs < 86400000) elAge.textContent = `${Math.round(ageMs/60000)}m ago`;
+        else if (ageMs < 604800000) elAge.textContent = `${Math.round(ageMs/86400000)}d ago`;
+        else elAge.textContent = 'historical';
       }
       const elNew = document.getElementById('safeloop-new-events');
       const newEvents = (window as any).safeloopNewEvents ?? 0;
@@ -617,9 +739,9 @@ async function boot(): Promise<void> {
     }
   }, 1000);
 
-  window.setInterval(() => {
-    void refresh();
-  }, 5000);
+  window.addEventListener('beforeunload', () => {
+    eventSource?.close();
+  });
 }
 
 void boot();

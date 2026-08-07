@@ -55,6 +55,47 @@ function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.end(text);
 }
 
+function buildDashboardPayload(options: SafeloopStorageOptions = {}) {
+  return redactSensitive(buildMonitorDashboardPayload(getDashboardSnapshot(options)));
+}
+
+function sendSse(res: ServerResponse, event: string, payload: unknown): void {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload).replace(/\r?\n/g, ' ')}\n\n`);
+}
+
+function streamDashboardEvents(res: ServerResponse, options: SafeloopStorageOptions = {}): () => void {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  res.write(': SafeLoop local event stream\n\n');
+
+  let lastSignature = '';
+  const sendIfChanged = (force = false) => {
+    try {
+      const payload = buildDashboardPayload(options) as any;
+      const signature = `${payload?.eventCount ?? 0}:${payload?.lastUpdated ?? ''}:${payload?.eventDiagnostics?.malformedLineCount ?? 0}`;
+      if (force || signature !== lastSignature) {
+        lastSignature = signature;
+        sendSse(res, 'dashboard', payload);
+      }
+    } catch (error) {
+      sendSse(res, 'error', { message: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  sendIfChanged(true);
+  const interval = setInterval(() => sendIfChanged(false), 1000);
+  const heartbeat = setInterval(() => sendSse(res, 'heartbeat', { now: new Date().toISOString() }), 15000);
+  return () => {
+    clearInterval(interval);
+    clearInterval(heartbeat);
+  };
+}
+
 function escapeBootstrapJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
@@ -116,7 +157,13 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
     const url = req.url ?? '/';
 
     if (url.startsWith('/api/dashboard')) {
-      sendJson(res, 200, redactSensitive(buildMonitorDashboardPayload(getDashboardSnapshot(options))));
+      sendJson(res, 200, buildDashboardPayload(options));
+      return;
+    }
+
+    if (url.startsWith('/api/events/stream') && (req.method === 'GET' || !req.method)) {
+      const close = streamDashboardEvents(res, options);
+      req.on('close', close);
       return;
     }
 

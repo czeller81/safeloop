@@ -22,8 +22,8 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
       <div class="sl-command-body">
         ${renderCommandRail(viewModel)}
         <main class="sl-canvas">
-          ${renderCircuitMapPlaceholder(viewModel)}
           ${renderLiveActivityPanel(viewModel)}
+          ${renderCircuitMapPlaceholder(viewModel)}
           <details class="operational-details" id="operational-details" data-state-key="operational-details">
             <summary class="sl-lower-summary">
               <span class="sl-lower-title">Operational Details</span>

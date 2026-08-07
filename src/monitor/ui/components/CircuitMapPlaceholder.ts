@@ -25,6 +25,13 @@ function buildStages(viewModel: MonitorViewModel): StoryStage[] {
   const pendingApprovals = viewModel.current.approvals.filter((approval) => approval.status === 'pending').length;
   const totalApprovals = viewModel.current.approvals.length + viewModel.historical.approvals.length;
   const artifactCount = viewModel.current.artifacts.length + viewModel.historical.artifacts.length;
+  const stoppedCount = (live?.recentActivity ?? []).filter((item) => {
+    const eventType = String(item.eventType ?? '').toLowerCase();
+    const summary = String(item.summary ?? '').toLowerCase();
+    const decision = String(item.metadata?.decision ?? '').toLowerCase();
+    const status = String(item.metadata?.status ?? '').toLowerCase();
+    return eventType.includes('blocked') || summary.includes('blocked') || decision === 'deny' || status === 'blocked';
+  }).length;
 
   return [
     {
@@ -40,6 +47,13 @@ function buildStages(viewModel: MonitorViewModel): StoryStage[] {
       count: decisionCount,
       tone: decisionTone(viewModel),
       detail: decisionCount > 0 ? 'policy decisions' : 'no decision yet',
+    },
+    {
+      id: 'stop',
+      label: 'Stop',
+      count: stoppedCount,
+      tone: stoppedCount > 0 ? 'blocked' : 'idle',
+      detail: stoppedCount > 0 ? 'blocked before execution' : 'no stopped commands',
     },
     {
       id: 'approve',
@@ -65,8 +79,8 @@ export function renderCircuitMapPlaceholder(viewModel: MonitorViewModel): string
       <div class="governance-strip-header">
         <div>
           <div class="panel-kicker">Governance Path</div>
-          <h2>Observe -> Decide -> Approve -> Prove</h2>
-          <p>Follow each local agent action from trace to decision, review, evidence, and cost accountability.</p>
+          <h2>Observe -> Decide -> Stop / Approve -> Prove</h2>
+          <p>SafeLoop captures local agent work, routes risky actions through the guard, stops blocked commands, and records evidence.</p>
         </div>
         <span>${escapeHtml(formatNumber(viewModel.status.eventCount))} ledger events</span>
       </div>

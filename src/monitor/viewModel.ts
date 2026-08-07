@@ -73,6 +73,7 @@ export interface SectionItem {
   agent?: string;
   agentId?: string;
   eventType?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RiskItem extends SectionItem {
@@ -1234,6 +1235,7 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
     agent: e.agentName,
     agentId: e.agentId,
     eventType: e.type,
+    metadata: e.metadata,
   }));
 
   const activeAgentsSet = new Set<string>();
@@ -1326,7 +1328,9 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
   const openWarnings = oversightWarnings.slice(0, 20);
   const blockedOrWaitingItems: SectionItem[] = approvalItems.filter((a) => a.status === 'pending').slice(0, 20);
 
-  const latestDecisions: SectionItem[] = recentActivity.filter((a) => String(a.summary || '').toLowerCase().includes('decision')).slice(0, 10);
+  const latestDecisions: SectionItem[] = recentActivity
+    .filter((a) => String(a.eventType || '').startsWith('decision.'))
+    .slice(0, 10);
   const latestApprovals = approvalItems.slice(0, 10);
   const latestRisks = buildRiskItems(collection.current).slice(0, 10);
   const latestArtifacts = buildArtifactItems(collection.current).slice(0, 10);
