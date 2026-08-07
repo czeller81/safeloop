@@ -713,6 +713,25 @@ export function createRuntimeCircuitBreaker(config: RuntimeCircuitBreakerConfig 
   };
 }
 
+function containsMemoryPoisoning(memory: CandidateMemory): boolean {
+  const text = [memory.situation, memory.action, memory.outcome, memory.lesson, ...(memory.reuse_conditions ?? [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return [
+    'ignore safeloop',
+    'bypass safeloop',
+    'disable safeloop',
+    'ignore approval',
+    'bypass approval',
+    'skip approval',
+    'ignore guardrail',
+    'bypass guardrail',
+    'ignore policy',
+    'bypass policy',
+  ].some((pattern) => text.includes(pattern));
+}
+
 export function verifyCandidateMemory(
   memory: CandidateMemory,
   options: {
@@ -741,6 +760,11 @@ export function verifyCandidateMemory(
     decision = decision === 'REJECT' ? decision : 'QUARANTINE';
     reasons.push('Candidate memory is marked do_not_generalize.');
     remediation.push('Keep this memory scoped to the original task or attach narrower reuse conditions.');
+  }
+  if (containsMemoryPoisoning(memory)) {
+    decision = decision === 'REJECT' ? decision : 'QUARANTINE';
+    reasons.push('Candidate memory appears to contain an instruction to bypass SafeLoop, approval, guardrail, or policy controls.');
+    remediation.push('Remove governance-bypass instructions before durable memory storage.');
   }
   if ((memory.confidence ?? 0) < minimumConfidence) {
     decision = decision === 'REJECT' ? decision : 'QUARANTINE';
