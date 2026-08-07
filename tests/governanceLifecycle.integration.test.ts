@@ -19,6 +19,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   createApprovalGate,
+  createLocalApprovalStateStore,
   createCommandGuard,
   createGovernedPolicyEngine,
   createRuntimeCircuitBreaker,
@@ -325,5 +326,66 @@ describe('end-to-end governance lifecycle', () => {
     // Accessing tenant-beta-data should trigger system boundary violation
     expect(decision.allowed).toBe(false);
     expect(decision.triggeredPolicies).toContain('scenario.system-boundary');
+  });
+
+  test('approval-aware command guard redeems token and executes in one governed path', () => {
+    const baseDir = makeTempDir();
+    const storageOptions = { baseDir };
+    const approvalGate = createApprovalGate({
+      secret: 'lifecycle-secret',
+      storageOptions,
+      stateStore: createLocalApprovalStateStore(storageOptions),
+    });
+    const command = 'node -e "console.log(\'APPROVED_LIFECYCLE\')"';
+    const guard = createCommandGuard({
+      policy: {
+        oversightMode: 'HOTL',
+        requireApprovalFor: ['APPROVED_LIFECYCLE'],
+      },
+      sessionId: 'session-lifecycle',
+      caseId: 'task-lifecycle',
+      agentId: 'agent-lifecycle',
+      agentName: 'LifecycleAgent',
+      storageOptions,
+      approvalGate,
+    });
+    const token = approvalGate.issue({
+      action: command,
+      target: process.cwd(),
+      argumentsHash: '',
+      taskId: 'task-lifecycle',
+      sessionId: 'session-lifecycle',
+      tenantId: 'tenant-alpha',
+      agentId: 'agent-lifecycle',
+      environment: 'local',
+      reason: 'approve lifecycle test',
+      requestedBy: 'agent-lifecycle',
+    }, 'operator');
+
+    const result = guard.run(command, {
+      approvalToken: token,
+      approvalContext: {
+        taskId: 'task-lifecycle',
+        sessionId: 'session-lifecycle',
+        tenantId: 'tenant-alpha',
+        agentId: 'agent-lifecycle',
+        environment: 'local',
+      },
+    });
+
+    expect(result.executed).toBe(true);
+    expect(result.stdout).toContain('APPROVED_LIFECYCLE');
+
+    const replay = guard.run(command, {
+      approvalToken: token,
+      approvalContext: {
+        taskId: 'task-lifecycle',
+        sessionId: 'session-lifecycle',
+        tenantId: 'tenant-alpha',
+        agentId: 'agent-lifecycle',
+        environment: 'local',
+      },
+    });
+    expect(replay.executed).toBe(false);
   });
 });

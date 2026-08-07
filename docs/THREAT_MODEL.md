@@ -6,13 +6,19 @@ SafeLoop is a cooperative local-first governance layer. It is designed to mediat
 
 - policy bypass attempts through command routing
 - approval bypass for guarded actions
+- approval replay, token forgery, token expiry, revocation, and context mismatch
+- policy engine failure for high-risk actions
 - scenario drift
 - repeated tool calls and loops
 - cost/token budget overruns
 - malformed event lines
 - ledger tampering after sealing
 - unverified evidence claims
+- evidence tampering after hash capture
 - unsafe durable memory writes
+- memory poisoning attempts
+- identity spoofing through self-reported agent metadata
+- tenant boundary mistakes in scenario contracts
 - MCP and connector boundary clarity
 
 ## Out of Scope Without Additional Controls
@@ -38,11 +44,17 @@ Use OS sandboxing, least-privilege accounts, local firewall rules, endpoint cont
 - runtime policy decisions
 - runtime circuit breaker
 - memory verification API
+- HMAC-signed approval tokens
+- fail-closed policy wrapper
+- artifact hash verification and evidence promotion rules
 
 ## Remaining Risks
 
 - Connectors must opt in to runtime policy evaluation.
 - Approval persistence and expiration are intentionally basic.
+- Approval tokens are in-memory and session-scoped.
 - Event identity is locally generated and can be spoofed by a malicious local writer.
+- Tenant isolation is policy/context based, not an authenticated multi-tenant service boundary.
 - Ledger seals detect post-seal changes but do not prevent writes.
 - Dashboard visibility depends on local event quality.
+- `npm audit` currently reports dependency advisories that should be remediated before broader production distribution.

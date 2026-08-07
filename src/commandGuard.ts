@@ -16,6 +16,7 @@ import { spawnSync } from 'child_process';
 import { createPolicyGate, type PolicyGateConfig, type OversightMode } from './index';
 import { appendEvent } from './eventStream';
 import type { SafeloopStorageOptions } from './localStorage';
+import type { ApprovalGate, ApprovalToken } from './approvalToken';
 
 // --- Types ---
 
@@ -55,6 +56,7 @@ export interface CommandGuardConfig {
   /** Maximum output buffer size in bytes (default: 1MB) */
   maxOutputBytes?: number;
   cwd?: string;
+  approvalGate?: ApprovalGate;
 }
 
 export interface CommandGuard {
@@ -64,6 +66,15 @@ export interface CommandGuard {
 export interface CommandGuardRunOptions {
   cwd?: string;
   args?: string[];
+  approvalToken?: ApprovalToken;
+  approvalContext?: {
+    argumentsHash?: string;
+    taskId?: string;
+    sessionId?: string;
+    tenantId?: string;
+    agentId?: string;
+    environment?: string;
+  };
 }
 
 // --- Implementation ---
@@ -130,35 +141,99 @@ export function createCommandGuard(config: CommandGuardConfig): CommandGuard {
         };
       }
 
-      // --- REQUIRES APPROVAL: command is held ---
       if (decision.requiresApproval) {
-        const eventId = generateEventId('guard-approval');
+        const redemption = options?.approvalToken && config.approvalGate
+          ? config.approvalGate.redeem(options.approvalToken, {
+              action: command,
+              target: cwd,
+              argumentsHash: options.approvalContext?.argumentsHash ?? '',
+              taskId: options.approvalContext?.taskId ?? caseId,
+              sessionId: options.approvalContext?.sessionId ?? sessionId,
+              tenantId: options.approvalContext?.tenantId ?? '',
+              agentId: options.approvalContext?.agentId ?? agentId,
+              environment: options.approvalContext?.environment ?? '',
+            })
+          : null;
+
+        if (redemption && !redemption.valid) {
+          const eventId = generateEventId('guard-approval-denied');
+          appendEvent({
+            id: eventId,
+            type: 'approval.denied',
+            agentId,
+            agentName,
+            caseId,
+            sessionId,
+            summary: `Approval token rejected before executing: ${command}`,
+            metadata: {
+              command,
+              cwd,
+              decision: 'requires_approval',
+              approvalFailure: redemption.failure,
+              approvalReason: redemption.reason,
+              reasons: decision.reasons,
+              oversightMode: decision.oversightMode,
+            },
+          }, storageOptions);
+
+          return {
+            decision: 'requires_approval',
+            executed: false,
+            failureKind: 'approval_required',
+            command,
+            cwd,
+            reasons: [...decision.reasons, redemption.reason ?? 'approval token rejected'],
+            eventId,
+          };
+        }
+
+        if (!redemption?.valid) {
+          // --- REQUIRES APPROVAL: command is held ---
+          const eventId = generateEventId('guard-approval');
+          appendEvent({
+            id: eventId,
+            type: 'approval.requested',
+            agentId,
+            agentName,
+            caseId,
+            sessionId,
+            summary: `Approval required before executing: ${command}`,
+            metadata: {
+              command,
+              cwd,
+              decision: 'requires_approval',
+              reasons: decision.reasons,
+              oversightMode: decision.oversightMode,
+            },
+          }, storageOptions);
+
+          return {
+            decision: 'requires_approval',
+            executed: false,
+            failureKind: 'approval_required',
+            command,
+            cwd,
+            reasons: decision.reasons,
+            eventId,
+          };
+        }
+
         appendEvent({
-          id: eventId,
-          type: 'approval.requested',
+          id: generateEventId('guard-approval-redeemed'),
+          type: 'approval.granted',
           agentId,
           agentName,
           caseId,
           sessionId,
-          summary: `Approval required before executing: ${command}`,
+          summary: `Approval token accepted before executing: ${command}`,
           metadata: {
             command,
             cwd,
-            decision: 'requires_approval',
-            reasons: decision.reasons,
+            approvalTokenId: redemption.tokenId,
+            decision: 'allow',
             oversightMode: decision.oversightMode,
           },
         }, storageOptions);
-
-        return {
-          decision: 'requires_approval',
-          executed: false,
-          failureKind: 'approval_required',
-          command,
-          cwd,
-          reasons: decision.reasons,
-          eventId,
-        };
       }
 
       // --- ALLOWED: execute the command ---

@@ -9,11 +9,13 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-local--first-blue.svg)](tsconfig.json)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20gateway-6f42c1.svg)](docs/MCP.md)
 
-**Local-first agent governance and accountability for AI-assisted work.**
+**Local-first runtime governance and accountability for AI-assisted work.**
 
-SafeLoop puts deterministic identity, authorization, approvals, risk controls, audit trails, evidence, and execution boundaries around AI agents.
+SafeLoop puts deterministic identity, authorization, approvals, risk controls, audit trails, evidence, memory checks, and execution boundaries around AI agents.
 
 > Observe -> Decide -> Approve -> Prove
+>
+> Govern what agents do - and what they learn.
 
 Git tracks code. **SafeLoop tracks agent work.**
 
@@ -29,7 +31,7 @@ AI agents can write code, run commands, call tools, hand work to other agents, a
 - What evidence proves what happened?
 - Did the action stay inside its authority?
 
-SafeLoop is designed for teams and solo builders who want agent speed without giving agents unlimited authority.
+SafeLoop is designed for teams and solo builders who want agent speed without giving agents unlimited authority. It is not merely logging: for routed shell/MCP actions, SafeLoop evaluates before execution and blocked or approval-required commands do not reach the shell.
 
 ## What SafeLoop Does
 
@@ -43,6 +45,8 @@ SafeLoop is designed for teams and solo builders who want agent speed without gi
 | Effect guard | Mediate production-impacting effects and report coverage gaps honestly. |
 | Runtime policy engine | Normalize consequential actions into allow, warning, approval, pause, deny, or stop decisions. |
 | Runtime circuit breaker | Detect repeated tool calls, denied actions, failures, and budget breaches. |
+| Hardened approval tokens | HMAC-signed, context-bound, time-limited, single-use approval authorizations. |
+| Evidence provenance | Artifact hashing and controlled promotion from observation to verified fact. |
 | Memory governance | Verify candidate durable memories before they are written to long-term stores. |
 | Scenario loop | Govern multi-step work against a scenario contract. |
 | Trace dashboard | Local monitor for agent actions, decisions, approvals, evidence, cost, and timecards. |
@@ -52,12 +56,23 @@ SafeLoop is designed for teams and solo builders who want agent speed without gi
 
 SafeLoop does not require a hosted service, database, cloud account, or external telemetry pipeline.
 
+Current independent certification: **READY within SafeLoop's documented routed-action boundary** for controlled local pilots where consequential action paths are routed through SafeLoop. See [Production Readiness](docs/PRODUCTION_READINESS.md).
+
 ## Five-Minute Start
 
 ```bash
 npm install
 npm test
 npm run build
+```
+
+Full local verification:
+
+```bash
+npm run verify
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r python\requirements-dev.txt
+.venv\Scripts\python.exe -m pytest python\tests
 ```
 
 Initialize local policy:
@@ -175,15 +190,20 @@ Use it when an agent proposes a consequential action, a tool call, or a durable 
 Reference docs:
 
 - [Runtime governance architecture](docs/RUNTIME_GOVERNANCE_ARCHITECTURE.md)
+- [Architecture compliance matrix](docs/ARCHITECTURE_COMPLIANCE_MATRIX.md)
+- [Enforcement coverage](docs/ENFORCEMENT_COVERAGE.md)
+- [Production readiness](docs/PRODUCTION_READINESS.md)
 - [Language-neutral protocol and SDK architecture](docs/LANGUAGE_NEUTRAL_PROTOCOL.md)
 - [Runtime event model](docs/EVENT_MODEL.md)
 - [Policy engine](docs/POLICY_ENGINE.md)
 - [Scenario contracts](docs/SCENARIO_CONTRACTS.md)
 - [Human approvals](docs/HUMAN_APPROVALS.md)
+- [Evidence and provenance](docs/EVIDENCE_PROVENANCE.md)
 - [Circuit breakers](docs/CIRCUIT_BREAKERS.md)
 - [Memory governance](docs/MEMORY_GOVERNANCE.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Failure modes](docs/FAILURE_MODES.md)
+- [Security dependencies](docs/SECURITY_DEPENDENCIES.md)
 
 ## Local Policy
 
@@ -417,7 +437,8 @@ npm run demo:k12-local-rag
 
 Current local verification for this branch:
 
-- `npm test`: 42 suites / 277 tests
+- `npm run verify`: build, 56 Jest suites / 394 Jest tests, and npm audit
+- `.venv\Scripts\python.exe -m pytest python\tests`: 13 Python tests
 - `npm run build`
 - `npm run build:ui`
 - `npx tsc --noEmit`

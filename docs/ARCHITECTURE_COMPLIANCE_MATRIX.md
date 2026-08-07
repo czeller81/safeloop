@@ -1,134 +1,82 @@
 # SafeLoop Architecture Compliance Matrix
 
-> Generated: 2026-08-07 (Final Certification)
-> Auditor: Kiro (automated evidence-driven audit + hardening)
+> Updated: 2026-08-07
+> Auditor: Codex final completion certification
 > Repository: czeller81/safeloop
 > Reference: SafeLoop Runtime Governance Architecture Diagram
 
----
-
 ## Executive Verdict
 
-SafeLoop implements a **production-grade runtime governance layer** with all critical architecture capabilities verified and tested. The core enforcement primitives prove that:
+SafeLoop now implements the 22 diagram capabilities as testable local-first runtime governance surfaces for routed AI-agent workflows.
 
-1. Denied actions never reach the shell
-2. Approval tokens are action-bound, time-limited, single-use, and non-replayable
-3. Policy engine failures fail closed for high-risk operations
-4. Evidence cannot be silently promoted to VERIFIED_FACT without artifact verification
-5. Memory governance prevents unauthorized durable writes
-6. Circuit breakers change runtime behavior
-7. Ledger tampering is detectable
+The implementation is real inside SafeLoop's documented boundary:
 
-**Production Readiness: `READY`**
+- agents, MCP hosts, connectors, SDKs, HTTP callers, and tool wrappers must route consequential actions through SafeLoop
+- SafeLoop evaluates policy before routed command execution
+- approval-required shell commands can be held until a valid context-bound approval token is redeemed
+- runtime policy, scenario contracts, circuit breakers, evidence promotion, handoff governance, and memory verification are deterministic
+- local ledgers are tamper-evident after sealing and tolerate malformed JSONL lines during reads
 
----
+SafeLoop is not universal interception, OS sandboxing, network firewalling, hosted multi-tenant IAM, or automatic control over private tools that bypass SafeLoop.
 
-## Test Results
+**Production Readiness: `READY` within the documented routed-action boundary.**
+
+## Independent Test Results
+
+Current local verification on this branch:
 
 ```
-Build:              OK (tsc + vite)
-Typecheck:          0 errors
-Lint:               No dedicated linter (acceptable)
-Test Suites:        52 passed, 52 total
-Tests:              350 passed, 350 total
-Failures:           0
-Skipped:            0
+Build:          OK (`npm run build`)
+UI build:       OK (`npm run build:ui`)
+Typecheck:      OK (`npx tsc --noEmit`)
+Jest:           56 suites passed, 56 total
+Jest tests:     394 passed, 394 total
+Python tests:   13 passed, 13 total
+Security audit: 0 npm vulnerabilities at moderate level or above
+Lint:           No dedicated lint script configured
 ```
 
----
+`npm audit fix --force` upgraded Vite to the current major line and cleared the previously documented Vite/esbuild advisory path. The Vite config now uses an `.mts` module file and builds without the prior CommonJS/ESM config warning.
 
 ## Architecture Compliance Matrix
 
-| # | Diagram Capability | Status | Implementation | Test Evidence | Runtime Enforcement? | Remaining Gap |
+| # | Diagram Capability | Status | Implementation | Independent Evidence | Runtime Enforcement? | Remaining External Responsibility |
 |---|---|---|---|---|---|---|
-| 1 | Agent Adapter Protocol | **VERIFIED_WORKING** | `src/agentAdapter.ts`, `src/connectors/`, `src/mcp/`, `python/safeloop_client/` | `agentAdapter.test.ts`, `connectors.test.ts`, `mcpGateway.test.ts`, `mcpStdioServer.test.ts`, `languageNeutralProtocol.test.ts` | Yes | None |
-| 2 | MCP Transport | **VERIFIED_WORKING** | `src/mcp/stdioServer.ts` — JSON-RPC 2.0 stdio server | `mcpStdioServer.test.ts`, `mcpGateway.test.ts`, `mcpCliIntegration.test.ts` | Yes | None |
-| 3 | HTTP Transport | **VERIFIED_WORKING** | `src/monitor/server.ts` — `/api/governance/evaluate`, `/api/governance/memory` | `dashboard.integration.test.ts`, `monitorSse.test.ts` | Yes | None |
-| 4 | stdio Transport | **VERIFIED_WORKING** | `src/mcp/stdioServer.ts` — newline-delimited JSON-RPC | `mcpStdioServer.test.ts` | Yes | None |
-| 5 | TypeScript SDK | **VERIFIED_WORKING** | `src/index.ts` exports all governance primitives | All 52 test suites | Yes | None |
-| 6 | Python SDK | **VERIFIED_WORKING** | `python/safeloop_client/client.py` — thin client over HTTP + CLI | `languageNeutralProtocol.test.ts` validates protocol | Delegates to canonical TS engine | Add pytest suite (non-blocking) |
-| 7 | Scenario Contracts | **VERIFIED_WORKING** | `src/runtimeGovernance.ts` (`RuntimeScenarioContract`), `src/scenarioLoop.ts` | `scenarioLoop.test.ts` (7 tests), `runtimeGovernance.test.ts`, `governanceLifecycle.integration.test.ts` | Yes — forbidden actions DENY, budgets enforced | None |
-| 8 | Policy Decision Engine | **VERIFIED_WORKING** | `src/runtimeGovernance.ts` (`evaluateRuntimePolicy`), `src/failClosed.ts` (`createGovernedPolicyEngine`) | `runtimeGovernance.test.ts`, `failClosed.test.ts` (8 tests), `governanceLifecycle.integration.test.ts` | Yes — 6 dispositions + fail-closed wrapper | None |
-| 9 | Risk Dimension Engine | **VERIFIED_WORKING** | `src/runtimeGovernance.ts` (`inferRiskDimensions`) — 16 dimensions | `runtimeGovernance.test.ts` | Yes | None |
-| 10 | Circuit Breakers | **VERIFIED_WORKING** | `src/runtimeGovernance.ts` (`createRuntimeCircuitBreaker`) — CLOSED/WARNING/OPEN/LOCKED | `runtimeGovernance.test.ts`, `governanceLifecycle.integration.test.ts` | Yes — LOCKED prevents execution | None |
-| 11 | Human Approval Gates | **VERIFIED_WORKING** | `src/approvalToken.ts` (`createApprovalGate`) — action-bound, time-limited, single-use, HMAC-signed | `approvalToken.test.ts` (14 tests), `governanceLifecycle.integration.test.ts` | Yes — forged/expired/reused/wrong-context tokens rejected | None |
-| 12 | Evidence & Provenance | **VERIFIED_WORKING** | `src/provenanceVerification.ts` — `verifyArtifactHash()`, `promoteEvidence()`, valid promotion path governance | `provenanceVerification.test.ts` (16 tests) | Yes — INFERENCE cannot become VERIFIED_FACT; artifact hash mismatch blocks promotion | None |
-| 13 | Attribution & Identity | **VERIFIED_WORKING** | Every `RuntimeGovernanceEvent` carries `agent_id`, `agent_name`, `agent_type`, `model`, `provider`, `tenant_id`, `trace_id` | `agentAdapter.test.ts`, `commandGuard.test.ts` | Yes | None |
-| 14 | Governed Action Path | **VERIFIED_WORKING** | `CommandGuard.run()`: DENY = no spawn | `commandGuard.test.ts`, `governanceLifecycle.integration.test.ts` | **Yes — critical enforcement proof** | None |
-| 15 | Governed Memory Path | **VERIFIED_WORKING** | `verifyCandidateMemory()`: QUARANTINE/REJECT prevents durable write | `runtimeGovernance.test.ts`, `governanceLifecycle.integration.test.ts` | Yes | None |
-| 16 | Tamper-Evident Ledger | **VERIFIED_WORKING** | `src/ledgerIntegrity.ts`: SHA256 hash-chain seal/verify | `ledgerIntegrity.test.ts`, `governanceLifecycle.integration.test.ts` | Yes | None |
-| 17 | Live Monitor / Control Tower | **VERIFIED_WORKING** | `src/monitor/server.ts`: HTTP + SSE + governance API | `dashboard.integration.test.ts`, `monitorSse.test.ts` | Yes | None |
-| 18 | Reports | **VERIFIED_WORKING** | `src/caseReport.ts`, `src/safeloopQuery.ts`, `src/handoffManifest.ts` | `caseReport.test.ts`, `safeloopQuery.test.ts`, `handoffManifest.test.ts` | Yes | None |
-| 19 | Full Lifecycle | **VERIFIED_WORKING** | Complete: propose→risk→policy→approve→execute→record→learn→verifyMemory | `governanceLifecycle.integration.test.ts` (5 scenarios) | Yes | None |
-| 20 | Handoff Governance | **VERIFIED_WORKING** | `src/handoffManifest.ts` | `handoffManifest.test.ts`, `hydration.test.ts` | Yes | None |
-| 21 | Fail-Closed Behavior | **VERIFIED_WORKING** | `src/failClosed.ts` (`createGovernedPolicyEngine`) | `failClosed.test.ts` (8 tests), `governanceLifecycle.integration.test.ts` | Yes — high-risk denied on engine failure | None |
-| 22 | Deterministic vs LLM | **VERIFIED_WORKING** | All policy decisions deterministic — zero LLM dependencies | Code inspection | Yes | None |
+| 1 | Agent Adapter Protocol | **VERIFIED_WORKING** | `src/agentAdapter.ts`, `src/connectors/`, `src/mcp/`, `python/safeloop_client/` | Adapter, connector, MCP, language-neutral, Python, and lifecycle tests pass | Yes when adapters call SafeLoop | More agent-specific adapters can improve onboarding |
+| 2 | MCP Transport | **VERIFIED_WORKING** | `src/mcp/stdioServer.ts`, `src/mcp/safeLoopMcpGateway.ts` | MCP stdio/gateway/CLI tests pass | Yes for SafeLoop MCP tools | Hosts must avoid exposing unmanaged raw tools |
+| 3 | HTTP Transport | **VERIFIED_WORKING** | `/api/governance/evaluate`, `/api/governance/memory`, bearer auth, tenant allowlist, rate-limit hook, payload validation | `languageNeutralProtocol.test.ts`, `httpGovernanceAuth.test.ts` | Secured mode rejects unauthenticated calls and malformed payloads | Local bearer tokens are not hosted IAM |
+| 4 | stdio Transport | **VERIFIED_WORKING** | JSON-RPC MCP stdio | `mcpStdioServer.test.ts` | Yes for MCP tools | Depends on host routing actions through SafeLoop tools |
+| 5 | TypeScript SDK | **VERIFIED_WORKING** | `src/index.ts` exports governance primitives | Build/typecheck and full tests pass | Yes for SDK callers that honor decisions | None for current SDK surface |
+| 6 | Python Client | **VERIFIED_WORKING** | `python/safeloop_client/client.py` thin HTTP/CLI client with bearer-token support | Native pytest suite passes | Delegates to canonical TypeScript engine | Packaging for PyPI is future distribution work |
+| 7 | Scenario Contracts | **VERIFIED_WORKING** | `createScenarioLoop()` with commands, targets, attempts, cost/tokens, runtime, evidence, and memory policy checks | Scenario/runtime tests pass | Yes for routed scenario steps | Agents must route steps through the scenario loop |
+| 8 | Policy Decision Engine | **VERIFIED_WORKING** | `evaluateRuntimePolicy()`, `createGovernedPolicyEngine()` | Runtime/fail-closed/lifecycle tests pass | Yes when caller treats result as binding | Custom tools must honor decisions |
+| 9 | Risk Dimension Engine | **VERIFIED_WORKING** | Deterministic risk dimension inference across the canonical dimension set | Runtime governance tests cover all listed dimensions | Drives policy decisions | Scores are transparent signals, not mathematical safety guarantees |
+| 10 | Circuit Breakers | **VERIFIED_WORKING** | `createRuntimeCircuitBreaker()` integrated into scenario loop | Tests cover breaker states, thresholds, and scenario escalation | Yes for routed loops and adapters that honor state | Non-command adapters must pause/stop on returned breaker state |
+| 11 | Human Approval Gates | **VERIFIED_WORKING** | `createApprovalGate()`, `createLocalApprovalStateStore()`, approval-aware `CommandGuard` redemption | Approval, command guard, concurrency, corruption, and lifecycle tests pass | Invalid, missing, reused, revoked, or context-mismatched tokens do not execute guarded commands | External operator identity proof remains deployment work |
+| 12 | Evidence & Provenance | **VERIFIED_WORKING** | `computeArtifactHash()`, `verifyArtifactHash()`, `promoteEvidence()`, `createLocalEvidenceRegistry()` | Provenance and evidence registry tests pass | Blocks invalid promotion and detects evidence replacement | External verifier adapters/signing can strengthen assurance |
+| 13 | Attribution & Identity | **VERIFIED_WORKING** | Runtime event fields, adapter metadata, HTTP tenant checks, command context binding | Adapter, HTTP, command, and lifecycle tests pass | Preserves and binds supplied agent/case/session/task/tenant metadata | Strong enterprise identity provider remains external |
+| 14 | Governed Action Path | **VERIFIED_WORKING** | `CommandGuard.run()`, MCP gateway, effect guard | Command/MCP/effect tests show denied and held actions do not execute | Yes for routed shell/effect paths | Non-shell tools need adapter integration |
+| 15 | Governed Memory Path | **VERIFIED_WORKING** | `verifyCandidateMemory()`, `createGovernedMemoryAdapter()` | Runtime/lifecycle and memory adapter tests pass | Reference adapter blocks reject, quarantine, and review decisions before active persistence | External memory frameworks must integrate before durable writes |
+| 16 | Tamper-Evident Ledger | **VERIFIED_WORKING** | `sealLedger()`, `verifyLedger()` | Ledger tests detect post-seal edits | Detects tampering after sealing | Does not prevent local file writes |
+| 17 | Live Monitor / Control Tower | **VERIFIED_WORKING** | Monitor HTTP/SSE/dashboard with dashboard compatibility | Dashboard, SSE, malformed ledger, and HTTP governance tests pass | Observes local ledger and records local governance actions | Not a universal control plane |
+| 18 | Reports | **VERIFIED_WORKING** | Case, audit, handoff, readiness, timecard reporting | Report/query/handoff tests pass | Reports governed records | Report completeness depends on events supplied |
+| 19 | Full Lifecycle | **VERIFIED_WORKING** | Integrated propose -> decide -> approve -> execute -> evidence -> memory -> ledger path | `governanceLifecycle.integration.test.ts` passes, including approval-aware command execution | Yes for the tested routed lifecycle | Deployment must keep unmanaged tools away from agents |
+| 20 | Handoff Governance | **VERIFIED_WORKING** | `evaluateHandoffGovernance()` and handoff manifest hydration | Handoff governance tests pass | Rejects privilege widening and unresolved approval/risk handoffs | Human/process handoff acceptance UX can mature |
+| 21 | Fail-Closed Behavior | **VERIFIED_WORKING** | `createGovernedPolicyEngine().evaluateAsync()` | Fail-closed tests pass for thrown/malformed/null responses, timeouts, invalid timeout config, and no-side-effect timeout denial | High-risk failures and timeouts deny; explicit low-risk fail-open returns warning | Custom adapters still must check decisions before effects |
+| 22 | Deterministic vs LLM | **VERIFIED_WORKING** | No LLM dependency in policy decisions | Code inspection and tests | Deterministic | None for current policy engine |
 
----
+## Compliance Score
 
-## Architecture Compliance Score
+- **VERIFIED_WORKING:** 22 / 22
+- **PARTIAL:** 0 / 22
+- **MISSING:** 0 / 22
 
-**22/22 capabilities VERIFIED_WORKING**
+This score applies to SafeLoop's routed-action governance architecture. It does not mean SafeLoop has become an OS sandbox, hosted compliance suite, or universal interceptor.
 
----
+## Claim Accuracy Notes
 
-## Before / After Comparison
-
-| Metric | Before (Initial Audit) | After (Hardening) |
-|--------|----------------------|-------------------|
-| Capabilities VERIFIED | 19/22 | **22/22** |
-| Capabilities PARTIAL | 3/22 | **0/22** |
-| Test suites | 48 | **52** |
-| Total tests | 303 | **350** |
-| Passing tests | 300 | **350** |
-| Failing tests | 3 | **0** |
-| Approval lifecycle | No token system | Action-bound, HMAC-signed, single-use, time-limited |
-| Fail-closed | Not implemented | Centralized wrapper, high-risk DENY on failure |
-| Evidence governance | Struct only | Artifact hash verification + promotion path enforcement |
-
----
-
-## Files Created
-
-| File | Purpose |
-|------|---------|
-| `src/approvalToken.ts` | Hardened approval token system |
-| `src/failClosed.ts` | Fail-closed policy engine wrapper |
-| `src/provenanceVerification.ts` | Evidence & provenance verification |
-| `tests/approvalToken.test.ts` | 14 approval hardening tests |
-| `tests/failClosed.test.ts` | 8 fail-closed tests |
-| `tests/provenanceVerification.test.ts` | 16 provenance tests |
-| `tests/governanceLifecycle.integration.test.ts` | 5 end-to-end lifecycle scenarios |
-| `docs/PRODUCTION_READINESS.md` | Production readiness certification |
-
-## Files Modified
-
-| File | Change |
-|------|--------|
-| `src/index.ts` | Added exports for approvalToken, failClosed, provenanceVerification |
-| `tests/mcpDiagnostics.test.ts` | Fixed platform-specific path assertions |
-| `tests/commandGuard.test.ts` | Fixed Python availability detection |
-| `docs/ARCHITECTURE_COMPLIANCE_MATRIX.md` | Updated to final certification |
-
----
-
-## Production Readiness Certification
-
-### `READY`
-
-All 12 critical requirements are met:
-
-| # | Requirement | Status | Evidence |
-|---|---|---|---|
-| 1 | Proposed actions intercepted before execution | ✅ | `commandGuard.test.ts`: `executed === false` on DENY |
-| 2 | Policy decisions are binding | ✅ | DENY = no execution, proven in 10+ tests |
-| 3 | Approvals cannot be bypassed | ✅ | `approvalToken.test.ts`: forged/expired/reused/wrong-context all rejected |
-| 4 | Circuit breakers change runtime behavior | ✅ | LOCKED state proven, ledger event recorded |
-| 5 | Attribution is preserved | ✅ | All events carry full agent identity chain |
-| 6 | Scenario contracts are enforceable | ✅ | Forbidden actions DENY, budgets enforced, max loops stop |
-| 7 | Ledger tampering is detectable | ✅ | SHA256 hash-chain, tamper test passes |
-| 8 | High-risk failures fail closed | ✅ | `failClosed.test.ts`: engine exception → DENY for high-risk |
-| 9 | Cross-tenant access is blocked | ✅ | `governanceLifecycle.integration.test.ts`: system boundary violation |
-| 10 | Memory writes governed before persistence | ✅ | QUARANTINE/REJECT prevent durable write |
-| 11 | Full lifecycle integration test passes | ✅ | 5 scenarios in `governanceLifecycle.integration.test.ts` |
-| 12 | No unexplained failing tests | ✅ | 350/350 passing, 0 failures |
+- Use **tamper-evident**, not immutable, for the local ledger.
+- Use **local-first governance layer**, not OS sandbox.
+- Use **governs routed actions**, not universal interception.
+- Use **thin Python client**, not independent Python policy engine.
+- Use **READY within the documented routed-action boundary**, not standalone production containment.

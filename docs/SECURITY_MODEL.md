@@ -12,8 +12,18 @@ SafeLoop can enforce allow/block/approval decisions for:
 - command steps inside `createScenarioLoop().step()`
 - effects passed to `guardEffect`
 - registered connector/runtime adapters that call SafeLoop before performing an effect
+- authenticated HTTP governance requests when secure mode is configured
 
 Blocked and approval-required guarded commands do not reach the shell.
+
+## HTTP Governance Boundary
+
+The monitor's governance endpoints are local-first by default:
+
+- `POST /api/governance/evaluate`
+- `POST /api/governance/memory`
+
+For production-style local appliance use, configure secured mode with a bearer token, optional tenant allowlist, and an optional rate-limit hook. SafeLoop does not log bearer tokens. This is an integration boundary for local deployments, not a cloud identity platform.
 
 ## What SafeLoop Records
 

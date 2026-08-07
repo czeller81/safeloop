@@ -46,6 +46,8 @@ The runtime governance layer adds language-neutral policy evaluation around cons
 
 The TypeScript engine remains canonical. Non-TypeScript clients should call SafeLoop through HTTP, MCP, or CLI/stdin instead of duplicating policy logic.
 
+For independent certification details, see [Architecture Compliance Matrix](ARCHITECTURE_COMPLIANCE_MATRIX.md) and [Production Readiness](PRODUCTION_READINESS.md).
+
 ## Data Flow
 
 1. An agent identifies itself with agent/case/session/task metadata.

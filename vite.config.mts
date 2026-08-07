@@ -2,13 +2,13 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
-  root: resolve(__dirname, 'src/monitor/ui'),
+  root: resolve(import.meta.dirname, 'src/monitor/ui'),
   build: {
-    outDir: resolve(__dirname, 'dist/monitor'),
+    outDir: resolve(import.meta.dirname, 'dist/monitor'),
     emptyOutDir: false,
     sourcemap: false,
     rollupOptions: {
-      input: resolve(__dirname, 'src/monitor/ui/index.html'),
+      input: resolve(import.meta.dirname, 'src/monitor/ui/index.html'),
     },
   },
 });

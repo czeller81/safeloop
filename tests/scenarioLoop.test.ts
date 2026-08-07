@@ -251,4 +251,95 @@ describe('scenarioLoop: dimension-coded scenario governance', () => {
     expect(result.shouldContinue).toBe(false);
     expect(result.reason).toContain('already stopped');
   });
+
+  test('non-command external action is blocked by runtime risk before side effect', () => {
+    const baseDir = makeTempBaseDir();
+    const loop = createScenarioLoop({
+      contract: {
+        scenarioId: 'external-risk',
+        goal: 'avoid external publish',
+        successCondition: 'blocked',
+      },
+      storageOptions: { baseDir },
+    });
+
+    const result = loop.step({
+      stepIndex: 0,
+      actionType: 'external_api_call',
+      target: 'production',
+      description: 'publish release to production webhook',
+    });
+
+    expect(result.decision).toBe('escalate');
+    expect(result.shouldContinue).toBe(false);
+    expect(loop.isStopped()).toBe(true);
+  });
+
+  test('allowed target boundary blocks out-of-scope non-command target', () => {
+    const baseDir = makeTempBaseDir();
+    const loop = createScenarioLoop({
+      contract: {
+        scenarioId: 'target-boundary',
+        goal: 'stay local',
+        successCondition: 'done',
+        allowedTargets: ['local-vector-db'],
+      },
+      storageOptions: { baseDir },
+    });
+
+    const result = loop.step({
+      stepIndex: 0,
+      actionType: 'file_write',
+      target: 'external-cloud-bucket',
+      description: 'write indexed records',
+    });
+
+    expect(result.decision).toBe('block');
+    expect(result.shouldContinue).toBe(false);
+  });
+
+  test('required evidence rule escalates before continuing', () => {
+    const baseDir = makeTempBaseDir();
+    const loop = createScenarioLoop({
+      contract: {
+        scenarioId: 'evidence-required',
+        goal: 'prove before release',
+        successCondition: 'done',
+        requiredEvidenceFor: ['release readiness'],
+      },
+      storageOptions: { baseDir },
+    });
+
+    const result = loop.step({
+      stepIndex: 0,
+      actionType: 'validation',
+      description: 'release readiness check',
+    });
+
+    expect(result.decision).toBe('escalate');
+    expect(result.shouldContinue).toBe(false);
+  });
+
+  test('cost budget breach stops routed scenario work', () => {
+    const baseDir = makeTempBaseDir();
+    const loop = createScenarioLoop({
+      contract: {
+        scenarioId: 'cost-budget',
+        goal: 'stay under budget',
+        successCondition: 'done',
+        maxCost: 0.01,
+      },
+      storageOptions: { baseDir },
+    });
+
+    const result = loop.step({
+      stepIndex: 0,
+      actionType: 'validation',
+      description: 'expensive model call',
+      cost: 1,
+    });
+
+    expect(result.decision).toBe('escalate');
+    expect(result.shouldContinue).toBe(false);
+  });
 });

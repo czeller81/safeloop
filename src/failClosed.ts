@@ -33,6 +33,8 @@ export interface FailClosedConfig {
   failOpenPatterns?: string[];
   /** Maximum evaluation time before treating as timeout (ms, default: 5000) */
   timeoutMs?: number;
+  /** Optional evaluator for adapters that need async policy calls */
+  evaluator?: (input: RuntimePolicyEvaluationInput) => RuntimePolicyDecision | Promise<RuntimePolicyDecision>;
   /** Storage options for ledger recording */
   storageOptions?: SafeloopStorageOptions;
 }
@@ -47,6 +49,8 @@ export interface FailClosedDecision extends RuntimePolicyDecision {
 export interface GovernedPolicyEngine {
   /** Evaluate with fail-closed guarantees */
   evaluate(input: RuntimePolicyEvaluationInput): FailClosedDecision;
+  /** Evaluate async policies with timeout and fail-closed guarantees */
+  evaluateAsync(input: RuntimePolicyEvaluationInput): Promise<FailClosedDecision>;
 }
 
 // --- Implementation ---
@@ -161,6 +165,10 @@ export function createGovernedPolicyEngine(config: FailClosedConfig = {}): Gover
   const defaultFailMode = config.defaultFailMode ?? 'closed';
   const failOpenPatterns = config.failOpenPatterns ?? ['read', 'list', 'get', 'status', 'check', 'query', 'search'];
   const storageOptions = config.storageOptions ?? {};
+  const timeoutMs = typeof config.timeoutMs === 'number' && Number.isFinite(config.timeoutMs) && config.timeoutMs > 0
+    ? config.timeoutMs
+    : 5000;
+  const evaluator = config.evaluator ?? evaluateRuntimePolicy;
 
   function recordFailure(decision: FailClosedDecision): void {
     appendEvent({
@@ -222,6 +230,41 @@ export function createGovernedPolicyEngine(config: FailClosedConfig = {}): Gover
       }
 
       return { ...result, failClosedFallback: false };
+    },
+
+    async evaluateAsync(input: RuntimePolicyEvaluationInput): Promise<FailClosedDecision> {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      try {
+        const result = await Promise.race([
+          Promise.resolve().then(() => evaluator(input)),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error(`Policy evaluation timed out after ${timeoutMs}ms`)), timeoutMs);
+          }),
+        ]);
+
+        if (!isValidDecision(result)) {
+          const failureReason = 'Policy engine returned malformed decision.';
+          const decision = shouldFailOpen(input)
+            ? createAllowFallback(input, failureReason)
+            : createDenyDecision(input, failureReason, 'DENY');
+          recordFailure(decision);
+          return decision;
+        }
+
+        return { ...result, failClosedFallback: false };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        const failureReason = message.includes('timed out')
+          ? message
+          : `Policy evaluation threw: ${message}`;
+        const decision = shouldFailOpen(input)
+          ? createAllowFallback(input, failureReason)
+          : createDenyDecision(input, failureReason, 'DENY');
+        recordFailure(decision);
+        return decision;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
     },
   };
 }

@@ -11,6 +11,19 @@ It returns one of:
 - `DENY`
 - `STOP_AGENT`
 
+## Disposition Semantics
+
+| Disposition | Meaning | Execution guidance |
+| --- | --- | --- |
+| `ALLOW` | No deterministic governance rule blocked the action. | Integration may execute and should record outcome/evidence. |
+| `ALLOW_WITH_WARNING` | Action may proceed, but uncertainty or medium risk was detected. | Execute only if the workflow accepts warning-level risk; record the warning. |
+| `REQUIRE_APPROVAL` | Human approval is required before execution. | Do not execute until approval is valid and bound to the same context. |
+| `PAUSE` | Workflow should pause for operator or policy review. | Do not execute until the pause is resolved. |
+| `DENY` | Action violates policy or scenario boundaries. | Do not execute. |
+| `STOP_AGENT` | Agent should be stopped because continuing is unsafe. | Stop or isolate the agent. |
+
+These dispositions are binding only when the caller treats them as binding. SafeLoop cannot stop a private tool path that ignores the decision.
+
 Each decision includes:
 
 - final disposition

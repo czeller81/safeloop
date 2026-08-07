@@ -1,7 +1,7 @@
-import { mkdtempSync } from 'fs';
+import { mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createApprovalGate, type ApprovalRequest, type ApprovalRedemptionContext } from '../src';
+import { createApprovalGate, createLocalApprovalStateStore, type ApprovalRequest, type ApprovalRedemptionContext } from '../src';
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'safeloop-approval-'));
@@ -208,5 +208,108 @@ describe('approval token hardening', () => {
     const result = gate.redeem(token, baseContext({ environment: 'staging' }));
     expect(result.valid).toBe(false);
     expect(result.failure).toBe('environment_mismatch');
+  });
+
+  test('consumed token cannot be replayed after approval gate restart', () => {
+    const baseDir = makeTempDir();
+    const secret = 'shared-test-secret';
+    const firstGate = createApprovalGate({
+      secret,
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const token = firstGate.issue(baseRequest(), 'human-operator');
+    expect(firstGate.redeem(token, baseContext()).valid).toBe(true);
+
+    const restartedGate = createApprovalGate({
+      secret,
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const replay = restartedGate.redeem(token, baseContext());
+    expect(replay.valid).toBe(false);
+    expect(replay.failure).toBe('consumed');
+  });
+
+  test('revoked token cannot be redeemed after approval gate restart', () => {
+    const baseDir = makeTempDir();
+    const secret = 'shared-test-secret';
+    const firstGate = createApprovalGate({
+      secret,
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const token = firstGate.issue(baseRequest(), 'human-operator');
+    expect(firstGate.revoke(token.tokenId, 'operator cancelled')).toBe(true);
+
+    const restartedGate = createApprovalGate({
+      secret,
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const result = restartedGate.redeem(token, baseContext());
+    expect(result.valid).toBe(false);
+    expect(result.failure).toBe('consumed');
+  });
+
+  test('expiration remains enforced after approval gate restart', () => {
+    const baseDir = makeTempDir();
+    const secret = 'shared-test-secret';
+    const firstGate = createApprovalGate({
+      secret,
+      ttlMs: 1,
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const token = firstGate.issue(baseRequest(), 'human-operator');
+
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        const restartedGate = createApprovalGate({
+          secret,
+          storageOptions: { baseDir },
+          stateStore: createLocalApprovalStateStore({ baseDir }),
+        });
+        const result = restartedGate.redeem(token, baseContext());
+        expect(result.valid).toBe(false);
+        expect(result.failure).toBe('expired');
+        resolve();
+      }, 10);
+    });
+  });
+
+  test('concurrent redemption attempts allow exactly one winner', async () => {
+    const baseDir = makeTempDir();
+    const gate = createApprovalGate({
+      secret: 'shared-test-secret',
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const token = gate.issue(baseRequest(), 'human-operator');
+
+    const results = await Promise.all([
+      Promise.resolve().then(() => gate.redeem(token, baseContext())),
+      Promise.resolve().then(() => gate.redeem(token, baseContext())),
+      Promise.resolve().then(() => gate.redeem(token, baseContext())),
+    ]);
+
+    expect(results.filter((result) => result.valid)).toHaveLength(1);
+    expect(results.filter((result) => result.failure === 'consumed')).toHaveLength(2);
+  });
+
+  test('corrupted durable approval state fails safely', () => {
+    const baseDir = makeTempDir();
+    const statePath = join(baseDir, '.safeloop', 'approval-state.json');
+    const gate = createApprovalGate({
+      secret: 'shared-test-secret',
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const token = gate.issue(baseRequest(), 'human-operator');
+    writeFileSync(statePath, '{ not valid json', 'utf8');
+
+    const result = gate.redeem(token, baseContext());
+    expect(result.valid).toBe(false);
+    expect(result.failure).toBe('consumed');
   });
 });

@@ -27,6 +27,7 @@
 
 import { createHash, createHmac, randomBytes } from 'crypto';
 import { appendEvent } from './eventStream';
+import { createInMemoryApprovalStateStore, type ApprovalStateStore } from './approvalStateStore';
 import type { SafeloopStorageOptions } from './localStorage';
 
 // --- Types ---
@@ -54,6 +55,8 @@ export interface ApprovalTokenConfig {
   secret?: string;
   /** Storage options for ledger recording */
   storageOptions?: SafeloopStorageOptions;
+  /** Optional durable or replaceable approval replay state store */
+  stateStore?: ApprovalStateStore;
 }
 
 export interface ApprovalToken {
@@ -212,7 +215,7 @@ export function createApprovalGate(config: ApprovalTokenConfig = {}): ApprovalGa
   const ttlMs = config.ttlMs ?? 300_000; // 5 minutes default
   const secret = config.secret ?? randomBytes(32).toString('hex');
   const storageOptions = config.storageOptions ?? {};
-  const consumedTokens = new Set<string>();
+  const stateStore = config.stateStore ?? createInMemoryApprovalStateStore();
 
   function issue(request: ApprovalRequest, approver: string): ApprovalToken {
     const tokenId = generateTokenId();
@@ -268,7 +271,7 @@ export function createApprovalGate(config: ApprovalTokenConfig = {}): ApprovalGa
 
   function validateInternal(token: ApprovalToken, context: ApprovalRedemptionContext): ApprovalValidationResult {
     // 1. Check if token has been consumed (single-use / replay detection)
-    if (consumedTokens.has(token.tokenId)) {
+    if (stateStore.isConsumed(token.tokenId)) {
       return { valid: false, failure: 'consumed', reason: 'Approval token has already been consumed.', tokenId: token.tokenId };
     }
 
@@ -306,7 +309,7 @@ export function createApprovalGate(config: ApprovalTokenConfig = {}): ApprovalGa
 
     if (result.valid) {
       // Consume the token (single-use)
-      consumedTokens.add(token.tokenId);
+      stateStore.consume(token.tokenId, { expiresAt: token.expiresAt });
 
       const eventId = generateEventId('approval-redeemed');
       appendEvent({
@@ -358,8 +361,7 @@ export function createApprovalGate(config: ApprovalTokenConfig = {}): ApprovalGa
   }
 
   function revoke(tokenId: string, reason: string): boolean {
-    if (consumedTokens.has(tokenId)) return false;
-    consumedTokens.add(tokenId);
+    if (!stateStore.revoke(tokenId, reason)) return false;
 
     appendEvent({
       id: generateEventId('approval-revoked'),
@@ -373,7 +375,7 @@ export function createApprovalGate(config: ApprovalTokenConfig = {}): ApprovalGa
   }
 
   function consumedCount(): number {
-    return consumedTokens.size;
+    return stateStore.count();
   }
 
   return { issue, redeem, validate, revoke, consumedCount };

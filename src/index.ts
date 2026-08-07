@@ -995,6 +995,8 @@ export { createCommandGuard } from './commandGuard';
 export type { CommandGuard, CommandGuardConfig, GuardDecision, GuardResult } from './commandGuard';
 export { createScenarioLoop } from './scenarioLoop';
 export type { ScenarioLoop, ScenarioLoopConfig, ScenarioContract, ScenarioLoopStep, ScenarioLoopDecision, ScenarioLoopResult } from './scenarioLoop';
+export { evaluateHandoffGovernance } from './handoffGovernance';
+export type { HandoffGovernanceDecision, HandoffGovernanceRequest } from './handoffGovernance';
 export { createGenericCliConnector, createHermesConnector } from './connectors';
 export type { AgentConnector, ConnectorId, ConnectorMode, ConnectorDetectionResult, ConnectorStatus, ConnectorVerifyResult, ConnectorCheck } from './connectors';
 export { createMcpGateway } from './mcp';
@@ -1130,6 +1132,14 @@ export type {
   RuntimeTokenUsage,
 } from './runtimeGovernance';
 export { createApprovalGate } from './approvalToken';
+export {
+  createInMemoryApprovalStateStore,
+  createLocalApprovalStateStore,
+} from './approvalStateStore';
+export type {
+  ApprovalStateRecord,
+  ApprovalStateStore,
+} from './approvalStateStore';
 export type {
   ApprovalGate,
   ApprovalRequest,
@@ -1152,6 +1162,20 @@ export {
   isValidPromotion,
   promoteEvidence,
 } from './provenanceVerification';
+export { createLocalEvidenceRegistry } from './evidenceRegistry';
+export type {
+  EvidenceRegistry,
+  EvidenceRegistryRecord,
+  EvidenceRegistryVerification,
+} from './evidenceRegistry';
+export {
+  createGovernedMemoryAdapter,
+  createInMemoryPersistenceAdapter,
+} from './memoryAdapter';
+export type {
+  GovernedMemoryAdapter,
+  MemoryPersistenceAdapter,
+} from './memoryAdapter';
 export type {
   ArtifactHashVerification,
   EvidencePromotionRequest,

@@ -18,8 +18,32 @@ SafeLoop should not silently choose one failure behavior for every action.
 - Event reads skip malformed JSONL lines and preserve valid events.
 - Command guard denial and approval-required decisions do not execute shell commands.
 - Runtime policy can mark high-risk actions as denied or stopped.
+- `createGovernedPolicyEngine()` returns fail-closed `DENY` decisions for high-risk actions when policy evaluation throws, times out, or returns malformed/null data.
+- Low-risk fail-open behavior is explicit and returns `ALLOW_WITH_WARNING`.
 - Runtime circuit breaker records trigger events and can enter `WARNING`, `OPEN`, or `LOCKED`.
 - Effect guard reports missing registered adapters and fails closed for expected production-impacting coverage gaps.
+
+For asynchronous policy calls, use `evaluateAsync()`. It enforces `timeoutMs` and converts timeout, thrown, null, undefined, or malformed results into fail-closed or explicitly fail-open decisions. Invalid timeout values such as zero, negative numbers, or `NaN` fall back to the default timeout rather than disabling timeout handling.
+
+## Examples
+
+High-risk policy failure:
+
+```typescript
+const engine = createGovernedPolicyEngine();
+const result = engine.evaluate({
+  agentId: 'agent-1',
+  action: 'deploy to production',
+  tool: 'deploy',
+  target: 'production',
+});
+
+if (!result.allowed) {
+  // Do not execute.
+}
+```
+
+Low-risk fail-open must be configured or match low-risk read/list/status patterns. It returns a warning, not a silent success.
 
 ## Operator Guidance
 

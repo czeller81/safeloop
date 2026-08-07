@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createGovernedPolicyEngine, type RuntimePolicyEvaluationInput } from '../src';
@@ -191,5 +191,82 @@ describe('fail-closed policy engine', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  test('async policy resolves before timeout', async () => {
+    const engine = createGovernedPolicyEngine({
+      timeoutMs: 100,
+      evaluator: async (input) => runtimeGovernance.evaluateRuntimePolicy(input),
+    });
+
+    const result = await engine.evaluateAsync(lowRiskInput());
+    expect(result.failClosedFallback).toBe(false);
+    expect(result.disposition).toBe('ALLOW');
+  });
+
+  test('high-risk async policy timeout denies and records ledger event', async () => {
+    const baseDir = makeTempDir();
+    const engine = createGovernedPolicyEngine({
+      timeoutMs: 5,
+      storageOptions: { baseDir },
+      evaluator: async () => new Promise((resolve) => {
+        setTimeout(() => resolve(runtimeGovernance.evaluateRuntimePolicy(highRiskInput())), 50);
+      }),
+    });
+
+    const result = await engine.evaluateAsync(highRiskInput({ action: 'deploy production release' }));
+    expect(result.failClosedFallback).toBe(true);
+    expect(result.allowed).toBe(false);
+    expect(result.disposition).toBe('DENY');
+    expect(result.failureReason).toContain('timed out');
+
+    const ledger = readFileSync(join(baseDir, '.safeloop', 'events.jsonl'), 'utf8');
+    expect(ledger).toContain('policy.failed');
+    expect(ledger).toContain('timed out');
+  });
+
+  test('low-risk timeout can explicitly fail open', async () => {
+    const engine = createGovernedPolicyEngine({
+      timeoutMs: 5,
+      failOpenPatterns: ['read local status'],
+      evaluator: async () => new Promise((resolve) => {
+        setTimeout(() => resolve(runtimeGovernance.evaluateRuntimePolicy(lowRiskInput())), 50);
+      }),
+    });
+
+    const result = await engine.evaluateAsync(lowRiskInput());
+    expect(result.failClosedFallback).toBe(true);
+    expect(result.allowed).toBe(true);
+    expect(result.disposition).toBe('ALLOW_WITH_WARNING');
+  });
+
+  test('zero, negative, and malformed timeout values fall back to safe default', async () => {
+    for (const timeoutMs of [0, -1, Number.NaN]) {
+      const engine = createGovernedPolicyEngine({
+        timeoutMs,
+        evaluator: async (input) => runtimeGovernance.evaluateRuntimePolicy(input),
+      });
+      const result = await engine.evaluateAsync(lowRiskInput());
+      expect(result.failClosedFallback).toBe(false);
+    }
+  });
+
+  test('side effect does not occur after high-risk timeout denial', async () => {
+    const baseDir = makeTempDir();
+    const sideEffectPath = join(baseDir, 'side-effect.txt');
+    const engine = createGovernedPolicyEngine({
+      timeoutMs: 5,
+      evaluator: async () => new Promise((resolve) => {
+        setTimeout(() => resolve(runtimeGovernance.evaluateRuntimePolicy(highRiskInput())), 50);
+      }),
+    });
+
+    const decision = await engine.evaluateAsync(highRiskInput({ action: 'delete production database' }));
+    if (decision.allowed) {
+      throw new Error('test side effect');
+    }
+
+    expect(decision.allowed).toBe(false);
+    expect(existsSync(sideEffectPath)).toBe(false);
   });
 });

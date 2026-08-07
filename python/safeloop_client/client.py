@@ -28,6 +28,7 @@ class SafeLoopClient:
     transport: Transport = "http"
     cli: str | Sequence[str] = "safeloop"
     timeout: float = 10.0
+    bearer_token: str | None = None
 
     def evaluate_policy(self, payload: dict[str, Any], *, record: bool = False) -> dict[str, Any]:
         """Evaluate a governance policy request.
@@ -73,7 +74,11 @@ class SafeLoopClient:
             url,
             data=data,
             method="POST",
-            headers={"content-type": "application/json", "accept": "application/json"},
+            headers={
+                "content-type": "application/json",
+                "accept": "application/json",
+                **({"authorization": f"Bearer {self.bearer_token}"} if self.bearer_token else {}),
+            },
         )
         try:
             with urllib_request.urlopen(req, timeout=self.timeout) as response:
@@ -83,6 +88,8 @@ class SafeLoopClient:
             raise SafeLoopClientError(f"SafeLoop HTTP {exc.code}: {body}") from exc
         except URLError as exc:
             raise SafeLoopClientError(f"SafeLoop HTTP connection failed: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise SafeLoopClientError("SafeLoop HTTP request timed out") from exc
         except json.JSONDecodeError as exc:
             raise SafeLoopClientError(f"SafeLoop returned invalid JSON: {exc}") from exc
 

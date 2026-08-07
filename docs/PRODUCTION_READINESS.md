@@ -3,153 +3,141 @@
 > Certification Date: 2026-08-07
 > Version: 0.1.0
 > Repository: czeller81/safeloop
-
----
+> Auditor: Codex independent post-merge certification
 
 ## Verdict: `READY`
 
-SafeLoop is a **production-grade runtime governance layer** for AI agents. All 22 architecture capabilities from the Runtime Governance Architecture diagram are verified working with test evidence.
+SafeLoop is a credible local-first runtime governance layer for AI agents when agents, MCP hosts, connectors, and tool wrappers route consequential actions through SafeLoop.
 
----
+It is ready inside that documented routed-action boundary for controlled local pilots and appliance-style deployments where the operator controls the tool surface, credentials, filesystem access, and network egress.
 
-## What This Means
+It is not yet ready to be described as a universal production containment system, a hosted multi-tenant control plane, or an OS-level sandbox.
 
-> "If a real autonomous agent tried to take this action right now, would SafeLoop actually be able to stop it before the side effect occurred?"
-
-**Yes.** The CommandGuard proves that DENY/REQUIRE_APPROVAL decisions prevent shell execution. The approval gate proves that forged, expired, or context-mismatched tokens are rejected. The fail-closed wrapper proves that governance engine failures block high-risk actions.
-
-> "If a real autonomous agent tried to permanently learn something unsafe or false, would SafeLoop actually be able to stop that memory from becoming durable?"
-
-**Yes.** `verifyCandidateMemory()` applies deterministic provenance checks and rejects/quarantines low-confidence, unverified, or policy-violating memories. `promoteEvidence()` prevents INFERENCE/ASSUMPTION from silently becoming VERIFIED_FACT.
-
----
-
-## Core Enforcement Proofs
-
-### 1. Pre-Execution Enforcement
+## Independent Verification
 
 ```
-Agent proposes command → CommandGuard evaluates → DENY → spawnSync NEVER called
+Branch:       master
+Latest commit: 94aaf6a feat: production readiness hardening — close all governance gaps (#9)
+Install:      npm ci passed
+Build:        npm run build passed
+Typecheck:    npx tsc --noEmit passed
+Lint:         no dedicated lint script configured
+Tests:        56 suites / 394 tests passed
+Python:       13 tests passed
+Security:     npm audit reports 0 vulnerabilities after Vite/esbuild remediation
 ```
 
-Evidence: `tests/commandGuard.test.ts` — `expect(result.executed).toBe(false)` after blocked command.
+## What Is Verified
 
-### 2. Approval Token Hardening
-
-Tokens are:
-- **Action-bound**: SHA-256 fingerprint of action+target+task+tenant+agent+environment
-- **Time-limited**: Configurable TTL (default 5 minutes)
-- **Single-use**: Consumed on first successful redemption
-- **Non-replayable**: Consumed tokens rejected with `failure: 'consumed'`
-- **Non-transferable**: Agent/tenant/task mismatch detected
-- **Forgery-resistant**: HMAC-SHA256 signature with constant-time comparison
-
-Evidence: `tests/approvalToken.test.ts` — 14 tests covering all failure modes.
-
-### 3. Fail-Closed Policy Engine
+### Pre-Execution Command Enforcement
 
 ```
-Policy evaluation throws → High-risk action → DENY (fail-closed)
-Policy evaluation throws → Low-risk read → ALLOW_WITH_WARNING (fail-open)
+Agent proposes command
+-> CommandGuard evaluates policy
+-> DENY or REQUIRE_APPROVAL
+-> command is not passed to spawnSync
+-> ledger event is recorded
 ```
 
-Evidence: `tests/failClosed.test.ts` — 8 tests including engine exception, malformed decision, and explicit fail-open override.
+Source evidence:
 
-### 4. Evidence Governance
+- `src/commandGuard.ts`: denied and approval-required branches return before `spawnSync`.
+- `tests/commandGuard.test.ts`, `tests/mcpGateway.test.ts`, `tests/mcpStdioServer.test.ts`, and `tests/governanceLifecycle.integration.test.ts`: denied/held commands return `executed: false`.
 
-```
-INFERENCE → cannot become → VERIFIED_FACT (blocked)
-OBSERVATION → VERIFIED_FACT only with artifact hash match
-```
+### Approval Token Hardening
 
-Evidence: `tests/provenanceVerification.test.ts` — 16 tests proving promotion paths and hash verification.
+`createApprovalGate()` provides HMAC-signed approval tokens bound to:
 
-### 5. Memory Governance
+- action
+- target
+- arguments hash
+- task
+- session
+- tenant
+- agent
+- environment
+- expiry
 
-```
-Low confidence → QUARANTINE
-No evidence → REQUIRE_REVIEW
-Sensitive data → REQUIRE_REVIEW
-Scenario rejects → REJECT
-```
+It also supports single-use redemption and revocation within the current process instance.
 
-Evidence: `tests/runtimeGovernance.test.ts` + `tests/governanceLifecycle.integration.test.ts`
+Verified adversarial cases:
 
----
+- forged signature
+- expired token
+- reused token
+- revoked token
+- different action
+- different target
+- different arguments
+- different tenant
+- different task
+- different session
+- different agent
+- different environment
 
-## Final Test Gate
+Known limitation: approval tokens are in-memory by default. Use `createLocalApprovalStateStore()` for restart-safe consumed/revoked token state. `CommandGuard` can redeem context-bound approval tokens during guarded execution when configured with an approval gate.
 
-```
-Build:              OK
-Typecheck:          0 errors
-Test Suites:        52 passed, 52 total
-Tests:              350 passed, 350 total
-Failures:           0
-Skipped:            0
-```
+### Fail-Closed Behavior
 
-### Test Breakdown by Category
+`createGovernedPolicyEngine()` fails closed for high-risk actions when policy evaluation throws or returns malformed/null data. Low-risk/read-only fail-open behavior exists, but must match configured low-risk patterns or explicit fail-open configuration.
 
-| Category | Count | Status |
-|----------|-------|--------|
-| Approval hardening | 14 | ✅ |
-| Fail-closed policy | 8 | ✅ |
-| Provenance verification | 16 | ✅ |
-| End-to-end lifecycle | 5 | ✅ |
-| Command guard (enforcement) | 11 | ✅ |
-| Scenario loop | 7 | ✅ |
-| Runtime governance | 7 | ✅ |
-| Ledger integrity | 3 | ✅ |
-| MCP gateway + stdio + CLI | 20+ | ✅ |
-| Agent adapter + sessions | 40+ | ✅ |
-| Monitor/dashboard | 15+ | ✅ |
-| Reports + handoffs | 20+ | ✅ |
-| Other (cost, drift, readiness, etc.) | 180+ | ✅ |
+`createGovernedPolicyEngine().evaluateAsync()` enforces `timeoutMs`. Invalid timeout values fall back to the default timeout rather than disabling timeout handling.
 
----
+### Evidence And Provenance
 
-## Enforcement Boundary
+SafeLoop distinguishes:
 
-SafeLoop governs what passes through it. The enforcement boundary is:
+- `VERIFIED_FACT`
+- `OBSERVATION`
+- `INFERENCE`
+- `ASSUMPTION`
+- `SPECULATION`
+- `UNVERIFIED`
 
-- **Commands** routed through `CommandGuard` or `MCP Gateway` are governed
-- **Actions** evaluated through `evaluateRuntimePolicy` receive binding decisions
-- **Memory writes** evaluated through `verifyCandidateMemory` are governance-gated
-- **Approvals** issued through `createApprovalGate` are cryptographically bound
+`promoteEvidence()` prevents `INFERENCE`, `ASSUMPTION`, `SPECULATION`, and `UNVERIFIED` from jumping directly to `VERIFIED_FACT`. `OBSERVATION -> VERIFIED_FACT` requires an artifact hash, and provided artifact content must match the hash.
 
-SafeLoop does **not** magically intercept private agent internals that bypass its interfaces. This is by design — SafeLoop is a governance layer, not a sandbox.
+Known limitation: external verification provider integration and cryptographic artifact signing remain deployment or adapter work.
 
----
+### Memory Governance
 
-## Remaining Non-Blocking Limitations
+`verifyCandidateMemory()` gates durable memory candidates before a memory system persists them. It can allow, allow with TTL, require review, quarantine, or reject memory candidates based on confidence, evidence, sensitive-data flags, generalization, and scenario memory policy.
 
-| Limitation | Risk Level | Impact |
-|------------|-----------|--------|
-| Python SDK has no automated pytest suite | Low | Protocol validated via TypeScript tests |
-| No dedicated lint configuration | Low | TypeScript compiler catches type errors |
-| Local-only HTTP server (no multi-tenant auth) | Low | Designed for local-first deployment |
-| Approval tokens are in-memory (not persisted across restarts) | Medium | Acceptable for session-scoped governance |
+Known limitation: SafeLoop does not own the durable memory store. Hermes, Malu-style memory sidecars, vector stores, memory graphs, AGENTS.md systems, and custom memory frameworks must call SafeLoop before persistence.
 
----
+### Ledger Integrity
 
-## Recommended Future Enhancements
+`sealLedger()` and `verifyLedger()` provide SHA-256 hash-chain sealing for valid JSONL event lines. Post-seal edits or appended events are detected.
 
-1. **Persistent approval token store** — Survive process restarts for long-running governance sessions
-2. **pytest suite for Python client** — Direct integration testing
-3. **OpenTelemetry export** — Integrate with external observability platforms
-4. **Multi-tenant HTTP auth** — For shared/cloud deployment scenarios
-5. **Webhook notifications** — For approval requests and circuit breaker triggers
+Use the phrase **tamper-evident ledger**. Do not describe the local JSONL file as immutable.
 
----
+## Security Audit Result
 
-## Deployment Checklist
+`npm audit --audit-level=moderate` currently reports 0 vulnerabilities after dependency remediation. The remediation upgraded Vite to the current major line, and the Vite config was moved to an `.mts` module file to avoid the prior CommonJS/ESM config warning.
 
-- [ ] `npm install` — Dependencies resolved
-- [ ] `npm run build` — TypeScript compiles, Vite builds monitor UI
-- [ ] `npm test` — All 350 tests pass
-- [ ] Configure `blockedCommands` for your environment
-- [ ] Configure `requireApprovalFor` for consequential actions
-- [ ] Set scenario contracts for active agent tasks
-- [ ] Run `safeloop mcp doctor` to verify MCP integration
-- [ ] Verify ledger directory exists (`.safeloop/`)
-- [ ] Optionally start monitor: `npm run monitor` (port 3777)
+## Current Readiness
+
+| Deployment Type | Recommendation |
+| --- | --- |
+| Local development | Suitable |
+| Controlled school-district/local appliance pilot | Suitable inside the routed-action boundary with external platform controls |
+| Broader production deployment | Requires stronger identity/tenant controls, remote deployment hardening, and operational runbooks outside SafeLoop |
+
+## Required Controls For School District Pilots
+
+- Route Hermes, MCP, ingestion, RAG, file, and shell tools through SafeLoop.
+- Do not expose unmanaged raw shell or external network tools to agents expected to be governed.
+- Use OS/network controls for offline mode and egress restriction.
+- Store `.safeloop` ledgers on protected local storage.
+- Seal ledgers before formal review.
+- Define district approval roles and retention rules.
+- Treat SafeLoop as cooperative governance, not standalone compliance.
+
+## Remaining Limitations
+
+- Approval tokens are in-memory by default unless `createLocalApprovalStateStore()` is configured.
+- Python client has a native pytest suite; install `python/requirements-dev.txt` before running it locally.
+- HTTP governance endpoints are local-first by default; secured mode supports bearer auth, tenant allowlists, and a rate-limit hook.
+- No OpenTelemetry export.
+- No OS sandbox, kernel-level filesystem control, or network firewalling.
+- Circuit breaker state must be honored by adapters to stop non-command effects.
+- Durable memory systems must integrate with `verifyCandidateMemory()`.

@@ -347,6 +347,9 @@ function inferRiskDimensions(input: RuntimePolicyEvaluationInput): RuntimeRiskDi
   if (actionContains(input, ['sudo', 'admin', 'chmod', 'permission', 'role', 'iam', 'identity'])) {
     addRisk(risks, 'PRIVILEGE_ESCALATION', 80, 'Action touches privileged execution or identity boundaries.', evidence, ['runtime.privilege']);
   }
+  if (actionContains(input, ['grant access', 'revoke access', 'create user', 'delete user', 'service account', 'api key'])) {
+    addRisk(risks, 'IDENTITY_OR_PERMISSION_CHANGE', 85, 'Action may change identity, permissions, or credentials.', evidence, ['runtime.identity-permission-change']);
+  }
   if (actionContains(input, ['deploy', 'production', 'release', 'publish'])) {
     addRisk(risks, 'PRODUCTION_CHANGE', 75, 'Action may affect production, publishing, or release state.', evidence, ['runtime.production-change']);
   }
@@ -355,6 +358,21 @@ function inferRiskDimensions(input: RuntimePolicyEvaluationInput): RuntimeRiskDi
   }
   if (actionContains(input, ['student', 'pii', 'ssn', 'ferpa', 'medical', 'password', 'secret'])) {
     addRisk(risks, 'PERSONAL_DATA', 85, 'Action may involve sensitive or personal data.', evidence, ['runtime.personal-data']);
+  }
+  if (actionContains(input, ['export records', 'upload data', 'copy database', 'share dataset', 'exfiltrate'])) {
+    addRisk(risks, 'DATA_EXPOSURE', 80, 'Action may expose internal or tenant data.', evidence, ['runtime.data-exposure']);
+  }
+  if (actionContains(input, ['payment', 'purchase', 'invoice', 'refund', 'charge card', 'wire transfer'])) {
+    addRisk(risks, 'FINANCIAL_ACTION', 80, 'Action may move money or create a financial obligation.', evidence, ['runtime.financial-action']);
+  }
+  if (actionContains(input, ['security policy', 'firewall', 'credential', 'secret rotation', 'disable mfa', 'encryption'])) {
+    addRisk(risks, 'SECURITY_IMPACT', 85, 'Action may affect security controls or credentials.', evidence, ['runtime.security-impact']);
+  }
+  if (actionContains(input, ['legal hold', 'compliance', 'ferpa', 'coppa', 'contract', 'subpoena'])) {
+    addRisk(risks, 'LEGAL_OR_COMPLIANCE', 75, 'Action may affect legal, regulatory, or contractual obligations.', evidence, ['runtime.legal-compliance']);
+  }
+  if (actionContains(input, ['handoff', 'delegate', 'transfer ownership'])) {
+    addRisk(risks, 'AGENT_HANDOFF_RISK', 45, 'Action transfers work or authority between agents.', evidence, ['runtime.agent-handoff-risk']);
   }
   if (typeof input.cost === 'number' && typeof input.context?.scenario?.maximumCostUsd === 'number') {
     const nextCost = (input.context.cumulativeCost ?? 0) + input.cost;

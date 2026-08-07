@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { extname, resolve } from 'path';
 import { getDashboardSnapshot } from './dashboardData';
 import { appendEvent } from '../eventStream';
 import { evaluateRuntimePolicy, recordRuntimeGovernanceEvent, verifyCandidateMemory } from '../runtimeGovernance';
+import { createGovernedPolicyEngine } from '../failClosed';
 import { buildMonitorDashboardPayload, summarizeLoopSummaries } from './viewModel';
 import { renderAppBody, renderFallbackDocument } from './ui/components/App';
 import { redactSensitive } from './redact';
@@ -13,8 +15,18 @@ export { summarizeLoopSummaries } from './viewModel';
 
 export interface MonitorServerOptions extends SafeloopStorageOptions {
   port?: number;
+  host?: string;
   // optional external event file paths to merge into the snapshot (full file paths)
   externalEventPaths?: string[];
+  governanceAuth?: GovernanceHttpAuthConfig;
+}
+
+export interface GovernanceHttpAuthConfig {
+  enabled?: boolean;
+  bearerToken?: string;
+  allowedTenants?: string[];
+  failClosedTimeoutMs?: number;
+  rateLimit?: (request: IncomingMessage) => boolean | string;
 }
 
 const DEFAULT_MONITOR_PORT = 3777;
@@ -56,7 +68,7 @@ function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.end(text);
 }
 
-function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: number, onBody: (payload: any) => void): void {
+function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: number, onBody: (payload: any) => void | Promise<void>): void {
   let body = '';
   let tooLarge = false;
   req.on('data', (chunk) => {
@@ -70,7 +82,9 @@ function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: numbe
   req.on('end', () => {
     if (tooLarge) return;
     try {
-      onBody(body ? JSON.parse(body) : {});
+      Promise.resolve(onBody(body ? JSON.parse(body) : {})).catch((error) => {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      });
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -79,6 +93,76 @@ function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: numbe
 
 function buildDashboardPayload(options: SafeloopStorageOptions = {}) {
   return redactSensitive(buildMonitorDashboardPayload(getDashboardSnapshot(options)));
+}
+
+function getBearerToken(req: IncomingMessage): string | null {
+  const header = req.headers.authorization;
+  if (!header) return null;
+  const value = Array.isArray(header) ? header[0] : header;
+  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
+  return match ? match[1] : null;
+}
+
+function safeEqualSecret(actual: string | null, expected: string): boolean {
+  if (!actual) return false;
+  const actualBuffer = Buffer.from(actual, 'utf8');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  if (actualBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function tenantFromPayload(payload: any): string | undefined {
+  const input = payload?.input ?? payload?.memory ?? payload;
+  return input?.tenantId ?? input?.tenant_id ?? input?.tenant ?? input?.context?.tenantId ?? payload?.tenantId;
+}
+
+function authorizeGovernanceRequest(req: IncomingMessage, res: ServerResponse, payload: any, options: MonitorServerOptions): boolean {
+  const auth = options.governanceAuth;
+  if (!auth?.enabled) return true;
+
+  if (auth.rateLimit) {
+    const allowed = auth.rateLimit(req);
+    if (allowed !== true) {
+      sendJson(res, 429, { error: typeof allowed === 'string' ? allowed : 'rate limit exceeded' });
+      return false;
+    }
+  }
+
+  const expected = auth.bearerToken;
+  if (!expected) {
+    sendJson(res, 500, { error: 'governance authentication is enabled but no bearer token is configured' });
+    return false;
+  }
+
+  if (!safeEqualSecret(getBearerToken(req), expected)) {
+    sendJson(res, 401, { error: 'unauthorized' });
+    return false;
+  }
+
+  const tenant = tenantFromPayload(payload);
+  if (auth.allowedTenants?.length && (!tenant || !auth.allowedTenants.includes(String(tenant)))) {
+    sendJson(res, 403, { error: 'tenant is not authorized for this governance endpoint' });
+    return false;
+  }
+
+  return true;
+}
+
+function validatePolicyPayload(payload: any): string | null {
+  const input = payload?.input ?? payload;
+  if (!input || typeof input !== 'object') return 'policy request must be an object';
+  if (typeof input.agentId !== 'string' || !input.agentId.trim()) return 'policy request requires agentId';
+  if (typeof input.action !== 'string' || !input.action.trim()) return 'policy request requires action';
+  return null;
+}
+
+function validateMemoryPayload(payload: any): string | null {
+  const memory = payload?.memory ?? payload;
+  if (!memory || typeof memory !== 'object') return 'memory request must be an object';
+  if (typeof memory.memory_id !== 'string' || !memory.memory_id.trim()) return 'memory request requires memory_id';
+  if (typeof memory.situation !== 'string') return 'memory request requires situation';
+  if (typeof memory.lesson !== 'string') return 'memory request requires lesson';
+  return null;
 }
 
 function sendSse(res: ServerResponse, event: string, payload: unknown): void {
@@ -174,9 +258,11 @@ function readStaticAsset(urlPath: string): { filePath: string; contentType: stri
   return { filePath, contentType };
 }
 
-export function createMonitorServer(options: SafeloopStorageOptions = {}) {
+export function createMonitorServer(options: MonitorServerOptions = {}) {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? '/';
+    const requestId = req.headers['x-request-id']?.toString() || randomUUID();
+    res.setHeader('x-request-id', requestId);
 
     if (url.startsWith('/api/dashboard')) {
       sendJson(res, 200, buildDashboardPayload(options));
@@ -190,8 +276,17 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
     }
 
     if (url === '/api/governance/evaluate' && req.method === 'POST') {
-      readJsonBody(req, res, 1024 * 1024, (payload) => {
-        const result = evaluateRuntimePolicy(payload.input ?? payload);
+      readJsonBody(req, res, 1024 * 1024, async (payload) => {
+        if (!authorizeGovernanceRequest(req, res, payload, options as MonitorServerOptions)) return;
+        const validationError = validatePolicyPayload(payload);
+        if (validationError) {
+          sendJson(res, 400, { error: validationError, requestId });
+          return;
+        }
+        const auth = (options as MonitorServerOptions).governanceAuth;
+        const result = auth?.failClosedTimeoutMs
+          ? await createGovernedPolicyEngine({ storageOptions: options, timeoutMs: auth.failClosedTimeoutMs }).evaluateAsync(payload.input ?? payload)
+          : evaluateRuntimePolicy(payload.input ?? payload);
         if (payload.record === true) {
           recordRuntimeGovernanceEvent(result.event, options);
         }
@@ -202,6 +297,12 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
 
     if (url === '/api/governance/memory' && req.method === 'POST') {
       readJsonBody(req, res, 1024 * 1024, (payload) => {
+        if (!authorizeGovernanceRequest(req, res, payload, options as MonitorServerOptions)) return;
+        const validationError = validateMemoryPayload(payload);
+        if (validationError) {
+          sendJson(res, 400, { error: validationError, requestId });
+          return;
+        }
         const result = verifyCandidateMemory(payload.memory ?? payload, {
           scenario: payload.scenario,
           minimumConfidence: payload.minimumConfidence,
@@ -341,9 +442,10 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
 export function startMonitorServer(options: MonitorServerOptions = {}): Promise<{ port: number; close: () => Promise<void> }> {
   const server = createMonitorServer(options);
   const port = options.port ?? DEFAULT_MONITOR_PORT;
+  const host = options.host ?? '127.0.0.1';
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       const address = server.address();
       const resolvedPort = typeof address === 'object' && address ? address.port : port;
       resolve({

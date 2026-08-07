@@ -53,6 +53,50 @@ describe('runtime governance', () => {
     expect(decision.triggeredPolicies).toContain('runtime.production-change');
   });
 
+  it('allows with warning for medium-risk low-confidence actions', () => {
+    const decision = evaluateRuntimePolicy(action({
+      action: 'summarize ambiguous result',
+      confidence: 0.4,
+    }));
+
+    expect(decision.disposition).toBe('ALLOW_WITH_WARNING');
+    expect(decision.allowed).toBe(true);
+    expect(decision.riskDimensions.map((risk) => risk.id)).toContain('MODEL_UNCERTAINTY');
+  });
+
+  it('pauses when a matching policy returns PAUSE', () => {
+    const decision = evaluateRuntimePolicy(action({
+      action: 'wait for operator',
+      policies: [{
+        id: 'test.pause',
+        description: 'Pause this workflow',
+        disposition: 'PAUSE',
+        match: { actions: ['wait for operator'] },
+      }],
+    }));
+
+    expect(decision.disposition).toBe('PAUSE');
+    expect(decision.allowed).toBe(false);
+    expect(decision.shouldPause).toBe(true);
+    expect(decision.shouldStopAgent).toBe(false);
+  });
+
+  it('stops the agent when a matching policy returns STOP_AGENT', () => {
+    const decision = evaluateRuntimePolicy(action({
+      action: 'continue after kill switch',
+      policies: [{
+        id: 'test.stop-agent',
+        description: 'Stop this agent',
+        disposition: 'STOP_AGENT',
+        match: { actions: ['continue after kill switch'] },
+      }],
+    }));
+
+    expect(decision.disposition).toBe('STOP_AGENT');
+    expect(decision.allowed).toBe(false);
+    expect(decision.shouldStopAgent).toBe(true);
+  });
+
   it('denies scenario-forbidden actions before execution', () => {
     const decision = evaluateRuntimePolicy(action({
       action: 'delete student records',
@@ -125,6 +169,73 @@ describe('runtime governance', () => {
     } finally {
       cleanup(tempDir);
     }
+  });
+
+  it('opens the circuit breaker after repeated denied actions', () => {
+    const breaker = createRuntimeCircuitBreaker({ maxDeniedActions: 2 });
+    const input = action({
+      action: 'blocked by custom policy',
+      policies: [{
+        id: 'test.deny',
+        description: 'Deny without critical-risk lock',
+        disposition: 'DENY',
+        match: { actions: ['blocked by custom policy'] },
+      }],
+    });
+    const decision = evaluateRuntimePolicy(input);
+
+    expect(breaker.evaluate(input, decision).state).toBe('CLOSED');
+    expect(breaker.evaluate(input, decision).state).toBe('OPEN');
+  });
+
+  it('infers the documented risk dimensions deterministically', () => {
+    const decision = evaluateRuntimePolicy(action({
+      action: [
+        'delete records',
+        'sudo grant access create user',
+        'deploy production release',
+        'send webhook email',
+        'student pii export records',
+        'execute payment purchase',
+        'change security policy disable mfa',
+        'legal compliance contract',
+        'write memory',
+        'handoff delegate task',
+      ].join(' and '),
+      confidence: 0.2,
+      context: {
+        cumulativeCost: 100,
+        cumulativeTokens: 10000,
+        loopCount: 10,
+        scenario: {
+          scenarioId: 'risk-all',
+          maximumCostUsd: 1,
+          maximumTokens: 100,
+          maxLoops: 1,
+          requiredEvidenceFor: ['write memory'],
+        },
+      },
+    }));
+
+    const ids = decision.riskDimensions.map((risk) => risk.id);
+    expect(ids).toEqual(expect.arrayContaining([
+      'DESTRUCTIVE_ACTION',
+      'PRIVILEGE_ESCALATION',
+      'IDENTITY_OR_PERMISSION_CHANGE',
+      'PRODUCTION_CHANGE',
+      'EXTERNAL_COMMUNICATION',
+      'PERSONAL_DATA',
+      'DATA_EXPOSURE',
+      'FINANCIAL_ACTION',
+      'SECURITY_IMPACT',
+      'LEGAL_OR_COMPLIANCE',
+      'COST_ANOMALY',
+      'LOOP_ANOMALY',
+      'UNVERIFIED_EVIDENCE',
+      'MEMORY_POISONING',
+      'AGENT_HANDOFF_RISK',
+      'MODEL_UNCERTAINTY',
+    ]));
   });
 
   it('normalizes existing ledger events into runtime governance events', () => {

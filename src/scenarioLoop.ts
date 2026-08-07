@@ -14,6 +14,12 @@
 
 import { createCommandGuard, type CommandGuard, type GuardResult } from './commandGuard';
 import { appendEvent } from './eventStream';
+import {
+  createRuntimeCircuitBreaker,
+  evaluateRuntimePolicy,
+  recordRuntimeGovernanceEvent,
+  type RuntimePolicyEvaluationInput,
+} from './runtimeGovernance';
 import type { PolicyGateConfig } from './index';
 import type { SafeloopStorageOptions } from './localStorage';
 
@@ -25,11 +31,15 @@ export interface ScenarioContract {
   successCondition: string;
   maxAttempts?: number;
   maxCost?: number;
+  maxTokens?: number;
+  maxRuntimeMs?: number;
   allowedCommands?: string[];
   blockedCommands?: string[];
   requireApprovalFor?: string[];
   allowedTargets?: string[];
   blockedTargets?: string[];
+  requiredEvidenceFor?: string[];
+  memoryWritePolicy?: 'allow' | 'allow_with_ttl' | 'require_review' | 'quarantine' | 'reject';
 }
 
 export interface ScenarioLoopStep {
@@ -39,6 +49,10 @@ export interface ScenarioLoopStep {
   command?: string;
   description?: string;
   expectedOutcome?: string;
+  evidenceIds?: string[];
+  artifactIds?: string[];
+  cost?: number;
+  tokenUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   /** If true, this step declares the success condition is met */
   successSignal?: boolean;
 }
@@ -105,6 +119,9 @@ export function createScenarioLoop(config: ScenarioLoopConfig): ScenarioLoop {
 
   let currentStep = 0;
   let stopped = false;
+  const startedAt = Date.now();
+  let cumulativeCost = 0;
+  let cumulativeTokens = 0;
 
   // Build policy config from contract
   const policyConfig: PolicyGateConfig = {
@@ -123,6 +140,13 @@ export function createScenarioLoop(config: ScenarioLoopConfig): ScenarioLoop {
     agentName,
     storageOptions,
     timeoutMs: config.timeoutMs,
+  });
+  const circuitBreaker = createRuntimeCircuitBreaker({
+    maxRepeatedToolCalls: 3,
+    maxDeniedActions: 2,
+    maximumCostUsd: contract.maxCost,
+    maximumTokens: contract.maxTokens,
+    storageOptions,
   });
 
   function emitStepEvent(step: ScenarioLoopStep, decision: ScenarioLoopDecision, outcome: string, reason: string): string {
@@ -155,6 +179,9 @@ export function createScenarioLoop(config: ScenarioLoopConfig): ScenarioLoop {
   return {
     step(input: ScenarioLoopStep): ScenarioLoopResult {
       currentStep = input.stepIndex;
+      cumulativeCost += input.cost ?? 0;
+      const stepTokens = input.tokenUsage?.totalTokens ?? ((input.tokenUsage?.inputTokens ?? 0) + (input.tokenUsage?.outputTokens ?? 0));
+      cumulativeTokens += stepTokens;
 
       // If already stopped, refuse further steps
       if (stopped) {
@@ -179,6 +206,20 @@ export function createScenarioLoop(config: ScenarioLoopConfig): ScenarioLoop {
           decision: 'stop',
           shouldContinue: false,
           reason: `Max attempts reached (${maxAttempts})`,
+          stepIndex: input.stepIndex,
+          outcome: 'stopped',
+          eventId,
+        };
+      }
+
+      if (typeof contract.maxRuntimeMs === 'number' && Date.now() - startedAt > contract.maxRuntimeMs) {
+        stopped = true;
+        const eventId = emitStepEvent(input, 'stop', 'stopped', `Runtime budget exceeded (${contract.maxRuntimeMs}ms)`);
+        return {
+          scenarioId: contract.scenarioId,
+          decision: 'stop',
+          shouldContinue: false,
+          reason: `Runtime budget exceeded (${contract.maxRuntimeMs}ms)`,
           stepIndex: input.stepIndex,
           outcome: 'stopped',
           eventId,
@@ -217,6 +258,88 @@ export function createScenarioLoop(config: ScenarioLoopConfig): ScenarioLoop {
             eventId,
           };
         }
+      }
+
+      if (input.target && contract.allowedTargets?.length) {
+        const targetLower = input.target.toLowerCase();
+        const allowed = contract.allowedTargets.some(t => targetLower.includes(t.toLowerCase()));
+        if (!allowed) {
+          stopped = true;
+          const eventId = emitStepEvent(input, 'block', 'blocked', `Target outside scenario boundary: ${input.target}`);
+          return {
+            scenarioId: contract.scenarioId,
+            decision: 'block',
+            shouldContinue: false,
+            reason: `Target outside scenario boundary: ${input.target}`,
+            stepIndex: input.stepIndex,
+            outcome: 'blocked',
+            eventId,
+          };
+        }
+      }
+
+      const runtimeInput: RuntimePolicyEvaluationInput = {
+        taskId: caseId,
+        sessionId,
+        agentId,
+        agentName,
+        tool: input.actionType,
+        action: input.command ?? input.description ?? input.actionType,
+        target: input.target,
+        evidenceIds: input.evidenceIds,
+        artifactIds: input.artifactIds,
+        cost: input.cost,
+        tokenUsage: input.tokenUsage,
+        context: {
+          cumulativeCost,
+          cumulativeTokens,
+          loopCount: input.stepIndex,
+          scenario: {
+            scenarioId: contract.scenarioId,
+            goal: contract.goal,
+            allowedActions: contract.allowedCommands,
+            forbiddenActions: contract.blockedCommands,
+            allowedTools: contract.allowedCommands ? ['command'] : undefined,
+            allowedSystems: contract.allowedTargets,
+            maximumCostUsd: contract.maxCost,
+            maximumTokens: contract.maxTokens,
+            maximumRuntimeMs: contract.maxRuntimeMs,
+            maxLoops: contract.maxAttempts,
+            requireApprovalFor: contract.requireApprovalFor,
+            requiredEvidenceFor: contract.requiredEvidenceFor,
+            memoryWritePolicy: contract.memoryWritePolicy,
+          },
+        },
+      };
+      const runtimeDecision = evaluateRuntimePolicy(runtimeInput);
+      recordRuntimeGovernanceEvent(runtimeDecision.event, storageOptions);
+      const breakerStatus = circuitBreaker.evaluate(runtimeInput, runtimeDecision);
+      if (!runtimeDecision.allowed) {
+        stopped = true;
+        const decisionType = runtimeDecision.requiresApproval || runtimeDecision.shouldPause ? 'escalate' : 'block';
+        const eventId = emitStepEvent(input, decisionType, decisionType === 'block' ? 'blocked' : 'escalated', runtimeDecision.explanation);
+        return {
+          scenarioId: contract.scenarioId,
+          decision: decisionType,
+          shouldContinue: false,
+          reason: runtimeDecision.explanation,
+          stepIndex: input.stepIndex,
+          outcome: decisionType === 'block' ? 'blocked' : 'escalated',
+          eventId,
+        };
+      }
+      if (breakerStatus.state === 'OPEN' || breakerStatus.state === 'LOCKED') {
+        stopped = true;
+        const eventId = emitStepEvent(input, 'stop', 'stopped', breakerStatus.reason ?? `Circuit breaker ${breakerStatus.state}`);
+        return {
+          scenarioId: contract.scenarioId,
+          decision: 'stop',
+          shouldContinue: false,
+          reason: breakerStatus.reason ?? `Circuit breaker ${breakerStatus.state}`,
+          stepIndex: input.stepIndex,
+          outcome: 'stopped',
+          eventId,
+        };
       }
 
       // Handle command-type steps using the guard

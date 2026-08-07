@@ -1,12 +1,12 @@
 # SafeLoop Current State
 
-Last audited on this branch: 2026-07-27.
+Last audited on this branch: 2026-08-07.
 
 ## Repository State
 
 - Current checkout during audit: `master`
-- HEAD during audit: `ee027de`
-- Latest branch work includes malformed JSONL tolerance, trace-first monitor UI, MCP stdio server support, specialist governance, effect guard coverage, runtime governance APIs, canonical JSON Schemas, HTTP governance endpoints, CLI/stdin JSON governance commands, and a lightweight Python client.
+- HEAD during audit: `94aaf6a`
+- Latest branch work includes malformed JSONL tolerance, trace-first monitor UI, MCP stdio server support, specialist governance, effect guard coverage, runtime governance APIs, canonical JSON Schemas, authenticated HTTP governance endpoints, CLI/stdin JSON governance commands, local approval replay state, evidence registry, governed memory adapter, and a lightweight Python client.
 - Package version: `0.1.0`
 - Package manager: npm
 - Build system: TypeScript compiler plus Vite for the local monitor UI
@@ -42,10 +42,10 @@ Status labels:
 | Scenario loop | IMPLEMENTED | Scenario contract, step decisions, command guard integration, stop/block/escalate/success outcomes. |
 | MCP gateway | IMPLEMENTED | `safeloop.checkCommand`, `safeloop.runCommand`, `safeloop.recordActivity`, `safeloop.status`. |
 | MCP stdio server | IMPLEMENTED | JSON-RPC stdio transport; stdout remains protocol-only. `safeloop mcp serve` starts it from the main CLI. |
-| Language-neutral protocol | IMPLEMENTED/PARTIAL | Canonical JSON Schemas, local HTTP endpoints, CLI/stdin JSON, MCP, TypeScript exports, and Python client exist. Future Rust/Go/Java/.NET clients should wrap these surfaces. |
-| Runtime policy engine | IMPLEMENTED | `evaluateRuntimePolicy()` returns allow, warning, approval, pause, deny, or stop decisions without changing the existing ledger schema. |
-| Runtime circuit breaker | IMPLEMENTED/PARTIAL | Detects repeated tool calls, denied actions, failures, cost/token thresholds, and critical fail-closed risks. |
-| Memory governance | IMPLEMENTED/PARTIAL | `verifyCandidateMemory()` governs candidate memory writes. Durable memory stores must integrate with it. |
+| Language-neutral protocol | IMPLEMENTED | Canonical JSON Schemas, local HTTP endpoints, CLI/stdin JSON, MCP, TypeScript exports, and Python client exist. Future Rust/Go/Java/.NET clients should wrap these surfaces. |
+| Runtime policy engine | IMPLEMENTED | `evaluateRuntimePolicy()` returns allow, warning, approval, pause, deny, or stop decisions without changing the existing ledger schema. `createGovernedPolicyEngine().evaluateAsync()` enforces timeout behavior. |
+| Runtime circuit breaker | IMPLEMENTED | Detects repeated tool calls, denied actions, failures, cost/token thresholds, and critical fail-closed risks for routed loops and adapters that honor returned state. |
+| Memory governance | IMPLEMENTED | `verifyCandidateMemory()` governs candidate memory writes. `createGovernedMemoryAdapter()` provides a reference persistence pattern. Durable memory stores must integrate with it. |
 | MCP diagnostics | IMPLEMENTED | `safeloop mcp doctor`, Hermes config output, and MCPorter troubleshooting commands. |
 | Specialist routing | IMPLEMENTED | Deterministic routing by objective and delegated support hints. |
 | Specialist permissions | IMPLEMENTED | Tool checks and context-aware action evaluation. |
@@ -58,9 +58,9 @@ Status labels:
 | Token/cost visibility | IMPLEMENTED | Explicit `token.cost`/`model.usage` events and cost summaries. |
 | Timecard visibility | IMPLEMENTED | Monitor-derived timecard candidates and export endpoint. |
 | Identity | IMPLEMENTED | Agent, participant, case, session, and task identifiers are carried through events. |
-| Handoff | IMPLEMENTED | Case handoffs, manifests, hydration, and monitor visibility. |
+| Handoff | IMPLEMENTED | Case handoffs, manifests, hydration, monitor visibility, and handoff authorization checks that reject privilege widening or unresolved high-risk transfers. |
 | Cancellation/emergency stop | PARTIAL | `createBreaker().trip()` provides a cooperative kill switch for breaker-managed work. No universal process kill or OS-level emergency stop exists. |
-| Replay protection | PARTIAL | Specialist authorization tokens are context-fingerprint bound. Ledger seals detect post-seal changes, but there is no global nonce store. |
+| Replay protection | PARTIAL | Approval and specialist authorization tokens are context-fingerprint bound and single-use. Approval consumed/revoked token IDs can persist through `createLocalApprovalStateStore()`. Ledger seals detect post-seal changes, but there is no global durable nonce store. |
 | Tenant/project isolation | PARTIAL | Local `baseDir`, case IDs, project fields, and ledger paths separate data by convention. There is no multi-tenant auth boundary. |
 | Telemetry/tracing | IMPLEMENTED | Local explicit event traces. No external telemetry pipeline. |
 | CLI | IMPLEMENTED | `safeloop` bin plus example command wrapper and monitor commands. |
@@ -117,17 +117,20 @@ Additional local HTTP endpoints now support language-neutral governance:
 
 These endpoints are additive and do not change `/api/dashboard`.
 
+For secured local deployments, the governance endpoints can require a bearer token, enforce an allowed tenant list, and call a rate-limit hook. Local development mode remains open by default on `127.0.0.1`.
+
 ## Verification
 
-Current local verification on this branch:
+Current independent verification on this branch after the PR #9 merge:
 
-- `npm.cmd test`: 36 suites / 261 tests passing
-- After the MCP compatibility slice: `npm.cmd test` reports 42 suites / 277 tests when all new tests pass.
+- `npm.cmd test -- --runInBand`: 56 suites / 394 tests passing
+- `.venv\Scripts\python.exe -m pytest python\tests`: 13 tests passing
+- `npm.cmd run build`: passing
 - `npx.cmd tsc --noEmit`: passing
-- `npm.cmd run build`: passing when run outside the Codex filesystem sandbox
-- `npm.cmd run build:ui`: passing when run outside the Codex filesystem sandbox
+- `npm.cmd run build:ui`: passing
+- `npm.cmd audit --audit-level=moderate`: 0 vulnerabilities
 
-The first sandboxed Vite attempt failed with a parent-directory access restriction. The same build passed outside that restriction. The test count is a current branch signal, not a permanent guarantee.
+The first sandboxed Vite attempt failed with a parent-directory access restriction during earlier monitor work. The final local build gate passes. The test count is a current branch signal, not a permanent guarantee.
 
 No lint script is currently configured in `package.json`.
 
@@ -147,7 +150,7 @@ P1:
 P2:
 
 - Connector coverage is early and should be expanded with explicit adapter install/verification workflows.
-- Replay protection is limited to context-bound specialist authorization tokens.
+- Specialist authorization and approval replay protection are local-first; deployments that need cross-machine replay guarantees should use a shared state backend or external identity controls.
 - Tenant/project isolation is local-path and metadata based, not an authenticated multi-tenant model.
 - Scenario loop approval resume is not implemented.
 

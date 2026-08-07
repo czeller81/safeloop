@@ -1,4 +1,5 @@
 import { createCommandGuard } from '../src/commandGuard';
+import { createApprovalGate, createLocalApprovalStateStore } from '../src';
 import { readEvents } from '../src/eventStream';
 import { spawnSync } from 'child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
@@ -84,6 +85,82 @@ describe('commandGuard: enforced local circuit breaker', () => {
     expect(result.reasons).toBeDefined();
     expect(result.reasons!.length).toBeGreaterThan(0);
     expect(result.eventId).toBeDefined();
+  });
+
+  test('approval-required command executes only with a valid bound approval token', () => {
+    const baseDir = makeTempBaseDir();
+    const approvalGate = createApprovalGate({
+      secret: 'test-secret',
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const command = 'node -e "console.log(\'APPROVED_COMMAND\')"';
+    const guard = createCommandGuard({
+      policy: {
+        oversightMode: 'HOTL',
+        requireApprovalFor: ['APPROVED_COMMAND'],
+      },
+      sessionId: 'session-approval',
+      caseId: 'case-approval',
+      agentId: 'agent-approval',
+      storageOptions: { baseDir },
+      approvalGate,
+    });
+    const token = approvalGate.issue({
+      action: command,
+      target: process.cwd(),
+      argumentsHash: '',
+      taskId: 'case-approval',
+      sessionId: 'session-approval',
+      tenantId: '',
+      agentId: 'agent-approval',
+      environment: '',
+      reason: 'test approval',
+      requestedBy: 'agent-approval',
+    }, 'operator');
+
+    const result = guard.run(command, { approvalToken: token });
+    expect(result.decision).toBe('allow');
+    expect(result.executed).toBe(true);
+    expect(result.stdout).toContain('APPROVED_COMMAND');
+  });
+
+  test('reused approval token does not execute a second command', () => {
+    const baseDir = makeTempBaseDir();
+    const approvalGate = createApprovalGate({
+      secret: 'test-secret',
+      storageOptions: { baseDir },
+      stateStore: createLocalApprovalStateStore({ baseDir }),
+    });
+    const command = 'node -e "console.log(\'ONCE_ONLY\')"';
+    const guard = createCommandGuard({
+      policy: {
+        oversightMode: 'HOTL',
+        requireApprovalFor: ['ONCE_ONLY'],
+      },
+      sessionId: 'session-replay',
+      caseId: 'case-replay',
+      agentId: 'agent-replay',
+      storageOptions: { baseDir },
+      approvalGate,
+    });
+    const token = approvalGate.issue({
+      action: command,
+      target: process.cwd(),
+      argumentsHash: '',
+      taskId: 'case-replay',
+      sessionId: 'session-replay',
+      tenantId: '',
+      agentId: 'agent-replay',
+      environment: '',
+      reason: 'test approval',
+      requestedBy: 'agent-replay',
+    }, 'operator');
+
+    expect(guard.run(command, { approvalToken: token }).executed).toBe(true);
+    const replay = guard.run(command, { approvalToken: token });
+    expect(replay.decision).toBe('requires_approval');
+    expect(replay.executed).toBe(false);
   });
 
   test('events are emitted for each decision path', () => {

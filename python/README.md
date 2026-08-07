@@ -41,6 +41,16 @@ if not decision["allowed"]:
     pass
 ```
 
+For secured local deployments, pass the bearer token configured on the SafeLoop HTTP governance endpoint:
+
+```python
+client = SafeLoopClient(
+    base_url="http://127.0.0.1:3777",
+    bearer_token="local-secret",
+    timeout=5.0,
+)
+```
+
 ## CLI Usage
 
 ```python
@@ -71,3 +81,21 @@ if not result["allowed"]:
 ## Boundary
 
 SafeLoop governs only actions routed through SafeLoop. A Python agent that calls tools directly can bypass SafeLoop unless those tool paths integrate with this client, MCP, or another SafeLoop adapter.
+
+## Tests
+
+The Python client has a native pytest suite:
+
+```bash
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r python\requirements-dev.txt
+.venv\Scripts\python.exe -m pytest python\tests
+```
+
+On shells where a repository-local virtual environment is already active:
+
+```bash
+python -m pytest python/tests
+```
+
+The suite covers request serialization, response parsing, HTTP errors, malformed responses, authentication headers, CLI parsing, timeout handling, allow/deny/approval policy responses, quarantine/reject memory responses, policy requests, and memory candidate requests. Current local result: 13 passed.

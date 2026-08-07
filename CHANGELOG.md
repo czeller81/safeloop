@@ -17,11 +17,16 @@ This branch consolidates SafeLoop as a local-first agent governance and accounta
 - Local policy config and CLI commands: `safeloop init`, `safeloop check`, and `safeloop run`.
 - Sidecar ledger integrity commands: `safeloop ledger seal` and `safeloop ledger verify`.
 - MCP usability commands: `safeloop mcp serve`, `safeloop mcp doctor`, `safeloop mcp print-config hermes`, and `safeloop mcp mcporter`.
+- Approval-aware `CommandGuard` execution with context-bound approval token redemption before guarded command execution.
+- Governed memory adapter behavior for allow, TTL, merge, quarantine, review, and reject decisions.
+- Handoff governance checks that prevent delegated work from widening inherited command or target authority.
+- Native Python client tests and development setup instructions.
 
 ### Notes
 
 - SafeLoop remains a cooperative local governance layer, not an OS-level sandbox.
-- The project now has 42 suites / 277 tests passing locally after the Codex demo, policy/ledger/CLI, and MCP compatibility coverage added in this branch.
+- Current branch verification has 56 Jest suites / 394 Jest tests plus 13 Python tests passing locally.
+- `npm audit --audit-level=moderate` reports 0 vulnerabilities after dependency remediation.
 - No npm publish, GitHub release, tag, merge, or production website deployment has been performed by this changelog update.
 
 ## v0.7.0
