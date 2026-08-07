@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/approval.schema.json",
+  "title": "SafeLoop Approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["approval_id", "requested_by_agent", "action", "reason", "risk"],
+  "properties": {
+    "approval_id": { "type": "string", "minLength": 1 },
+    "requested_by_agent": { "type": "string", "minLength": 1 },
+    "action": { "type": "string", "minLength": 1 },
+    "target": { "type": "string" },
+    "reason": { "type": "string" },
+    "risk": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "supporting_evidence": { "type": "array", "items": { "type": "string" } },
+    "expected_impact": { "type": "string" },
+    "expiration": { "type": "string", "format": "date-time" },
+    "approver_identity": { "type": "string" },
+    "decision": { "type": "string", "enum": ["pending", "approved", "denied", "expired"] },
+    "decision_timestamp": { "type": "string", "format": "date-time" },
+    "comments": { "type": "string" }
+  }
+}

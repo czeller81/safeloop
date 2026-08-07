@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/scenario-contract.schema.json",
+  "title": "SafeLoop Scenario Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenarioId"],
+  "properties": {
+    "scenarioId": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string" },
+    "allowedActions": { "type": "array", "items": { "type": "string" } },
+    "forbiddenActions": { "type": "array", "items": { "type": "string" } },
+    "allowedTools": { "type": "array", "items": { "type": "string" } },
+    "forbiddenTools": { "type": "array", "items": { "type": "string" } },
+    "allowedSystems": { "type": "array", "items": { "type": "string" } },
+    "dataBoundaries": { "type": "array", "items": { "type": "string" } },
+    "maximumCostUsd": { "type": "number", "minimum": 0 },
+    "maximumTokens": { "type": "integer", "minimum": 0 },
+    "maximumRuntimeMs": { "type": "integer", "minimum": 0 },
+    "maximumToolCalls": { "type": "integer", "minimum": 0 },
+    "maxLoops": { "type": "integer", "minimum": 0 },
+    "requireApprovalFor": { "type": "array", "items": { "type": "string" } },
+    "requiredEvidenceFor": { "type": "array", "items": { "type": "string" } },
+    "memoryWritePolicy": {
+      "type": "string",
+      "enum": ["allow", "allow_with_ttl", "require_review", "quarantine", "reject"]
+    }
+  }
+}

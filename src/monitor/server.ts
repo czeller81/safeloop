@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'fs';
 import { extname, resolve } from 'path';
 import { getDashboardSnapshot } from './dashboardData';
 import { appendEvent } from '../eventStream';
+import { evaluateRuntimePolicy, recordRuntimeGovernanceEvent, verifyCandidateMemory } from '../runtimeGovernance';
 import { buildMonitorDashboardPayload, summarizeLoopSummaries } from './viewModel';
 import { renderAppBody, renderFallbackDocument } from './ui/components/App';
 import { redactSensitive } from './redact';
@@ -53,6 +54,27 @@ function sendHtml(res: ServerResponse, html: string): void {
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'content-type': 'text/plain; charset=utf-8' });
   res.end(text);
+}
+
+function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: number, onBody: (payload: any) => void): void {
+  let body = '';
+  let tooLarge = false;
+  req.on('data', (chunk) => {
+    if (tooLarge) return;
+    body += chunk;
+    if (Buffer.byteLength(body, 'utf8') > maxBytes) {
+      tooLarge = true;
+      sendJson(res, 413, { error: `request body exceeds ${maxBytes} byte limit` });
+    }
+  });
+  req.on('end', () => {
+    if (tooLarge) return;
+    try {
+      onBody(body ? JSON.parse(body) : {});
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 }
 
 function buildDashboardPayload(options: SafeloopStorageOptions = {}) {
@@ -164,6 +186,29 @@ export function createMonitorServer(options: SafeloopStorageOptions = {}) {
     if (url.startsWith('/api/events/stream') && (req.method === 'GET' || !req.method)) {
       const close = streamDashboardEvents(res, options);
       req.on('close', close);
+      return;
+    }
+
+    if (url === '/api/governance/evaluate' && req.method === 'POST') {
+      readJsonBody(req, res, 1024 * 1024, (payload) => {
+        const result = evaluateRuntimePolicy(payload.input ?? payload);
+        if (payload.record === true) {
+          recordRuntimeGovernanceEvent(result.event, options);
+        }
+        sendJson(res, 200, redactSensitive(result));
+      });
+      return;
+    }
+
+    if (url === '/api/governance/memory' && req.method === 'POST') {
+      readJsonBody(req, res, 1024 * 1024, (payload) => {
+        const result = verifyCandidateMemory(payload.memory ?? payload, {
+          scenario: payload.scenario,
+          minimumConfidence: payload.minimumConfidence,
+          storageOptions: options,
+        });
+        sendJson(res, 200, redactSensitive(result));
+      });
       return;
     }
 

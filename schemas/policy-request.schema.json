@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/policy-request.schema.json",
+  "title": "SafeLoop Policy Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agentId", "action"],
+  "properties": {
+    "taskId": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "agentId": { "type": "string", "minLength": 1 },
+    "agentName": { "type": "string" },
+    "agentType": { "type": "string" },
+    "model": { "type": "string" },
+    "provider": { "type": "string" },
+    "tenantId": { "type": "string" },
+    "tool": { "type": "string" },
+    "action": { "type": "string", "minLength": 1 },
+    "target": { "type": "string" },
+    "argumentsHash": { "type": "string" },
+    "evidenceIds": { "type": "array", "items": { "type": "string" } },
+    "artifactIds": { "type": "array", "items": { "type": "string" } },
+    "cost": { "type": "number", "minimum": 0 },
+    "tokenUsage": { "$ref": "token-usage.schema.json" },
+    "latency": { "type": "number", "minimum": 0 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "context": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "scenario": { "$ref": "scenario-contract.schema.json" },
+        "priorEvents": { "type": "array", "items": { "$ref": "governance-event.schema.json" } },
+        "hasHumanApproval": { "type": "boolean" },
+        "approvalExpiresAt": { "type": "string", "format": "date-time" },
+        "failClosedForHighRisk": { "type": "boolean" },
+        "tenantId": { "type": "string" },
+        "cumulativeCost": { "type": "number", "minimum": 0 },
+        "cumulativeTokens": { "type": "integer", "minimum": 0 },
+        "loopCount": { "type": "integer", "minimum": 0 },
+        "retryCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "policies": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "metadata": { "type": "object", "additionalProperties": true }
+  }
+}

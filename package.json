@@ -16,7 +16,10 @@
   },
   "homepage": "https://github.com/czeller81/safeloop#readme",
   "files": [
-    "dist"
+    "dist",
+    "docs",
+    "schemas",
+    "python"
   ],
   "scripts": {
     "build:ui": "vite build --config vite.config.ts",

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/risk-dimension.schema.json",
+  "title": "SafeLoop Risk Dimension",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "score", "severity", "reason", "evidence", "policyIds"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": [
+        "DATA_EXPOSURE",
+        "PRIVILEGE_ESCALATION",
+        "DESTRUCTIVE_ACTION",
+        "EXTERNAL_COMMUNICATION",
+        "FINANCIAL_ACTION",
+        "PRODUCTION_CHANGE",
+        "IDENTITY_OR_PERMISSION_CHANGE",
+        "SECURITY_IMPACT",
+        "LEGAL_OR_COMPLIANCE",
+        "PERSONAL_DATA",
+        "COST_ANOMALY",
+        "LOOP_ANOMALY",
+        "UNVERIFIED_EVIDENCE",
+        "MEMORY_POISONING",
+        "AGENT_HANDOFF_RISK",
+        "MODEL_UNCERTAINTY"
+      ]
+    },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "reason": { "type": "string" },
+    "evidence": { "type": "array", "items": { "type": "string" } },
+    "policyIds": { "type": "array", "items": { "type": "string" } }
+  }
+}

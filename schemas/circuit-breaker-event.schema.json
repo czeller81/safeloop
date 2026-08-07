@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/circuit-breaker-event.schema.json",
+  "title": "SafeLoop Circuit Breaker Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["state", "reason", "triggeredAt", "counts"],
+  "properties": {
+    "state": { "type": "string", "enum": ["CLOSED", "WARNING", "OPEN", "LOCKED"] },
+    "reason": { "type": ["string", "null"] },
+    "triggeredAt": { "type": ["string", "null"], "format": "date-time" },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repeatedToolCalls", "deniedActions", "failures"],
+      "properties": {
+        "repeatedToolCalls": { "type": "integer", "minimum": 0 },
+        "deniedActions": { "type": "integer", "minimum": 0 },
+        "failures": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

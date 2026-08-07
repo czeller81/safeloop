@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/safeloop-logo.png" alt="SafeLoop logo" width="112" />
+</p>
+
 # SafeLoop
 
 [![CI](https://github.com/czeller81/safeloop/actions/workflows/ci.yml/badge.svg)](https://github.com/czeller81/safeloop/actions/workflows/ci.yml)
@@ -12,6 +16,8 @@ SafeLoop puts deterministic identity, authorization, approvals, risk controls, a
 > Observe -> Decide -> Approve -> Prove
 
 Git tracks code. **SafeLoop tracks agent work.**
+
+![SafeLoop runtime governance architecture](docs/assets/runtime-governance-architecture.png)
 
 ## Why It Exists
 
@@ -35,6 +41,9 @@ SafeLoop is designed for teams and solo builders who want agent speed without gi
 | MCP stdio server | Local JSON-RPC stdio server for MCP hosts. |
 | Specialist governance | Route work, check tool permissions, bind delegated authorizations, and record reviews. |
 | Effect guard | Mediate production-impacting effects and report coverage gaps honestly. |
+| Runtime policy engine | Normalize consequential actions into allow, warning, approval, pause, deny, or stop decisions. |
+| Runtime circuit breaker | Detect repeated tool calls, denied actions, failures, and budget breaches. |
+| Memory governance | Verify candidate durable memories before they are written to long-term stores. |
 | Scenario loop | Govern multi-step work against a scenario contract. |
 | Trace dashboard | Local monitor for agent actions, decisions, approvals, evidence, cost, and timecards. |
 | Event ledger | Local JSONL audit trail with malformed-line tolerance. |
@@ -148,6 +157,33 @@ Blocked and approval-required guarded commands do not reach the shell.
 SafeLoop does **not** universally intercept private agent tools, direct shell calls, direct file writes, direct API calls, publishing, messaging, deployments, network requests, or process launches that bypass SafeLoop. For non-cooperative containment, combine SafeLoop with an OS sandbox, container, VM, least-privilege credentials, and network/file-system controls.
 
 See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
+
+## Runtime Governance
+
+SafeLoop now exposes a runtime governance API for integrations that need stronger control than passive event recording:
+
+```typescript
+import {
+  createRuntimeCircuitBreaker,
+  evaluateRuntimePolicy,
+  verifyCandidateMemory,
+} from 'safeloop';
+```
+
+Use it when an agent proposes a consequential action, a tool call, or a durable memory write. The API is additive and writes through the same local event ledger, so existing `/api/dashboard` and ledger readers remain compatible.
+
+Reference docs:
+
+- [Runtime governance architecture](docs/RUNTIME_GOVERNANCE_ARCHITECTURE.md)
+- [Language-neutral protocol and SDK architecture](docs/LANGUAGE_NEUTRAL_PROTOCOL.md)
+- [Runtime event model](docs/EVENT_MODEL.md)
+- [Policy engine](docs/POLICY_ENGINE.md)
+- [Scenario contracts](docs/SCENARIO_CONTRACTS.md)
+- [Human approvals](docs/HUMAN_APPROVALS.md)
+- [Circuit breakers](docs/CIRCUIT_BREAKERS.md)
+- [Memory governance](docs/MEMORY_GOVERNANCE.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Failure modes](docs/FAILURE_MODES.md)
 
 ## Local Policy
 

@@ -6,7 +6,7 @@ Last audited on this branch: 2026-07-27.
 
 - Current checkout during audit: `master`
 - HEAD during audit: `ee027de`
-- Latest merged work includes `feature/dashboard-v1`, malformed JSONL tolerance, trace-first monitor UI, MCP stdio server support, specialist governance, and effect guard coverage.
+- Latest branch work includes malformed JSONL tolerance, trace-first monitor UI, MCP stdio server support, specialist governance, effect guard coverage, runtime governance APIs, canonical JSON Schemas, HTTP governance endpoints, CLI/stdin JSON governance commands, and a lightweight Python client.
 - Package version: `0.1.0`
 - Package manager: npm
 - Build system: TypeScript compiler plus Vite for the local monitor UI
@@ -42,6 +42,10 @@ Status labels:
 | Scenario loop | IMPLEMENTED | Scenario contract, step decisions, command guard integration, stop/block/escalate/success outcomes. |
 | MCP gateway | IMPLEMENTED | `safeloop.checkCommand`, `safeloop.runCommand`, `safeloop.recordActivity`, `safeloop.status`. |
 | MCP stdio server | IMPLEMENTED | JSON-RPC stdio transport; stdout remains protocol-only. `safeloop mcp serve` starts it from the main CLI. |
+| Language-neutral protocol | IMPLEMENTED/PARTIAL | Canonical JSON Schemas, local HTTP endpoints, CLI/stdin JSON, MCP, TypeScript exports, and Python client exist. Future Rust/Go/Java/.NET clients should wrap these surfaces. |
+| Runtime policy engine | IMPLEMENTED | `evaluateRuntimePolicy()` returns allow, warning, approval, pause, deny, or stop decisions without changing the existing ledger schema. |
+| Runtime circuit breaker | IMPLEMENTED/PARTIAL | Detects repeated tool calls, denied actions, failures, cost/token thresholds, and critical fail-closed risks. |
+| Memory governance | IMPLEMENTED/PARTIAL | `verifyCandidateMemory()` governs candidate memory writes. Durable memory stores must integrate with it. |
 | MCP diagnostics | IMPLEMENTED | `safeloop mcp doctor`, Hermes config output, and MCPorter troubleshooting commands. |
 | Specialist routing | IMPLEMENTED | Deterministic routing by objective and delegated support hints. |
 | Specialist permissions | IMPLEMENTED | Tool checks and context-aware action evaluation. |
@@ -105,6 +109,13 @@ The monitor serves:
 - `GET /health`
 
 `/api/dashboard` remains the compatibility endpoint. The current dashboard is trace-first and uses the enriched view model for live activity, governance strip, decision inspector, operational diagnostics, timecards, costs, approvals, risks, artifacts, handoffs, readiness, and oversight.
+
+Additional local HTTP endpoints now support language-neutral governance:
+
+- `POST /api/governance/evaluate`
+- `POST /api/governance/memory`
+
+These endpoints are additive and do not change `/api/dashboard`.
 
 ## Verification
 

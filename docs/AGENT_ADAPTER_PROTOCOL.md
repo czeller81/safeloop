@@ -6,13 +6,13 @@ The Agent Adapter Protocol lets any agent, script, or human workflow emit explic
 
 Safeloop does not run the agent.
 Safeloop does not control the model.
-Safeloop does not execute shell commands.
+Safeloop executes shell commands only when they are routed through the command guard or MCP gateway.
 Safeloop does not collect telemetry.
 Safeloop does not send network data.
 Safeloop does not store secrets.
 Safeloop does not replace human approval.
 
-Safeloop only records explicit events that a wrapper, agent, or workflow emits.
+Safeloop records explicit events that a wrapper, agent, or workflow emits. For runtime enforcement, adapters should also call the command guard, MCP gateway, `guardEffect`, `evaluateRuntimePolicy()`, and `verifyCandidateMemory()` before consequential actions.
 
 ## Event lifecycle
 
@@ -185,19 +185,73 @@ Use the protocol from:
 
 Hermes can be the first example, but it is not a requirement.
 
+## Runtime governance hook
+
+Adapters that can execute tools should evaluate proposed actions before execution:
+
+```typescript
+import { createRuntimeCircuitBreaker, evaluateRuntimePolicy } from 'safeloop';
+
+const breaker = createRuntimeCircuitBreaker();
+
+const input = {
+  agentId: adapter.id,
+  agentName: adapter.name,
+  agentType: adapter.agentType,
+  action: 'publish release to production',
+  tool: 'deploy',
+  target: 'production',
+  context: {
+    hasHumanApproval: false,
+    scenario: {
+      scenarioId: 'release',
+      requireApprovalFor: ['publish', 'deploy'],
+    },
+  },
+};
+
+const decision = evaluateRuntimePolicy(input);
+const circuit = breaker.evaluate(input, decision);
+
+if (!decision.allowed || circuit.state === 'OPEN' || circuit.state === 'LOCKED') {
+  // Do not execute. Ask for review or stop the agent.
+}
+```
+
+## Memory governance hook
+
+Adapters with durable memory should verify candidate memories before writing:
+
+```typescript
+import { verifyCandidateMemory } from 'safeloop';
+
+const result = verifyCandidateMemory({
+  memory_id: 'mem-001',
+  memory_type: 'lesson',
+  agent: adapter.id,
+  situation: 'The agent completed a local RAG task.',
+  lesson: 'Use district-approved source documents for policy answers.',
+  confidence: 0.9,
+  evidence: ['artifact-review-001'],
+});
+
+if (!result.allowed) {
+  // Store for review or quarantine instead of writing durable memory.
+}
+```
+
 ## Boundaries
 
 Safeloop does not:
 
 - run the agent
 - control the model
-- execute shell commands
 - collect telemetry
 - send network data
 - store secrets
 - replace human approval
 
-Safeloop only records explicit events emitted by the agent or wrapper.
+Safeloop governs only work routed through its APIs. Direct private tools, direct shell calls, direct API calls, or private memory writes can bypass Safeloop unless the host integrates them.
 
 ## Design notes
 

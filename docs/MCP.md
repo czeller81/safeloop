@@ -120,6 +120,34 @@ The gateway applies SafeLoop command policy. Denied and approval-required comman
 
 When `specialistId` is supplied, `safeloop.checkCommand` and `safeloop.runCommand` use the same specialist permission evaluation. For example, `sales` cannot use `terminal` in either preflight or execution.
 
+## Runtime Governance
+
+The MCP gateway is the preferred enforcement path for shell commands. Custom MCP tools that perform non-shell effects should call the runtime governance API before execution:
+
+```typescript
+import { evaluateRuntimePolicy } from 'safeloop';
+
+const decision = evaluateRuntimePolicy({
+  agentId: 'mcp-agent',
+  action: 'send external message',
+  tool: 'district.email',
+  target: 'external-recipient',
+  context: {
+    hasHumanApproval: false,
+    scenario: {
+      scenarioId: 'district-local-ai',
+      requireApprovalFor: ['send external', 'email'],
+    },
+  },
+});
+
+if (!decision.allowed) {
+  // Return a held/denied tool result and do not call the downstream tool.
+}
+```
+
+This preserves MCP stdio behavior while making consequential custom tools participate in SafeLoop decisions, circuit breakers, and ledger evidence.
+
 ## Enforcement Diagnostics
 
 `safeloop.status` includes:

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/evidence.schema.json",
+  "title": "SafeLoop Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evidence_id", "type", "source", "timestamp", "verification_status"],
+  "properties": {
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "type": { "type": "string" },
+    "source": { "type": "string" },
+    "source_uri": { "type": "string" },
+    "artifact_hash": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "agent": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "claim_supported": { "type": "string" },
+    "provenance_chain": { "type": "array", "items": { "$ref": "provenance.schema.json" } },
+    "verification_status": {
+      "type": "string",
+      "enum": ["VERIFIED_FACT", "OBSERVATION", "INFERENCE", "ASSUMPTION", "SPECULATION", "UNVERIFIED"]
+    }
+  }
+}

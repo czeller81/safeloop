@@ -3,6 +3,7 @@ import { createPolicyGate } from './index';
 import { runApplianceDoctor } from './applianceDoctor';
 import { writeAuditExportBundle } from './auditExport';
 import { createCommandGuard } from './commandGuard';
+import { evaluateRuntimePolicy, recordRuntimeGovernanceEvent, verifyCandidateMemory } from './runtimeGovernance';
 import { sealLedger, verifyLedger } from './ledgerIntegrity';
 import { createMcpGateway, startStdioServer } from './mcp';
 import {
@@ -20,6 +21,7 @@ import {
   writeDefaultSafeloopPolicyConfig,
 } from './policyConfig';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
 
 function parsePort(args: string[]): number | undefined {
   for (let index = 0; index < args.length; index += 1) {
@@ -116,6 +118,21 @@ function parseCommandText(args: string[]): string | undefined {
 
 function parseJsonFlag(args: string[]): boolean {
   return args.includes('--json');
+}
+
+function parseBooleanFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
+}
+
+function readJsonInput(args: string[]): unknown {
+  const inputPath = parseFlagValue(args, '--input');
+  if (inputPath) {
+    return JSON.parse(readFileSync(resolve(process.cwd(), inputPath), 'utf8'));
+  }
+  if (parseBooleanFlag(args, '--stdin')) {
+    return JSON.parse(readFileSync(0, 'utf8'));
+  }
+  throw new Error('Missing JSON input. Use --input <path> or --stdin.');
 }
 
 function parsePolicyProfile(args: string[]): SafeloopPolicyProfile | undefined {
@@ -380,6 +397,43 @@ function runAudit(args: string[]): void {
   }
 }
 
+function runGovernance(args: string[]): void {
+  const action = args[0];
+  const actionArgs = args.slice(1);
+  const baseDir = resolveCliBaseDir(actionArgs);
+
+  if (action === 'evaluate') {
+    const input = readJsonInput(actionArgs);
+    const result = evaluateRuntimePolicy(input as any);
+    if (parseBooleanFlag(actionArgs, '--record')) {
+      recordRuntimeGovernanceEvent(result.event, { baseDir });
+    }
+    printJson(result);
+    if (result.disposition === 'DENY' || result.disposition === 'STOP_AGENT') {
+      process.exitCode = 10;
+    } else if (result.disposition === 'REQUIRE_APPROVAL' || result.disposition === 'PAUSE') {
+      process.exitCode = 20;
+    }
+    return;
+  }
+
+  if (action === 'memory') {
+    const input = readJsonInput(actionArgs) as any;
+    const result = verifyCandidateMemory(input.memory ?? input, {
+      scenario: input.scenario,
+      minimumConfidence: input.minimumConfidence,
+      storageOptions: { baseDir },
+    });
+    printJson(result);
+    if (!result.allowed) {
+      process.exitCode = result.decision === 'REJECT' ? 10 : 20;
+    }
+    return;
+  }
+
+  throw new Error('Usage: safeloop governance <evaluate|memory> (--input <path>|--stdin) [--record] [--baseDir <path>]');
+}
+
 function printDoctor(result: ReturnType<typeof runMcpDoctor>): void {
   console.log(`SafeLoop MCP doctor (${result.host})`);
   for (const entry of result.checks) {
@@ -485,6 +539,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'governance') {
+    runGovernance(process.argv.slice(3));
+    return;
+  }
+
   if (command === 'mcp') {
     runMcp(process.argv.slice(3));
     return;
@@ -503,6 +562,7 @@ async function main(): Promise<void> {
   console.log('  safeloop policy <compile|doctor> [policy.md] [--profile <profile>] [--baseDir <path>]');
   console.log('  safeloop appliance doctor [--profile <profile>] [--host <host>] [--baseDir <path>]');
   console.log('  safeloop audit export [--out <path>] [--host <host>] [--baseDir <path>]');
+  console.log('  safeloop governance <evaluate|memory> (--input <path>|--stdin) [--record] [--baseDir <path>]');
   console.log('  safeloop ledger <seal|verify> [--baseDir <path>]');
   console.log('  safeloop mcp <serve|doctor|print-config|mcporter>');
   console.log('  safeloop monitor [--port <port>] [--baseDir <path>] [--externalEvents <path1,path2>]');

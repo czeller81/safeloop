@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/policy-decision.schema.json",
+  "title": "SafeLoop Policy Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["disposition", "allowed", "requiresApproval", "shouldPause", "shouldStopAgent", "triggeredPolicies", "riskDimensions", "explanation", "evidenceUsed", "confidence", "recommendedRemediation", "event"],
+  "properties": {
+    "disposition": { "$ref": "#/$defs/disposition" },
+    "allowed": { "type": "boolean" },
+    "requiresApproval": { "type": "boolean" },
+    "shouldPause": { "type": "boolean" },
+    "shouldStopAgent": { "type": "boolean" },
+    "triggeredPolicies": { "type": "array", "items": { "type": "string" } },
+    "riskDimensions": { "type": "array", "items": { "$ref": "risk-dimension.schema.json" } },
+    "explanation": { "type": "string" },
+    "requiredApprovalLevel": { "type": "string" },
+    "evidenceUsed": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "recommendedRemediation": { "type": "array", "items": { "type": "string" } },
+    "event": { "$ref": "governance-event.schema.json" }
+  },
+  "$defs": {
+    "disposition": {
+      "type": "string",
+      "enum": ["ALLOW", "ALLOW_WITH_WARNING", "REQUIRE_APPROVAL", "PAUSE", "DENY", "STOP_AGENT"]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/token-usage.schema.json",
+  "title": "SafeLoop Token Usage",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "inputTokens": { "type": "integer", "minimum": 0 },
+    "outputTokens": { "type": "integer", "minimum": 0 },
+    "cachedTokens": { "type": "integer", "minimum": 0 },
+    "totalTokens": { "type": "integer", "minimum": 0 }
+  }
+}

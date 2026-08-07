@@ -1100,6 +1100,36 @@ export {
   readModelPricing,
 } from './costTracker';
 export {
+  createRuntimeCircuitBreaker,
+  evaluateRuntimePolicy,
+  normalizeRuntimeEvent,
+  recordRuntimeGovernanceEvent,
+  verifyCandidateMemory,
+} from './runtimeGovernance';
+export type {
+  CandidateMemory,
+  CircuitBreakerState,
+  EvidenceVerificationStatus,
+  MemoryDecision,
+  MemoryGovernanceDecision,
+  RiskDimensionId,
+  RuntimeCircuitBreaker,
+  RuntimeCircuitBreakerConfig,
+  RuntimeCircuitBreakerStatus,
+  RuntimeDisposition,
+  RuntimeExecutionContext,
+  RuntimeGovernanceEvent,
+  RuntimeGovernanceEventType,
+  RuntimePolicyDecision,
+  RuntimePolicyEvaluationInput,
+  RuntimePolicyRule,
+  RuntimeProvenance,
+  RuntimeRiskDimension,
+  RuntimeScenarioContract,
+  RuntimeSeverity,
+  RuntimeTokenUsage,
+} from './runtimeGovernance';
+export {
   recordSteeringProfile,
   compareSteeringRuns,
   readSteeringProfiles,

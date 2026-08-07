@@ -2,6 +2,8 @@
 
 SafeLoop sits between an AI agent and the actions that can change local or external state.
 
+![SafeLoop runtime governance architecture](assets/runtime-governance-architecture.png)
+
 ```mermaid
 flowchart LR
   A["Agent or MCP host"] --> B["SafeLoop identity and context"]
@@ -30,6 +32,19 @@ SafeLoop is cooperative and local-first. It can govern work only when an agent o
 - explicit event recording APIs
 
 SafeLoop does not universally intercept direct shell calls, private tools, direct file edits, direct API calls, publishing, messaging, or deployments that bypass those paths.
+
+## Runtime Governance Layer
+
+The runtime governance layer adds language-neutral policy evaluation around consequential actions:
+
+- canonical JSON Schemas in `schemas/`
+- TypeScript SDK exports
+- local HTTP endpoints
+- CLI/stdin JSON commands
+- MCP-compatible command path
+- lightweight Python client
+
+The TypeScript engine remains canonical. Non-TypeScript clients should call SafeLoop through HTTP, MCP, or CLI/stdin instead of duplicating policy logic.
 
 ## Data Flow
 
@@ -67,10 +82,14 @@ The local monitor serves the trace-first dashboard at `http://127.0.0.1:3777`.
 Key endpoints:
 
 - `GET /api/dashboard`
+- `POST /api/governance/evaluate`
+- `POST /api/governance/memory`
 - `GET /api/timecards/export`
 - `GET /health`
 
 `/api/dashboard` remains the compatibility surface for the monitor UI and external local tools.
+
+The governance endpoints are local-first JSON interfaces for non-TypeScript clients. They do not replace MCP stdio or change dashboard compatibility.
 
 ## Release Principle
 

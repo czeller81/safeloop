@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/schemas/provenance.schema.json",
+  "title": "SafeLoop Provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source"],
+  "properties": {
+    "source": { "type": "string", "minLength": 1 },
+    "sourceUri": { "type": "string" },
+    "artifactHash": { "type": "string" },
+    "verificationStatus": {
+      "type": "string",
+      "enum": ["VERIFIED_FACT", "OBSERVATION", "INFERENCE", "ASSUMPTION", "SPECULATION", "UNVERIFIED"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}
