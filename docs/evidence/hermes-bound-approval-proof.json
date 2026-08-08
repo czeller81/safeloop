@@ -1,0 +1,129 @@
+{
+  "generated_at": "2026-08-08T02:50:57Z",
+  "hermes_version": "v0.17.0 (2026.6.19)",
+  "adapter": "plugins/safeloop_guard",
+  "profile": "coding",
+  "passed": 17,
+  "total": 17,
+  "checks": [
+    {
+      "test": "safe read allowed",
+      "expected": "executed_by_safeloop",
+      "actual": "executed_by_safeloop",
+      "side_effect": "file read",
+      "result": "PASS"
+    },
+    {
+      "test": "managed write executes",
+      "expected": "executed_by_safeloop and file changed",
+      "actual": "executed_by_safeloop, changed=True",
+      "side_effect": "file written",
+      "result": "PASS"
+    },
+    {
+      "test": "harmless shell allowed",
+      "expected": "executed_by_safeloop",
+      "actual": "executed_by_safeloop",
+      "side_effect": "echo ran",
+      "result": "PASS"
+    },
+    {
+      "test": "git status allowed",
+      "expected": "executed_by_safeloop",
+      "actual": "executed_by_safeloop",
+      "side_effect": "status read",
+      "result": "PASS"
+    },
+    {
+      "test": "destructive command denied",
+      "expected": "blocked and target intact",
+      "actual": "blocked, intact=True",
+      "side_effect": "none",
+      "result": "PASS"
+    },
+    {
+      "test": "git commit held for approval",
+      "expected": "blocked with an approval request",
+      "actual": "approval-request-1786157457623-795c70ce4c1852c6",
+      "side_effect": "no commit",
+      "result": "PASS"
+    },
+    {
+      "test": "SAFELOOP_HERMES_APPROVED no longer grants authorization",
+      "expected": "commit still held despite the env var",
+      "actual": "held",
+      "side_effect": "no commit",
+      "result": "PASS"
+    },
+    {
+      "test": "bound approval executes the exact commit once",
+      "expected": "executed once",
+      "actual": "executed_by_safeloop, commits=1",
+      "side_effect": "1 commit",
+      "result": "PASS"
+    },
+    {
+      "test": "approval replay rejected",
+      "expected": "blocked, still 1 commit",
+      "actual": "blocked, commits=1",
+      "side_effect": "no new commit",
+      "result": "PASS"
+    },
+    {
+      "test": "changed commit args rejected",
+      "expected": "blocked, no new commit",
+      "actual": "blocked, commits=1",
+      "side_effect": "no new commit",
+      "result": "PASS"
+    },
+    {
+      "test": "forged approval rejected",
+      "expected": "blocked with failure=forged",
+      "actual": "blocked/forged",
+      "side_effect": "no new commit",
+      "result": "PASS"
+    },
+    {
+      "test": "expired approval rejected",
+      "expected": "blocked with failure=expired",
+      "actual": "blocked/expired",
+      "side_effect": "no new commit",
+      "result": "PASS"
+    },
+    {
+      "test": "force push denied",
+      "expected": "blocked with DENY",
+      "actual": "blocked/DENY",
+      "side_effect": "none",
+      "result": "PASS"
+    },
+    {
+      "test": "unmanageable path denied",
+      "expected": "blocked as unmanaged_path",
+      "actual": "unmanaged_path",
+      "side_effect": "none",
+      "result": "PASS"
+    },
+    {
+      "test": "poisoned memory not activated",
+      "expected": "blocked",
+      "actual": "blocked",
+      "side_effect": "memory not active",
+      "result": "PASS"
+    },
+    {
+      "test": "valid memory governed and activated",
+      "expected": "memory_governed_by_safeloop",
+      "actual": "memory_governed_by_safeloop, active=1",
+      "side_effect": "1 active memory",
+      "result": "PASS"
+    },
+    {
+      "test": "runtime outage fails closed",
+      "expected": "blocked, no file written",
+      "actual": "blocked, exists=False",
+      "side_effect": "none",
+      "result": "PASS"
+    }
+  ]
+}
