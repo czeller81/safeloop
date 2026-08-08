@@ -1,3 +1,19 @@
 node_modules/
 dist/
 .safeloop/
+
+# SafeLoop runtime state directories (any --baseDir variant).
+# These hold the runtime signing secret, session credentials, approval and
+# permit claim records, and ledger state. None of it may ever be committed.
+.safeloop-*/
+**/runtime-secret.key
+**/runtime-credential.json
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+
+__pycache__/
+.pytest_cache/
+.venv/
