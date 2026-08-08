@@ -144,3 +144,104 @@ For Markdown memory systems, treat a proposed edit as a candidate durable memory
 ### Vector Memory
 
 For vector stores, run SafeLoop verification before embedding and insertion. This prevents rejected or quarantined content from entering the retrieval index.
+
+---
+
+# v0.2 — Memory Candidate Binding
+
+## The gap this closes
+
+v0.1 governed memory correctly but did not bind the decision to the bytes it
+governed:
+
+```
+verifyCandidateMemory(A) → ALLOW → adapter persists B
+```
+
+Nothing tied the decision to the candidate that actually became durable. That is
+the memory equivalent of TOCTOU, and it is the exact shape of a poisoning attack
+that survives review: submit something innocuous, get approval, store something
+else.
+
+## The binding
+
+```
+MemoryCandidate
+  → MemoryCandidateFingerprint      (SHA-256 over the meaning-bearing fields)
+  → MemoryDecision
+       ├── ALLOW / ALLOW_WITH_TTL / MERGE → MemoryPersistencePermit
+       └── QUARANTINE / REQUIRE_REVIEW / REJECT → no permit at all
+  → activation only for that exact candidate
+  → MemoryProvenanceRecord
+```
+
+The permit is HMAC-signed, expiring, single-use, and bound to the candidate
+fingerprint plus memory id, agent, task, and tenant. At persistence time the
+fingerprint is **recomputed from the candidate being written right now** — never
+from what was governed earlier.
+
+### The binding set
+
+Covered: `memory_id`, `memory_type`, `situation`, `action`, `outcome`, `lesson`,
+`confidence`, `evidence`, `provenance`, `reuse_conditions`, `do_not_generalize`,
+`tenant_id`, `agent_id`, `task_id`, `session_id`, `source_artifacts`,
+`requested_ttl`, `contradicts`, `supersedes`, `contains_sensitive_data`.
+
+Array fields are sorted before hashing, so evidence ordering is not
+security-significant. `trace_id` and `created_at` are excluded, for the same
+reason `trace_id` is excluded from action fingerprints.
+
+## Preserved behaviour
+
+The deterministic checks from `verifyCandidateMemory()` are reused **verbatim**,
+including the governance-bypass detection hardened in `527785c`. v0.2 adds
+binding; it does not reimplement memory policy. All six dispositions are
+unchanged: `ALLOW`, `ALLOW_WITH_TTL`, `MERGE`, `QUARANTINE`, `REQUIRE_REVIEW`,
+`REJECT`.
+
+## Verified rejections
+
+| Attack | Result |
+| --- | --- |
+| Modified lesson after authorization | `candidate_mismatch` |
+| Modified situation | `candidate_mismatch` |
+| Modified evidence | `candidate_mismatch` |
+| Raised confidence | `candidate_mismatch` |
+| Different tenant | `tenant_mismatch` |
+| Different agent | `agent_mismatch` |
+| Different task | `task_mismatch` |
+| No permit | `missing_permit` |
+| Forged permit signature | `forged` |
+| Permit fingerprint claim edited | `forged` |
+| Expired permit | `expired` |
+| Replayed permit | `consumed` |
+| Poisoned candidate (5 phrasings) | quarantined, never active |
+| Quarantined / review-required / rejected candidate | never retrievable as active |
+
+Every rejection also asserts that active memory did not gain the record.
+
+## Provenance
+
+`MemoryProvenanceRecord` answers *why does this agent remember this?* — memory
+id, candidate fingerprint, originating agent and task, tenant, evidence and
+artifact references, confidence, decision, timestamps, expiry, supersession,
+contradictions, reuse conditions, `do_not_generalize`, and current status.
+
+Provenance is recorded for quarantined and rejected candidates too, so a
+reviewer can see what was refused and why — not only what was accepted.
+
+## Lifecycle
+
+`ACTIVE` · `QUARANTINED` · `REVIEW_REQUIRED` · `REJECTED` · `EXPIRED` ·
+`SUPERSEDED`. Only `ACTIVE`, unexpired, same-tenant records are retrievable.
+TTL expiry is applied on read, so a stale memory cannot be returned by a race.
+
+## The reference store
+
+`src/runtime/memoryStore.ts` exists to prove the architecture end to end and to
+give conformance runs a store when a host agent's native memory is unavailable.
+
+**It is not the preferred memory engine and is not marketed as one.** SafeLoop
+governs memory; it does not need to replace specialized memory systems. A
+production deployment should keep its own store and call
+`authorizePersistence()` before activating anything.

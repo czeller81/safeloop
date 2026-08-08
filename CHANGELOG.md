@@ -2,6 +2,68 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0 - Local Runtime Governance (unreleased, pending human merge approval)
+
+SafeLoop becomes a local runtime governance layer for autonomous AI agents. The
+defining change: for managed paths, the thing that decides and the thing that
+acts are now the same thing.
+
+### Added
+
+- `safeloop.runtime.v1` protocol: 26 JSON Schema contracts under `protocol/schemas/`.
+- Deterministic canonical action model and SHA-256 action fingerprints.
+- Bound approvals: HMAC-signed, action-bound, single-use, atomically redeemed
+  for an execution permit.
+- Execution permits: the only authorization a managed executor accepts.
+- Local runtime daemon on loopback HTTP plus a unix socket, with two-layer
+  authentication and graceful shutdown.
+- Managed executors for shell, filesystem, git (24 structured operations), HTTP,
+  and downstream MCP.
+- Memory candidate fingerprints, persistence permits, and provenance records.
+- Reference governed memory store for conformance.
+- Four data-driven governance profiles: coding, research, assistant, strict-local.
+- MANAGED / UNMANAGED / DISABLED path model; an enabled consequential UNMANAGED
+  path prevents full-profile certification.
+- `safeloop daemon`, `safeloop run -- <agent>`, `safeloop status`,
+  `safeloop certify`, `safeloop profiles`, `safeloop init --agent`.
+- Conformance suite: 34 checks, applicability-aware, human and JSON output.
+- TypeScript runtime SDK and a first-class Python adapter SDK.
+- Adversarial test suite and a live Hermes bound-approval proof.
+
+### Changed
+
+- Hermes reference adapter migrated from adapter-level approved-context to bound
+  approval tokens, and from decision-only governance to SafeLoop-performed
+  execution for managed families.
+- Budgets and circuit breakers are admission control at the executor call site
+  rather than inputs to a risk score.
+
+### Fixed
+
+- **Approval double-spend.** The approval state store did read-modify-write on a
+  shared JSON file, so two concurrent redemptions could both succeed. Claims are
+  now made by exclusive file create, atomic across processes.
+- **Memory TOCTOU.** A decision did not bind to the candidate it governed, so a
+  safe candidate could be approved and a modified one persisted.
+- **Profile default disposition.** `default_disposition` seeded the
+  most-severe-wins reduce, so a restrictive default swallowed every ALLOW rule
+  beneath it. It now applies only when no rule matches.
+
+### Security
+
+- Runtime signing secret is generated, stored `0600`, and never appears in any
+  payload, event, log line, or error message.
+- SafeLoop trust variables are stripped from child process environments.
+- Captured output is secret-redacted and size-bounded before reaching evidence.
+- Raw credentials in HTTP headers are refused in favour of credential references.
+- No new runtime dependencies were added.
+
+### Boundary
+
+SafeLoop governs actions routed through SafeLoop-managed execution paths. It is
+not a kernel security module, EDR, antivirus, firewall, IAM system, universal
+syscall interceptor, arbitrary process container, or OS sandbox.
+
 ## Current branch - unreleased
 
 This branch consolidates SafeLoop as a local-first agent governance and accountability layer.

@@ -1,7 +1,7 @@
 {
   "name": "safeloop",
-  "version": "0.1.0",
-  "description": "SafeLoop puts deterministic identity, authorization, approvals, risk controls, audit trails, evidence, and execution boundaries around AI agents.",
+  "version": "0.2.0",
+  "description": "SafeLoop is a local runtime governance layer for autonomous AI agents. It evaluates and controls agent actions, approvals, memory, budgets, evidence, and configured managed execution paths routed through the SafeLoop runtime.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -19,7 +19,9 @@
     "dist",
     "docs",
     "schemas",
-    "python"
+    "python",
+    "protocol",
+    "profiles"
   ],
   "scripts": {
     "build:ui": "vite build --config vite.config.mts",
@@ -37,7 +39,10 @@
     "example:live-simulation": "ts-node examples/breaker-live-simulation.ts",
     "demo:codex-governed": "ts-node examples/codex-governed-workflow-demo.ts",
     "demo:k12-local-rag": "ts-node examples/k12-local-rag-demo.ts",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "test:runtime": "jest --config jest.config.js tests/runtime.*.test.ts",
+    "certify": "ts-node src/cli.ts certify",
+    "daemon": "ts-node src/cli.ts daemon"
   },
   "keywords": [
     "ai",

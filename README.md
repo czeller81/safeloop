@@ -17,9 +17,54 @@ SafeLoop puts deterministic identity, authorization, approvals, risk controls, a
 >
 > Govern what agents do - and what they learn.
 
-Git tracks code. **SafeLoop tracks agent work.**
+Git tracks code. **SafeLoop tracks and governs agent work.**
 
 ![SafeLoop runtime governance architecture](docs/assets/runtime-governance-architecture.png)
+
+## v0.2 — Local Runtime Governance
+
+v0.2 adds a resident local runtime. The decision and the side effect become the
+same thing, instead of SafeLoop saying "allowed" and the agent then acting on
+its own:
+
+```
+Agent → SafeLoop adapter/SDK → SafeLoop runtime → governance decision
+      → SafeLoop managed executor → the actual side effect → evidence + ledger
+```
+
+```bash
+safeloop init --agent coding          # pick a governance profile
+safeloop daemon start                 # start the local runtime (127.0.0.1 only)
+safeloop run --profile coding -- <your agent>
+safeloop status                       # sessions, budgets, breakers, managed paths
+safeloop certify                      # 34-check conformance report
+```
+
+What that buys you:
+
+- **Bound approvals.** An approval authorizes one exact action, once. It is
+  HMAC-signed over the action fingerprint plus the full identity tuple, redeemed
+  atomically, and exchanged for an execution permit. There is no "this agent is
+  approved" state anywhere.
+- **Managed execution.** Shell, filesystem, git, HTTP, and MCP run *inside*
+  SafeLoop under a permit. Substituting arguments after approval yields
+  `fingerprint_mismatch` and no side effect.
+- **Governed memory.** A memory decision binds to the exact candidate, so a safe
+  candidate cannot be approved and a poisoned one persisted.
+- **Honest path declarations.** Every consequential path is MANAGED, UNMANAGED,
+  or DISABLED. An enabled consequential UNMANAGED path *prevents* full-profile
+  certification — enforced in code, not in prose.
+
+Language-neutral by contract: the protocol is 26 JSON Schemas
+(`protocol/schemas/`), with TypeScript and Python SDKs that share the runtime.
+SafeLoop can be implemented in TypeScript; it cannot be dependent on it.
+
+Start here: [`docs/RUNTIME_ARCHITECTURE.md`](docs/RUNTIME_ARCHITECTURE.md) ·
+[`docs/APPROVAL_MODEL.md`](docs/APPROVAL_MODEL.md) ·
+[`docs/MANAGED_EXECUTION.md`](docs/MANAGED_EXECUTION.md) ·
+[`docs/PROFILES.md`](docs/PROFILES.md) ·
+[`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) ·
+[`docs/ADAPTER_SPEC.md`](docs/ADAPTER_SPEC.md)
 
 ## Why It Exists
 

@@ -1,0 +1,166 @@
+# SafeLoop v0.2 Runtime Governance — Campaign Checkpoint
+
+This file exists so a fresh engineering agent can resume without the originating
+conversation. It is the authoritative continuity record.
+
+**Last updated:** 2026-08-07
+
+## Campaign objective
+
+Transform SafeLoop from an agent-governance toolkit into a dependable,
+local-first, language-neutral **runtime governance layer for autonomous AI
+agents**, and leave the development branch in a coherent controlled-release
+state.
+
+## Git state
+
+| | |
+| --- | --- |
+| Workspace | `/home/charleszeller/safeloop-pilot` |
+| Branch | `runtime-governance-v0.2` |
+| Base at campaign start | `e0c93ec` (docs-final-certification) |
+| HEAD | `123a41e` |
+| origin/master | `e0c93ec` — **unmodified** |
+| Master merged? | **NO.** Human approval required. |
+| Hermes repo | `/home/charleszeller/.hermes/hermes-agent` @ `72773be23`, local-only, **not pushed** |
+
+Commits created on this branch:
+
+```
+ae66d54 feat(runtime): add v1 governance protocol and canonical action fingerprints
+3cdf8b3 feat(approval): add bound single-use approval redemption and execution permits
+91e3dd6 feat(executor): add managed shell, filesystem, and git execution with permits
+59c1807 feat(runtime): add local safeloop daemon, authentication, and memory binding
+53a079c feat(cli): add safeloop run, daemon, status, certify, profiles, and init
+f369aa6 test(redteam): add adversarial suite and Hermes live bound-approval proof
+123a41e fix(profiles): apply default_disposition only when no rule matches
+```
+
+## Completed components
+
+| Stage | Component | State |
+| --- | --- | --- |
+| A | Baseline + gap analysis | DONE — `docs/RUNTIME_GOVERNANCE_GAP_ANALYSIS.md` |
+| B | Versioned language-neutral protocol | DONE — 26 schemas in `protocol/schemas/` |
+| C | Canonical action model + fingerprints | DONE — `src/runtime/canonicalAction.ts` |
+| D | Bound approvals + atomic redemption | DONE — `boundApproval.ts`, `atomicStateStore.ts` |
+| E | Local runtime daemon | DONE — `daemon.ts`, loopback HTTP + unix socket |
+| F | Local authentication | DONE — `runtimeAuth.ts`, two credential layers |
+| G | Managed execution core | DONE — `managedExecutor.ts` |
+| H/I/J | Shell, filesystem, git executors | DONE — `executors/` |
+| K/L/M | Memory gateway, binding, provenance | DONE — `memoryGateway.ts`, `memoryStore.ts` |
+| N | Adapter contract | DONE — `docs/ADAPTER_SPEC.md` |
+| O | TypeScript SDK | DONE — `client.ts` |
+| P | Python SDK | DONE — `python/safeloop_client/runtime.py` |
+| Q | `safeloop run` | DONE — `cliCommands.ts` |
+| R | Governance profiles | DONE — `profiles/*.profile.json` |
+| S | MANAGED/UNMANAGED/DISABLED model | DONE — enforced in conformance C34 |
+| T | MCP governance gateway | DONE — `executors/mcp.ts` |
+| U | Network/HTTP governance | DONE — `executors/http.ts` |
+| V | Breakers and budgets as admission control | DONE — `budgets.ts` + executor |
+| W | Identity / tenant / delegation | DONE — `runtimeCore.ts` |
+| X | Control tower / status | DONE — `safeloop status` |
+| Y | Conformance framework | DONE — 34 checks, `conformance.ts` |
+| Z | Hermes reference adapter migration | DONE — plugin @ `72773be23` |
+
+## Actual implemented architecture
+
+```
+Agent → adapter/SDK → runtime (canonicalize → fingerprint → decide)
+      → permit → managed executor → real side effect → evidence + ledger
+```
+
+See `docs/RUNTIME_ARCHITECTURE.md` for the module map.
+
+## Major decisions
+
+1. **`trace_id` excluded from the fingerprint binding set.** An approval
+   requested in one trace must stay redeemable by the execution that follows.
+2. **Atomic claims via exclusive file create** (`openSync(path,'wx')`) rather
+   than read-modify-write. Proven across 24 OS processes.
+3. **Identity is runtime-owned after session start.** `propose` overwrites
+   caller-supplied identity from the session record.
+4. **Approvals yield permits, not booleans.** There is no representation of
+   "this agent is approved" anywhere.
+5. **Executors re-canonicalize and recompute the fingerprint.** A caller-supplied
+   fingerprint is never trusted.
+6. **Profiles are data.** Executors hold no profile knowledge.
+7. **Reuse over rebuild.** The risk engine, memory checks (incl. the 527785c
+   poisoning fix), evidence registry, ledger, CommandGuard, and MCP server are
+   unchanged and called by the runtime.
+8. **`default_disposition` applies only when no rule matches** (fixed defect).
+9. **Not-applicable is a first-class conformance outcome**, distinct from pass
+   and fail.
+10. **Unmanageable tools are denied, not passed through.**
+
+## Tests passing
+
+| Suite | Result |
+| --- | --- |
+| Jest | 65 suites / 641 tests PASS |
+| Python | 33 passed (20 runtime SDK, 13 legacy) |
+| Conformance — coding | 34/34 PROFILE_CONFORMANT |
+| Conformance — research | 34/34 PROFILE_CONFORMANT |
+| Conformance — assistant | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
+| Conformance — strict-local | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
+| Hermes live proof | 17/17 |
+| Build / build:ui / tsc | PASS |
+| npm audit | 0 vulnerabilities |
+| MCP hermes doctor | 8/8 PASS |
+
+## Tests failing
+
+None.
+
+## Known limitations
+
+1. **Hermes native memory is not used.** SafeLoop performs memory persistence
+   itself; Hermes' own store is deliberately not the durable store in this
+   integration. Root cause of the original pilot limitation was a config issue
+   (`toolsets: [hermes-cli]` omits the `memory` toolset), not a Hermes version
+   limitation. See `docs/HERMES_REFERENCE_ADAPTER.md`.
+2. **Two Hermes paths remain UNMANAGED** (`env_probe`/`lazy_deps`,
+   `checkpoint_manager`), classified non-consequential by judgement. If that
+   judgement is wrong the Hermes profile drops to PASS_WITH_LIMITATIONS.
+3. **Legacy substring risk heuristic produces false positives** — an action
+   whose text contains "post" scores as EXTERNAL_COMMUNICATION. Because rules
+   and risk combine most-severe-wins this is noisy, not unsafe.
+4. **Linux/WSL is the only certified platform.** Windows named-pipe transport
+   is designed for but not implemented.
+5. **Real Hermes has not been driven by a live model** in v0.2. The adapter is
+   proven by driving its actual middleware; a model-in-the-loop run needs
+   provider credentials.
+6. **SafeLoop governs routed actions only.** Not a kernel module, EDR, firewall,
+   IAM, syscall interceptor, or OS sandbox.
+
+## Unresolved issues
+
+None blocking. Optional follow-ups: Windows named pipe; replace the substring
+risk heuristic with structural facts; model-in-the-loop Hermes run.
+
+## Next exact implementation task
+
+None — the campaign is complete. The next action is **human review and merge**,
+which is not authorized for an agent to perform.
+
+## Commands to resume
+
+```bash
+cd /home/charleszeller/safeloop-pilot && git status && git log --oneline -8
+```
+
+```bash
+npm ci && npm run build && npx tsc --noEmit && npx jest --config jest.config.js --runInBand
+```
+
+```bash
+python3 -m pytest python/tests -q && npm audit --audit-level=moderate && npm run mcp:doctor:hermes
+```
+
+```bash
+npx ts-node src/cli.ts certify --profile coding
+```
+
+```bash
+python3 scripts/hermes-bound-approval-proof.py
+```
