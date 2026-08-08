@@ -568,13 +568,18 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
 
     persistMemory(credential, input): MemoryWriteResult {
       const state = authenticate(credential, input.session_id);
+      const permit = input.permit ?? input.decision.persistence_permit;
       const candidate: MemoryCandidate = {
         ...input.candidate,
         agent_id: state.session.agent.agent_id,
         session_id: state.session.session_id,
         tenant_id: state.session.tenant_id,
+        // The permit records which task was actually governed, so it is the
+        // authority here. Taking the task from the caller instead would let a
+        // candidate governed under task A be activated while claiming task B.
+        task_id: permit?.task_id ?? input.candidate.task_id,
       };
-      return memoryStore.persist(candidate, input.decision, input.permit);
+      return memoryStore.persist(candidate, input.decision, permit);
     },
 
     activeMemories(credential, sessionId) {
