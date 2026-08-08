@@ -236,12 +236,48 @@ reviewer can see what was refused and why — not only what was accepted.
 `SUPERSEDED`. Only `ACTIVE`, unexpired, same-tenant records are retrievable.
 TTL expiry is applied on read, so a stale memory cannot be returned by a race.
 
+## Governance is independent of storage
+
+SafeLoop decides **whether** a candidate durable memory may become active. It
+does not need to be the database, and it must not become a mandatory long-term
+memory engine.
+
+Three ways to complete the lifecycle, all equally supported:
+
+**1. Your own memory engine owns storage (recommended when you have one).**
+
+```
+propose  → decision + persistence permit
+authorize → permit verified and consumed, nothing stored
+your store → you write the exact governed candidate
+```
+
+Over the protocol: `POST /v1/memory/propose` then `POST /v1/memory/authorize`.
+In the TypeScript SDK: `session.memory.authorize(candidate, permit)`.
+In Python: `session.govern_for_external_store(candidate, task_id)` — returns
+`(authorized, detail)`.
+
+Write **exactly** the candidate you submitted. The permit is bound to its
+fingerprint, so a modified candidate was never authorized, and
+`authorize` will tell you so (`candidate_mismatch`).
+
+**2. SafeLoop's reference store handles it.** `POST /v1/memory/persist`, or
+`session.memory.remember(...)`. Convenient when a deployment has no store of
+its own.
+
+**3. Inject your store into the runtime.** `createSafeloopRuntime({ memoryStore })`
+replaces the bundled one entirely while keeping the same protocol surface.
+
+The permit is consumed by whichever path is used, so a candidate cannot be
+authorized for an external store *and* also written into the reference store.
+
 ## The reference store
 
 `src/runtime/memoryStore.ts` exists to prove the architecture end to end and to
 give conformance runs a store when a host agent's native memory is unavailable.
 
-**It is not the preferred memory engine and is not marketed as one.** SafeLoop
-governs memory; it does not need to replace specialized memory systems. A
-production deployment should keep its own store and call
-`authorizePersistence()` before activating anything.
+**It is not the preferred memory engine, is not marketed as one, and is not
+required.** SafeLoop governs memory; it does not replace vector, graph, or
+native memory engines. A deployment with its own store uses path 1 or 3 above
+and never constructs the reference store at all — `createMemoryGateway()` does
+not create one as a side effect.

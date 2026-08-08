@@ -230,14 +230,21 @@ describe('inactive decisions never become retrievable', () => {
 
 describe('TTL and lifecycle', () => {
   it('expires an active memory once its TTL passes', () => {
-    const decision = gateway.propose(
-      { ...valid, requested_ttl: new Date(Date.now() + 40).toISOString() },
-      { scenario: { scenarioId: 's', memoryWritePolicy: 'allow_with_ttl' } },
-    );
-    store.persist({ ...valid, requested_ttl: new Date(Date.now() + 40).toISOString() }, decision, decision.persistence_permit);
+    // One candidate object, one TTL value. Computing `Date.now()` separately
+    // for propose and persist made this flaky under parallel load: the two
+    // calls could land on different milliseconds, producing different
+    // fingerprints and a correct `candidate_mismatch` refusal. The TTL is also
+    // an hour out so only the explicit `expire()` below can end it.
+    const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+    const candidate = { ...valid, requested_ttl: expiresAt };
+
+    const decision = gateway.propose(candidate, {
+      scenario: { scenarioId: 's', memoryWritePolicy: 'allow_with_ttl' },
+    });
+    expect(store.persist(candidate, decision, decision.persistence_permit).activated).toBe(true);
     expect(store.active('tenant-a')).toHaveLength(1);
 
-    expect(store.expire(Date.now() + 60_000)).toBe(1);
+    expect(store.expire(Date.parse(expiresAt) + 1_000)).toBe(1);
     expect(store.active('tenant-a')).toHaveLength(0);
     expect(store.byStatus('EXPIRED', 'tenant-a')).toHaveLength(1);
   });

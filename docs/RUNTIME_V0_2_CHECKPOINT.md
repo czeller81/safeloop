@@ -19,7 +19,7 @@ state.
 | Workspace | `/home/charleszeller/safeloop-pilot` |
 | Branch | `runtime-governance-v0.2` |
 | Base at campaign start | `e0c93ec` (docs-final-certification) |
-| HEAD | `123a41e` |
+| HEAD | tip of `runtime-governance-v0.2` — the RC1 audit commit listed below |
 | origin/master | `e0c93ec` — **unmodified** |
 | Master merged? | **NO.** Human approval required. |
 | Hermes repo | `/home/charleszeller/.hermes/hermes-agent` @ `72773be23`, local-only, **not pushed** |
@@ -34,7 +34,12 @@ ae66d54 feat(runtime): add v1 governance protocol and canonical action fingerpri
 53a079c feat(cli): add safeloop run, daemon, status, certify, profiles, and init
 f369aa6 test(redteam): add adversarial suite and Hermes live bound-approval proof
 123a41e fix(profiles): apply default_disposition only when no rule matches
+07e269b docs: certify SafeLoop v0.2 runtime governance
+fix(memory): decouple governance from storage after RC1 truth audit   <- tip
 ```
+
+Resolve the tip hash with `git log -1 --oneline`; a commit cannot record its
+own hash, so this file names the commit by subject instead.
 
 ## Completed components
 
@@ -97,8 +102,8 @@ See `docs/RUNTIME_ARCHITECTURE.md` for the module map.
 
 | Suite | Result |
 | --- | --- |
-| Jest | 65 suites / 641 tests PASS |
-| Python | 33 passed (20 runtime SDK, 13 legacy) |
+| Jest | 66 suites / 651 tests PASS |
+| Python | 36 passed (23 runtime SDK, 13 legacy) |
 | Conformance — coding | 34/34 PROFILE_CONFORMANT |
 | Conformance — research | 34/34 PROFILE_CONFORMANT |
 | Conformance — assistant | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
@@ -119,17 +124,19 @@ None.
    integration. Root cause of the original pilot limitation was a config issue
    (`toolsets: [hermes-cli]` omits the `memory` toolset), not a Hermes version
    limitation. See `docs/HERMES_REFERENCE_ADAPTER.md`.
-2. **Two Hermes paths remain UNMANAGED** (`env_probe`/`lazy_deps`,
-   `checkpoint_manager`), classified non-consequential by judgement. If that
-   judgement is wrong the Hermes profile drops to PASS_WITH_LIMITATIONS.
+2. **`tools/lazy_deps.py` is consequential** (`pip install`) but not
+   agent-reachable in the certified profile. `_allow_lazy_installs()` defaults
+   true and fails open; certified deployments should set
+   `security.allow_lazy_installs: false`. `env_probe` is genuinely
+   non-consequential; `checkpoint_manager` is DISABLED.
 3. **Legacy substring risk heuristic produces false positives** — an action
    whose text contains "post" scores as EXTERNAL_COMMUNICATION. Because rules
    and risk combine most-severe-wins this is noisy, not unsafe.
 4. **Linux/WSL is the only certified platform.** Windows named-pipe transport
    is designed for but not implemented.
-5. **Real Hermes has not been driven by a live model** in v0.2. The adapter is
-   proven by driving its actual middleware; a model-in-the-loop run needs
-   provider credentials.
+5. **No provider-backed model-in-the-loop Hermes run.** The adapter is proven by
+   driving its actual middleware; no model chose the tool calls. Explicitly not
+   claimed as a model-behaviour certification.
 6. **SafeLoop governs routed actions only.** Not a kernel module, EDR, firewall,
    IAM, syscall interceptor, or OS sandbox.
 
@@ -137,6 +144,13 @@ None.
 
 None blocking. Optional follow-ups: Windows named pipe; replace the substring
 risk heuristic with structural facts; model-in-the-loop Hermes run.
+
+## RC1 audit outcome
+
+A release-truth audit repaired: the memory store being mandatory over the
+protocol (added `/v1/memory/authorize`, SDK methods, injectable store), two
+Hermes path misclassifications, and one flaky TTL test. Verdict held at
+`READY_FOR_V0_2_CONTROLLED_RELEASE`.
 
 ## Next exact implementation task
 

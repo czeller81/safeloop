@@ -20,17 +20,46 @@ REQUIRE_APPROVAL into ALLOW — is gone.
 
 | Check | Baseline | Final |
 | --- | --- | --- |
-| Jest suites | 56 | 65 |
-| Jest tests | 395 | 641 |
-| Python tests | 13 | 33 |
+| Jest suites | 56 | 66 |
+| Jest tests | 395 | 651 |
+| Python tests | 13 | 36 |
 | npm audit | 0 vulnerabilities | 0 vulnerabilities |
 | Build / build:ui | PASS | PASS |
 | TypeScript | PASS | PASS |
 | MCP hermes doctor | 8/8 PASS | 8/8 PASS |
 | Conformance | — | 34 checks, 4 profiles |
-| Hermes live proof | — | 17/17 |
+| Hermes live adapter proof | — | 17/17 |
+| External memory store | — | verified (TS + Python) |
 
 No baseline test was deleted or weakened. New runtime dependencies added: **none**.
+
+## RC1 truth audit
+
+A narrow release-truth audit was run against this branch before release. It
+found and repaired three things:
+
+**1. The reference memory store was mandatory over the protocol.** The
+architecture separated governance from storage in-process, but
+`authorizePersistence` was never exposed as a route. Over the wire the only way
+to complete the memory lifecycle was `/v1/memory/persist`, which writes into
+SafeLoop's reference store — so every non-TypeScript adapter was forced to use
+it, and the documentation instructed something the protocol could not deliver.
+Repaired with `/v1/memory/authorize`, SDK methods in both languages, and an
+injectable store. SafeLoop governs whether memory may become active; it is not
+a mandatory memory engine.
+
+**2. A Hermes path was misclassified.** `tools/lazy_deps.py` was recorded as
+"non-consequential". It runs `uv pip install` / `pip install` / `ensurepip` —
+network access, package installation, and third-party code placed where it will
+later execute. It is *not* agent-reachable in the certified profile, which is
+why the certification outcome stands, but the stated reason was wrong.
+`tools/checkpoint_manager.py` was likewise recorded as UNMANAGED when it is
+DISABLED (`checkpoints.enabled: false`, no non-test caller).
+
+**3. A flaky memory TTL test.** It computed `Date.now() + 40` twice, so under
+parallel load the two candidates carried different TTLs, different
+fingerprints, and the binding correctly refused. A non-deterministic
+security-adjacent test is worse than no test.
 
 ## The three defects found and fixed
 
@@ -84,7 +113,10 @@ Candidate fingerprint → decision → persistence permit → activation of that
 candidate → provenance. The 527785c poisoning checks are reused verbatim. Seven
 substitution vectors rejected; five poisoning phrasings quarantined and never
 retrievable; TTL, merge, quarantine, review, and rejection all preserved.
-Reference store provided for conformance and explicitly not marketed as the
+Governance is independent of storage: `/v1/memory/authorize` verifies and
+consumes a permit without storing anything, so an external vector, graph, or
+native engine can own durable memory. The reference store is optional and
+injectable, provided for conformance and explicitly not marketed as the
 preferred memory engine.
 
 ## Conformance
@@ -109,8 +141,9 @@ Hermes v0.17.0 (2026.6.19), upstream `190e1ffac`, adapter `72773be23`
 - **DISABLED:** MCP tools, code execution, delegation, browser, computer use,
   cron, messaging, voice, gateway service, desktop/updater helpers, container
   environments
-- **UNMANAGED (non-consequential):** environment probing / dependency loading;
-  checkpoint maintenance
+- **UNMANAGED, non-consequential:** environment probing (`env_probe.py` — read-only version probes)
+- **UNMANAGED, consequential but not agent-reachable:** `lazy_deps.py` (`pip install`) —
+  a host-level path outside the routed-action boundary; see the limitation below
 
 17/17 live checks against a real runtime and a disposable git repository,
 driving the actual plugin middleware. Including: `SAFELOOP_HERMES_APPROVED=1` set
@@ -181,21 +214,42 @@ A local process running as the same user can read the `0600` credential and
 secret files. That is the limit of what a userspace runtime can offer, and it is
 the same model as a Docker socket.
 
+## Explicit release claims
+
+| Claim | Answer |
+| --- | --- |
+| Hermes provider-backed model-in-the-loop certification | **NO** |
+| Hermes native memory certification | **NO** |
+| SafeLoop external-memory-adapter compatibility | **YES** |
+| Hermes adapter/middleware live certification | **YES** |
+| Enabled consequential agent-reachable unmanaged path in the certified coding profile | **NONE KNOWN** |
+
+The Hermes reference adapter and the real Hermes middleware were exercised live
+against the SafeLoop runtime. Provider-backed autonomous model generation was
+not part of this certification.
+
 ## Known limitations
 
 1. **Hermes native memory is not used.** SafeLoop performs persistence itself.
    The original "memory tool unavailable" finding was a configuration issue
    (`toolsets: [hermes-cli]` omits the `memory` toolset), not a Hermes v0.17.0
    limitation. No claim of Hermes native memory certification is made.
-2. **Two Hermes UNMANAGED paths** classified non-consequential by judgement. This
-   is the weakest link in the Hermes certification and is stated plainly rather
-   than buried.
+2. **`tools/lazy_deps.py` is a consequential host-level path.** It can
+   `pip install`. No model-called action reaches it in the certified profile,
+   but `_allow_lazy_installs()` defaults to `True` and fails open, so the
+   protection is "the code path is not loaded", not "installs are disabled".
+   Enabling any media, web, platform, or remote-environment toolset would make
+   it reachable without SafeLoop knowing. Certified deployments should set
+   `security.allow_lazy_installs: false`. This is the weakest link in the
+   Hermes certification and it is a property of the configuration.
 3. **Legacy substring risk heuristic false positives** — text containing "post"
    scores as EXTERNAL_COMMUNICATION. Makes SafeLoop stricter, not looser.
 4. **Linux/WSL is the only certified platform.** Windows named-pipe transport is
    designed for but not implemented.
-5. **No model-in-the-loop Hermes run in v0.2.** The adapter is proven by driving
-   its actual middleware; a live model run needs provider credentials.
+5. **No provider-backed model-in-the-loop Hermes run.** The adapter is proven by
+   driving its actual middleware; no model chose the tool calls. This is what
+   makes the deterministic security result reproducible, and it is explicitly
+   not claimed as a model-behaviour certification.
 6. **Event identity is locally generated** and spoofable by a malicious local
    writer; ledger sealing detects post-seal edits but does not prevent writes.
 

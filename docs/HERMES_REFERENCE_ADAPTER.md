@@ -79,22 +79,70 @@ The governed boundary is `agent/tool_executor.py`, which runs
 | Messaging | `tools/discord_tool.py`, `feishu_*`, `homeassistant_tool.py` | yes | no | **DISABLED** — not in the enabled toolset list |
 | Voice sidecar | `tools/voice_mode.py` | yes | no | **DISABLED** — denied by the adapter; not enabled |
 | Background processes | `tools/process_registry.py` | yes | only via terminal | **MANAGED** at the terminal boundary; direct API not reachable from a model-called tool |
-| Environment probing | `tools/env_probe.py`, `tools/lazy_deps.py` | low | yes | **UNMANAGED** — non-consequential; probes and dependency loading, no user-visible state change |
-| Checkpoint maintenance | `tools/checkpoint_manager.py` | low | yes | **UNMANAGED** — writes only inside Hermes' own state directory |
+| Environment probing | `tools/env_probe.py` | no | yes | **UNMANAGED** — read-only `--version` probes via `_run()`: `capture_output`, `stdin=DEVNULL`, 3s timeout, no writes, no network |
+| Lazy dependency install | `tools/lazy_deps.py` | **yes** | not agent-reachable | **UNMANAGED (host-level)** — `_install()` runs `uv pip install` / `pip install` / `ensurepip`. See below. |
+| Checkpoint maintenance | `tools/checkpoint_manager.py` | yes | **no** | **DISABLED** — `checkpoints.enabled: false`, and no non-test caller exists in the tree |
 | Gateway service | `gateway/run.py` | yes | **no** | **DISABLED** — the gateway is not run in the certified configuration |
 | Desktop / updater helpers | `apps/desktop/electron/*` | yes | **no** | **DISABLED** — desktop app not run |
 | Docker / Singularity envs | `tools/environments/{docker,singularity}.py` | yes | no | **DISABLED** — local environment only |
 
-Two `UNMANAGED` rows remain (`env_probe`/`lazy_deps` and `checkpoint_manager`).
-Both are classified **non-consequential**: they do not change user-visible state
-outside Hermes' own state directory. Under the rule in
-`docs/MANAGED_EXECUTION.md`, only *consequential* UNMANAGED paths block
-full-profile certification, so these do not.
+### The two UNMANAGED rows, examined
 
-**This classification is a judgement, and it is the weakest link in the Hermes
-certification.** If either path is later shown to produce a consequential side
-effect, the Hermes profile drops to `PASS_WITH_LIMITATIONS`. It is recorded here
-rather than buried so that a reviewer can disagree with it.
+An earlier draft of this document classified both remaining UNMANAGED rows as
+"non-consequential". A closer trace showed that was **wrong for one of them**,
+and the corrected analysis is below. Only *consequential and agent-reachable*
+UNMANAGED paths block full-profile certification.
+
+**`tools/env_probe.py` — non-consequential. Confirmed.**
+Its single subprocess site is `_run()`, which executes short read-only version
+probes with `capture_output=True`, `stdin=subprocess.DEVNULL`, and a 3-second
+timeout. There are no file writes, no network calls, and no external state
+mutation anywhere in the module. It is invoked at agent startup when
+`agent.environment_probe: true` (which this configuration sets). Reading the
+local Python version is not a consequential act.
+
+**`tools/lazy_deps.py` — CONSEQUENTIAL, but not agent-reachable here.**
+`_install()` runs `uv pip install`, `python -m pip install`, and `ensurepip`.
+That means network access, package installation, and third-party code placed
+where it will later execute in-process. Describing it as non-consequential was
+a mistake.
+
+What keeps it outside the certified boundary is *reachability*, not harmlessness:
+
+- The install path is reached only from `tools/vision_tools.py`,
+  `transcription_tools.py`, `tts_tool.py`, `fal_common.py`,
+  `environments/modal.py`, `environments/daytona.py`,
+  `computer_use/cua_backend.py`, and the `plugins/web|video_gen|memory|platforms`
+  providers. Under `toolsets: [hermes-cli]` none of those toolsets or plugins
+  are loaded, and the adapter additionally denies computer use and remote
+  environments.
+- The one bootstrap reference, `hermes_bootstrap.py:179`, calls
+  `activate_durable_lazy_target()`, which only wires an existing directory onto
+  `sys.path`. It does not install.
+
+So no model-called action in the certified profile can reach it. It is recorded
+as a **host-level** consequential path — the same category as the operator
+having run `pip install` before starting Hermes — and it sits outside SafeLoop's
+routed-action boundary by construction.
+
+**Certified-configuration dependency, stated plainly.** `_allow_lazy_installs()`
+defaults to `True` and *fails open* when config is unreadable. The kill switch
+`security.allow_lazy_installs: false` is opt-in. So the protection here is "the
+code path is not loaded", not "installs are disabled". Enabling any media, web,
+platform, or remote-environment toolset would make a consequential
+network-and-install path reachable **without SafeLoop being aware of it**.
+
+Recommended hardening for a certified deployment:
+
+```yaml
+security:
+  allow_lazy_installs: false
+```
+
+This is the weakest link in the Hermes certification, and it is a property of
+the *configuration*, not of SafeLoop. A reviewer who disagrees with the
+reachability analysis should treat the coding profile as
+`PASS_WITH_LIMITATIONS` rather than fully certified.
 
 ### The enabled-toolset finding
 
@@ -117,6 +165,14 @@ against a real runtime and a disposable git repository under `/tmp`. No mock
 stands in for the adapter or the runtime.
 
 **17/17 checks pass.** Evidence: `docs/evidence/hermes-bound-approval-proof.json`.
+
+**Scope of this proof.** The Hermes reference adapter and the real Hermes
+middleware were exercised live against the SafeLoop runtime. Provider-backed
+autonomous model generation was **not** part of this certification: no model
+credentials were used and no model chose the tool calls. The tool calls were
+issued directly to the same middleware function Hermes invokes, which is what
+makes the deterministic security result reproducible. What is certified is the
+adapter and the runtime, not a model's behaviour.
 
 | Check | Result |
 | --- | --- |

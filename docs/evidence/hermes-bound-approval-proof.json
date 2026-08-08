@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-08T02:50:57Z",
+  "generated_at": "2026-08-08T04:52:07Z",
   "hermes_version": "v0.17.0 (2026.6.19)",
   "adapter": "plugins/safeloop_guard",
   "profile": "coding",
@@ -44,7 +44,7 @@
     {
       "test": "git commit held for approval",
       "expected": "blocked with an approval request",
-      "actual": "approval-request-1786157457623-795c70ce4c1852c6",
+      "actual": "approval-request-1786164727361-372fefd04bee2d3c",
       "side_effect": "no commit",
       "result": "PASS"
     },

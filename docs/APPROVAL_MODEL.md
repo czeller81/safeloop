@@ -80,6 +80,47 @@ part of the fingerprint binding set, checking fingerprint first would report
 every cross-tenant attempt as a generic `fingerprint_mismatch`. The ledger and
 the conformance suite need to know which boundary was actually violated.
 
+## Why `trace_id` is excluded from the binding
+
+`trace_id` is deliberately **not** part of the fingerprint binding set. That is a
+security decision, so it deserves an argument rather than an assertion.
+
+**What `trace_id` is.** A correlation identifier for observability. The runtime
+generates one per session (`newId('trace')`) and adapters may supply their own
+for cross-system tracing. It groups related events in a ledger or a dashboard.
+
+**What it is not.** It confers no authority and establishes no isolation:
+
+- It is **caller-suppliable** on `ActionProposal`. An adapter can put any value
+  there. A field an attacker controls cannot be a security boundary.
+- It is **not** consulted by any policy rule. `ProfileRuleMatch` has no
+  `trace_id` condition, and the risk engine never reads it.
+- It gates **no** state. Sessions, tasks, tenants, budgets, breakers, approvals,
+  and permits are all keyed by ids the runtime owns.
+- The runtime **overwrites** every identity field on `propose`; `trace_id` is
+  not in that set precisely because it is metadata, not identity.
+
+**Why exclusion is required, not merely convenient.** Approval and execution are
+different moments and frequently different traces: the proposal happens in the
+agent's turn, the human decides later, and the execution follows. Binding a
+correlation id would expire approvals for a reason unrelated to authority.
+
+**What still constrains an approval.** Excluding `trace_id` cannot let an
+approval cross a meaningful boundary, because the token remains bound to
+`tenant_id`, `agent_id`, `task_id`, `session_id`, `scenario_id`, and the action
+fingerprint — which itself covers `action_kind`, `tool`, `operation`,
+`arguments`, `cwd`, `target`, `resource`, `method`, and `parent_agent_id`. Every
+axis along which authority or isolation is actually defined is bound. Two
+actions that differ only in `trace_id` are the same action by every measure that
+governs what may happen.
+
+**Conclusion: observability-only.** No stable execution-chain identifier is
+needed, because `session_id` + `task_id` already provide the stable chain, and
+both *are* bound. Regression coverage:
+`tests/runtime.canonicalAction.test.ts` asserts `trace_id` changes do not change
+the fingerprint and that it never appears in the canonical form;
+`tests/runtime.boundApproval.test.ts` covers every bound axis rejecting.
+
 ## Atomic single use
 
 The v0.1 approval store did read → check → append → write on a shared JSON file.

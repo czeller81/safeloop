@@ -20,7 +20,7 @@ import { createPermitAuthority, type PermitAuthority } from './executionPermit';
 import { createBudgetTracker, type BudgetTracker } from './budgets';
 import { createManagedExecutor, type BreakerGate, type ManagedExecutor } from './managedExecutor';
 import { createRuntimeRecorder, type RuntimeRecorder } from './recorder';
-import { createMemoryGateway, type MemoryGateway } from './memoryGateway';
+import { createMemoryGateway, type MemoryGateway, type MemoryPersistenceAuthorization } from './memoryGateway';
 import { createGovernedMemoryStore, type GovernedMemoryStore, type MemoryWriteResult } from './memoryStore';
 import { evaluateProfile, loadProfile, moreSevere, type GovernanceProfile } from './profiles';
 import { createShellExecutor } from './executors/shell';
@@ -111,6 +111,14 @@ export interface SafeloopRuntimeConfig {
   maxOutputBytes?: number;
   fetchImpl?: HttpFetch;
   mcpInvoke?: McpInvoker;
+  /**
+   * Replace the bundled reference memory store. The reference store exists to
+   * prove the binding architecture and to serve conformance runs; it is not
+   * the preferred memory engine and is not required. Deployments with their
+   * own store either inject it here or skip it entirely and call
+   * `authorizeMemoryPersistence` before activating anything.
+   */
+  memoryStore?: GovernedMemoryStore;
 }
 
 export interface SafeloopRuntime {
@@ -121,6 +129,12 @@ export interface SafeloopRuntime {
   redeemApproval(credential: string, input: { session_id: string; task_id: string; token: BoundApprovalToken; action: ActionProposal }): ApprovalRedemption;
   execute(credential: string, input: { session_id: string; permit: ExecutionPermit | undefined; action: ActionProposal; timeout_ms?: number }): Promise<ExecutionResult>;
   proposeMemory(credential: string, input: { session_id: string; task_id: string; candidate: MemoryCandidate }): MemoryDecision;
+  /**
+   * Verify and consume a persistence permit without storing anything, so an
+   * external memory engine can own durable storage while SafeLoop still
+   * governs whether the candidate may become active.
+   */
+  authorizeMemoryPersistence(credential: string, input: { session_id: string; candidate: MemoryCandidate; permit?: MemoryPersistencePermit }): MemoryPersistenceAuthorization;
   persistMemory(credential: string, input: { session_id: string; candidate: MemoryCandidate; decision: MemoryDecision; permit?: MemoryPersistencePermit }): MemoryWriteResult;
   activeMemories(credential: string, sessionId: string): ReturnType<GovernedMemoryStore['active']>;
   finishTask(credential: string, input: { session_id: string; task_id: string }): void;
@@ -185,7 +199,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
   const approvals = createApprovalAuthority({ storageOptions, secret, permits });
   const recorder = createRuntimeRecorder(storageOptions);
   const memoryGateway = createMemoryGateway({ storageOptions, secret });
-  const memoryStore = createGovernedMemoryStore(memoryGateway, storageOptions);
+  const memoryStore = config.memoryStore ?? createGovernedMemoryStore(memoryGateway, storageOptions);
 
   const sessions = new Map<string, SessionState>();
   const credentials = new Map<string, string>(); // credential → session_id
@@ -221,6 +235,28 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       session_id: state.session.session_id,
       scenario_id: state.session.scenario_id ?? '',
       tenant_id: state.session.tenant_id,
+    };
+  }
+
+  /**
+   * Identity on a memory candidate comes from the session, and the task comes
+   * from the permit that governed it. Taking the task from the caller instead
+   * would let a candidate governed under task A be activated while claiming
+   * task B. Shared by authorization and reference-store persistence so both
+   * normalize identically — a mismatch between them would produce fingerprints
+   * that differ for no security reason.
+   */
+  function bindCandidate(
+    state: SessionState,
+    candidate: MemoryCandidate,
+    permit?: MemoryPersistencePermit,
+  ): MemoryCandidate {
+    return {
+      ...candidate,
+      agent_id: state.session.agent.agent_id,
+      session_id: state.session.session_id,
+      tenant_id: state.session.tenant_id,
+      task_id: permit?.task_id ?? candidate.task_id,
     };
   }
 
@@ -566,20 +602,30 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       });
     },
 
+    /**
+     * Bind a candidate to its permit and consume the permit, WITHOUT storing
+     * anything.
+     *
+     * This is the call an adapter makes when its own memory engine — vector,
+     * graph, or a host agent's native store — owns durable storage. SafeLoop
+     * governs whether a candidate may become active; it does not need to be
+     * the database. Without this exposed at the protocol boundary, the only
+     * way to complete the lifecycle over the wire was `persistMemory`, which
+     * writes into SafeLoop's reference store — making that store mandatory in
+     * practice for every non-TypeScript adapter.
+     *
+     * The permit is consumed here, so an adapter cannot authorize once and
+     * then also spend the same permit through `persistMemory`.
+     */
+    authorizeMemoryPersistence(credential, input): MemoryPersistenceAuthorization {
+      const state = authenticate(credential, input.session_id);
+      return memoryGateway.authorizePersistence(input.permit, bindCandidate(state, input.candidate, input.permit));
+    },
+
     persistMemory(credential, input): MemoryWriteResult {
       const state = authenticate(credential, input.session_id);
       const permit = input.permit ?? input.decision.persistence_permit;
-      const candidate: MemoryCandidate = {
-        ...input.candidate,
-        agent_id: state.session.agent.agent_id,
-        session_id: state.session.session_id,
-        tenant_id: state.session.tenant_id,
-        // The permit records which task was actually governed, so it is the
-        // authority here. Taking the task from the caller instead would let a
-        // candidate governed under task A be activated while claiming task B.
-        task_id: permit?.task_id ?? input.candidate.task_id,
-      };
-      return memoryStore.persist(candidate, input.decision, permit);
+      return memoryStore.persist(bindCandidate(state, input.candidate, permit), input.decision, permit);
     },
 
     activeMemories(credential, sessionId) {

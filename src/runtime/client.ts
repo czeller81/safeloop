@@ -29,11 +29,13 @@ import type {
   GovernanceDecision,
   MemoryCandidate,
   MemoryDecision,
+  MemoryPersistencePermit,
   RuntimeHealth,
   SessionContext,
 } from './protocol';
 import type { RuntimeStatus } from './runtimeCore';
 import type { MemoryWriteResult } from './memoryStore';
+import type { MemoryPersistenceAuthorization } from './memoryGateway';
 import type { SafeloopStorageOptions } from '../localStorage';
 
 export interface SafeloopClientOptions {
@@ -125,6 +127,13 @@ export interface SafeloopSession {
   executeApproved(proposal: ActionProposal, taskId: string, token: BoundApprovalToken): Promise<ExecutionResult>;
   memory: {
     propose(candidate: MemoryCandidate, taskId: string): Promise<MemoryDecision>;
+    /**
+     * Verify and consume a persistence permit WITHOUT storing anything. Use
+     * this when your own memory engine owns durable storage: SafeLoop governs
+     * whether the candidate may become active, and you write it yourself.
+     */
+    authorize(candidate: MemoryCandidate, permit?: MemoryPersistencePermit): Promise<MemoryPersistenceAuthorization>;
+    /** Activate into SafeLoop's optional reference store. */
     persist(candidate: MemoryCandidate, decision: MemoryDecision): Promise<MemoryWriteResult>;
     /** Govern and, if authorized, activate in one call. */
     remember(candidate: MemoryCandidate, taskId: string): Promise<MemoryWriteResult>;
@@ -262,6 +271,9 @@ export function createSafeloopClient(options: SafeloopClientOptions = {}): Safel
         },
 
         memory: {
+          authorize: (candidate, permit) => request<MemoryPersistenceAuthorization>('/v1/memory/authorize', {
+            credential: sessionCredential, session_id: sessionId, candidate, permit,
+          }),
           propose: (candidate, taskId) => request<MemoryDecision>('/v1/memory/propose', {
             credential: sessionCredential, session_id: sessionId, task_id: taskId, candidate,
           }),

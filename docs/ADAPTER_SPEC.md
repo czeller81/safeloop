@@ -24,7 +24,8 @@ disposition, permit, and memory decision comes from the runtime.
 | `redeem_approval` | exchange a bound token for a permit |
 | `record_execution_result` | performed by the runtime automatically |
 | `propose_memory` | submit a `MemoryCandidate` |
-| `persist_authorized_memory` | activate under a `MemoryPersistencePermit` |
+| `authorize_memory_persistence` | verify and consume a permit **without storing**, when your own engine owns durable memory |
+| `persist_authorized_memory` | activate under a `MemoryPersistencePermit` into SafeLoop's optional reference store |
 | `finish_task` / `finish_session` | close cleanly; seal evidence |
 
 ## Identity propagation
@@ -78,7 +79,17 @@ REQUIRE_APPROVAL is a normal outcome, not an error. Report the
 `approval_request_id` and `action_fingerprint` so a human can act, and resume
 with the same proposal once a token exists.
 
-### 6. Never handle raw secrets
+### 6. Bring your own memory store if you have one
+
+SafeLoop governs whether a candidate may become active; it is not your database.
+If you already have a vector, graph, or native memory engine, call
+`/v1/memory/authorize` and then write the candidate yourself. Write *exactly*
+the candidate you submitted — the permit is bound to its fingerprint.
+
+Use `/v1/memory/persist` only when you have no store of your own. Do not treat
+SafeLoop's reference store as a required dependency; it is not one.
+
+### 7. Never handle raw secrets
 
 Use `credential_reference`, not credentials. Never log a session credential, a
 runtime credential, or a token.

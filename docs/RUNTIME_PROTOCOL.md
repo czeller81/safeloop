@@ -135,7 +135,8 @@ carrying identity additionally require a session credential in the body.
 | POST | `/v1/approval/redeem` | redeem a bound token for a permit |
 | POST | `/v1/action/execute` | execute under a permit |
 | POST | `/v1/memory/propose` | govern a memory candidate |
-| POST | `/v1/memory/persist` | activate an authorized candidate |
+| POST | `/v1/memory/authorize` | verify and consume a persistence permit **without storing** — for adapters whose own engine owns durable memory |
+| POST | `/v1/memory/persist` | activate an authorized candidate into SafeLoop's optional reference store |
 | POST | `/v1/memory/active` | retrieve active memory for the tenant |
 
 Errors return `{ "error": "<code>", "message": "..." }` with codes such as

@@ -347,6 +347,22 @@ class RuntimeSession:
     def propose_memory(self, candidate: dict[str, Any], task_id: str) -> dict[str, Any]:
         return self.client.request("/v1/memory/propose", self._auth({"task_id": task_id, "candidate": candidate}))
 
+    def authorize_memory(self, candidate: dict[str, Any], permit: dict[str, Any] | None) -> dict[str, Any]:
+        """Verify and consume a persistence permit WITHOUT storing anything.
+
+        Use this when your own memory engine — vector, graph, or a host agent's
+        native store — owns durable storage. SafeLoop governs whether the exact
+        candidate may become active; you perform the write.
+
+        The permit is consumed here, so it cannot also be spent through
+        ``persist_memory``. Returns a mapping with ``authorized`` and, when
+        refused, ``failure`` and ``reason``.
+        """
+        return self.client.request(
+            "/v1/memory/authorize",
+            self._auth({"candidate": candidate, "permit": permit}),
+        )
+
     def persist_memory(self, candidate: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
         return self.client.request(
             "/v1/memory/persist",
@@ -354,9 +370,29 @@ class RuntimeSession:
         )
 
     def remember(self, candidate: dict[str, Any], task_id: str) -> dict[str, Any]:
-        """Govern a candidate and activate it only if the runtime authorized it."""
+        """Govern a candidate and activate it in SafeLoop's reference store.
+
+        Convenience for deployments without their own memory engine. If you
+        have one, use ``govern_for_external_store`` instead — SafeLoop does not
+        need to be your database.
+        """
         decision = self.propose_memory(candidate, task_id)
         return self.persist_memory(candidate, decision)
+
+    def govern_for_external_store(self, candidate: dict[str, Any], task_id: str) -> tuple[bool, dict[str, Any]]:
+        """Govern a candidate for storage in your own memory engine.
+
+        Returns ``(authorized, detail)``. Write the candidate to your store
+        only when ``authorized`` is True, and write *exactly* the candidate you
+        passed in — the permit is bound to its fingerprint, so a modified
+        candidate would not have been authorized.
+        """
+        decision = self.propose_memory(candidate, task_id)
+        permit = decision.get("persistence_permit")
+        if not permit:
+            return False, {"decision": decision.get("decision"), "reasons": decision.get("reasons", [])}
+        authorization = self.authorize_memory(candidate, permit)
+        return bool(authorization.get("authorized")), authorization
 
     def active_memories(self) -> list[dict[str, Any]]:
         return list(self.client.request("/v1/memory/active", self._auth()).get("memories", []))

@@ -130,6 +130,12 @@ export function buildRoutes(): Route[] {
       handle: (body, runtime) => runtime.proposeMemory(sessionCredential(body), body as never),
     },
     {
+      // Governance without storage: for adapters whose own memory engine owns
+      // durable storage. Consumes the permit and returns the authorization.
+      method: 'POST', path: '/v1/memory/authorize', authenticated: true,
+      handle: (body, runtime) => runtime.authorizeMemoryPersistence(sessionCredential(body), body as never),
+    },
+    {
       method: 'POST', path: '/v1/memory/persist', authenticated: true,
       handle: (body, runtime) => runtime.persistMemory(sessionCredential(body), body as never),
     },

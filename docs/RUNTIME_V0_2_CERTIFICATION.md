@@ -1,7 +1,7 @@
 # SafeLoop v0.2 Certification Matrix
 
 **Date:** 2026-08-07
-**Branch:** `runtime-governance-v0.2` @ `123a41e`
+**Branch:** `runtime-governance-v0.2` (RC1 truth audit applied)
 **Protocol:** `safeloop.runtime.v1`
 **Runtime:** 0.2.0
 **Verdict:** `READY_FOR_V0_2_CONTROLLED_RELEASE`
@@ -47,18 +47,40 @@ Statuses: `VERIFIED_WORKING`, `PARTIAL`, `MISSING`, `OUT_OF_SCOPE`.
 | 35 | `safeloop run` | VERIFIED_WORKING | Full lifecycle; declares managed paths; seals ledger |
 | 36 | Conformance suite | VERIFIED_WORKING | 34 checks; applicability-aware; four profiles certified |
 | 37 | Hermes reference adapter | VERIFIED_WORKING | Migrated to bound approvals; managed families execute in SafeLoop |
-| 38 | Hermes live bound approval | VERIFIED_WORKING | 17/17 against real runtime + disposable repo |
-| 39 | Hermes live memory | **PARTIAL** | Lifecycle proven through the adapter; Hermes' *native* store deliberately unused — see below |
-| 40 | Hermes path inventory | VERIFIED_WORKING | Fresh audit; 2 non-consequential UNMANAGED rows disclosed |
+| 38 | Hermes live adapter/middleware bound approval | VERIFIED_WORKING | 17/17 against real runtime + disposable repo. Provider-backed model generation not included — see below. |
+| 39 | Hermes native memory | **OUT_OF_SCOPE** | Lifecycle proven through the adapter; Hermes' *native* store deliberately unused — see below |
+| 40 | Hermes path inventory | VERIFIED_WORKING | Re-audited at RC1: `checkpoint_manager` corrected to DISABLED; `lazy_deps` corrected to consequential-but-not-agent-reachable |
 | 41 | Bypass audit | VERIFIED_WORKING | No enabled consequential bypass found within the certified boundary |
 | 42 | Failure testing | VERIFIED_WORKING | Exception, timeout, corrupt state, corrupt ledger, outage — all fail closed |
 | 43 | Multi-tenant testing | VERIFIED_WORKING | Cross-tenant permit/approval/memory all rejected |
 | 44 | Security claims | VERIFIED_WORKING | Repository-wide audit found only disclaimers, no overclaims |
 | 45 | Dependency audit | VERIFIED_WORKING | 0 vulnerabilities; **no new runtime dependencies added** |
+| 46 | External memory store compatibility | VERIFIED_WORKING | `/v1/memory/authorize` + SDK methods; reference store injectable and optional |
+| 47 | Model-in-the-loop Hermes certification | **OUT_OF_SCOPE** | No provider credentials used; explicitly not claimed |
 
-## PARTIAL items
+## Explicit release claims
 
-### 39 — Hermes live memory
+| Claim | Answer |
+| --- | --- |
+| Hermes provider-backed model-in-the-loop certification | **NO** |
+| Hermes native memory certification | **NO** |
+| SafeLoop external-memory-adapter compatibility | **YES** |
+| Hermes adapter/middleware live certification | **YES** |
+| Enabled consequential agent-reachable unmanaged path in the certified coding profile | **NONE KNOWN** |
+
+## OUT_OF_SCOPE items
+
+### 47 — Model-in-the-loop
+
+The Hermes reference adapter and the real Hermes middleware were exercised live
+against the SafeLoop runtime. **Provider-backed autonomous model generation was
+not part of this certification.** No model credentials were used and no model
+selected the tool calls; they were issued directly to the same middleware
+function Hermes invokes. What is certified is the adapter and the runtime, not a
+model's behaviour. This does not weaken the deterministic security result — it
+is what makes it reproducible.
+
+### 39 — Hermes native memory
 
 **What is proven.** The complete memory lifecycle through the real adapter
 middleware: candidate → governance → bound persistence permit → activation →
@@ -100,14 +122,23 @@ reported as its own outcome rather than being counted as a pass.
 
 **MANAGED:** shell/terminal, filesystem, git, memory.
 **DISABLED:** MCP tools, code execution, delegation, browser, computer use, cron,
-messaging, voice, gateway service, desktop/updater helpers, container envs.
-**UNMANAGED (non-consequential):** environment probing / dependency loading;
+messaging, voice, gateway service, desktop/updater helpers, container envs,
 checkpoint maintenance.
+**UNMANAGED, non-consequential:** `env_probe.py` — read-only version probes, no
+writes, no network.
+**UNMANAGED, consequential but not agent-reachable:** `lazy_deps.py` — can
+`pip install`, but no model-called action in the certified profile reaches it.
 
-No enabled consequential UNMANAGED path exists in the certified boundary, so
-full-profile certification is available. The non-consequential classification of
-the two UNMANAGED rows is a judgement and is the weakest link; it is stated
-plainly in `docs/HERMES_REFERENCE_ADAPTER.md` rather than buried.
+No enabled consequential **agent-reachable** UNMANAGED path exists in the
+certified boundary, so full-profile certification is available.
+
+The `lazy_deps` reachability analysis is the weakest link, and it depends on
+configuration rather than on SafeLoop: `_allow_lazy_installs()` defaults to
+`True` and fails open, so the protection is "the code path is not loaded", not
+"installs are disabled". Certified deployments should set
+`security.allow_lazy_installs: false`. A reviewer who disagrees with the
+reachability analysis should treat the coding profile as `PASS_WITH_LIMITATIONS`.
+Stated plainly in `docs/HERMES_REFERENCE_ADAPTER.md` rather than buried.
 
 ## Security boundary
 
