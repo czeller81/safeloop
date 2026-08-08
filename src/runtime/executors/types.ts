@@ -18,6 +18,13 @@ export interface ExecutorOutcome {
 export interface ExecutorContext {
   action: CanonicalAction;
   workspace?: string;
+  /**
+   * The workspace relation the permit was issued under. An executor must not
+   * let execution-time classification become more privileged than this.
+   */
+  authorizedWorkspaceRelation?: 'inside' | 'outside' | 'unknown';
+  /** Resolved workspace root the permit was issued against. */
+  authorizedWorkspaceRoot?: string;
   timeoutMs: number;
   maxOutputBytes: number;
   /** Applied to every captured stream before it reaches evidence or the ledger. */
@@ -32,6 +39,22 @@ export interface ExecutorContext {
 export interface ManagedExecutorPlugin {
   kind: ActionKind;
   execute(context: ExecutorContext): Promise<ExecutorOutcome>;
+}
+
+/**
+ * Thrown when the effective target of a filesystem operation no longer sits
+ * where it did when the permit was issued — the SL-RC1-HIGH-001 class of
+ * attack. Surfaces as a REJECTED execution, never as a completed side effect.
+ */
+export class WorkspaceContainmentError extends Error {
+  constructor(
+    message: string,
+    public readonly reason: 'workspace_relation_changed' | 'workspace_verification_failed',
+    public readonly detail: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = 'WorkspaceContainmentError';
+  }
 }
 
 /** Thrown for malformed action arguments. Surfaces as `executor_error`. */

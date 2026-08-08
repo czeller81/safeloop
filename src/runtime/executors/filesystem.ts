@@ -21,8 +21,10 @@ import {
 import { createHash } from 'crypto';
 import { dirname, isAbsolute, resolve } from 'path';
 import { redactAndBound } from '../redaction';
+import { resolveRealPath, verifyContainment, type ContainmentMode } from '../workspace';
 import {
   ExecutorArgumentError,
+  WorkspaceContainmentError,
   optionalString,
   requireString,
   type ExecutorArtifact,
@@ -60,6 +62,79 @@ function absolute(path: string, cwd: string): string {
   return isAbsolute(path) ? path : resolve(cwd, path);
 }
 
+/**
+ * Operations that act on the entry itself rather than on what it points to.
+ * `rm` unlinks a symlink; `rename` moves it. Following the final component for
+ * these and operating on the resolved target would destroy or move the wrong
+ * object — precisely the outcome being defended against.
+ */
+const NO_FOLLOW_FINAL: ReadonlySet<string> = new Set(['delete', 'move']);
+
+/**
+ * Re-verify containment immediately before the side effect, and return the
+ * path to actually operate on.
+ *
+ * SL-RC1-HIGH-001: a permit is issued against a proposal-time classification,
+ * but symlinks are mutable, so the same pathname can resolve somewhere else by
+ * the time execution runs. The rule enforced here is that the execution-time
+ * relation must *equal* the relation the permit was issued under. That closes
+ * the escape in both directions without turning this into a workspace-only
+ * executor: an action legitimately authorized as outside-workspace still
+ * executes, as long as it is still outside.
+ *
+ * For `follow` mode the returned path is fully resolved, so the operation no
+ * longer traverses the mutable component at all.
+ */
+function guardPath(
+  context: ExecutorContext,
+  rawPath: string,
+  mode: ContainmentMode,
+  role: 'target' | 'destination',
+): string {
+  const authorized = context.authorizedWorkspaceRelation ?? 'unknown';
+  const check = verifyContainment(rawPath, context.workspace, context.action.cwd || undefined, mode);
+
+  // The workspace root must still be the same filesystem object it was when
+  // the permit was issued. Replacing the workspace directory with a symlink
+  // moves the target and the root together, so the relation alone still reads
+  // "inside" while the bytes land somewhere else entirely.
+  if (context.workspace) {
+    const currentRoot = resolveRealPath(context.workspace);
+    if (context.authorizedWorkspaceRoot && currentRoot !== context.authorizedWorkspaceRoot) {
+      throw new WorkspaceContainmentError(
+        'the workspace root now resolves to a different location than when the permit was issued',
+        'workspace_relation_changed',
+        { role, authorized_workspace_root: context.authorizedWorkspaceRoot, execution_workspace_root: currentRoot },
+      );
+    }
+    if (!context.authorizedWorkspaceRoot) {
+      throw new WorkspaceContainmentError(
+        'the permit carries no authorized workspace root to verify against',
+        'workspace_verification_failed',
+        { role },
+      );
+    }
+  }
+
+  if (!check.verifiable) {
+    throw new WorkspaceContainmentError(
+      `workspace containment could not be verified for the ${role} path`,
+      'workspace_verification_failed',
+      { role, authorized_relation: authorized, reason: check.reason },
+    );
+  }
+
+  if (check.relation !== authorized) {
+    throw new WorkspaceContainmentError(
+      `the ${role} path was authorized as ${authorized} the workspace but now resolves ${check.relation} it`,
+      'workspace_relation_changed',
+      { role, authorized_relation: authorized, execution_relation: check.relation },
+    );
+  }
+
+  return check.resolved;
+}
+
 export function createFilesystemExecutor(): ManagedExecutorPlugin {
   return {
     kind: 'filesystem',
@@ -72,7 +147,14 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
       }
 
       const cwd = action.cwd || process.cwd();
-      const path = absolute(action.target || requireString(action.arguments, 'path'), cwd);
+      const requested = action.target || requireString(action.arguments, 'path');
+      // Verified here, immediately before any syscall — not at proposal time.
+      const path = guardPath(
+        context,
+        requested,
+        NO_FOLLOW_FINAL.has(operation) ? 'no_follow_final' : 'follow',
+        'target',
+      );
       const before = hashFile(path);
       const artifacts: ExecutorArtifact[] = [];
 
@@ -169,7 +251,9 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           if (!destinationRaw) {
             throw new ExecutorArgumentError('move requires a "destination" argument');
           }
-          const destination = absolute(destinationRaw, cwd);
+          // Both ends of a dual-path operation are security-significant: a
+          // safe source with a swapped destination escapes just as easily.
+          const destination = guardPath(context, destinationRaw, 'no_follow_final', 'destination');
           if (!existsSync(path)) {
             return { status: 'FAILED', stderr: `path does not exist: ${path}`, detail: { path, operation } };
           }

@@ -44,6 +44,10 @@ export interface IssuePermitInput extends PermitIdentity {
   action_fingerprint: string;
   disposition: RuntimeDispositionCode;
   approval_id?: string;
+  /** Workspace relation classified at proposal time; signed into the permit. */
+  workspace_relation?: 'inside' | 'outside' | 'unknown';
+  /** Resolved workspace root at proposal time; signed into the permit. */
+  workspace_root?: string;
   ttl_ms?: number;
 }
 
@@ -66,6 +70,8 @@ function permitClaims(permit: Omit<ExecutionPermit, 'signature'>): string {
     tenant_id: permit.tenant_id,
     disposition: permit.disposition,
     approval_id: permit.approval_id ?? '',
+    workspace_relation: permit.workspace_relation ?? '',
+    workspace_root: permit.workspace_root ?? '',
     issued_at: permit.issued_at,
     expires_at: permit.expires_at,
     nonce: permit.nonce,
@@ -89,6 +95,8 @@ export function issueExecutionPermit(input: IssuePermitInput, secret: string): E
     tenant_id: input.tenant_id,
     disposition: input.disposition,
     approval_id: input.approval_id,
+    workspace_relation: input.workspace_relation,
+    workspace_root: input.workspace_root,
     issued_at: new Date(issuedAt).toISOString(),
     expires_at: new Date(issuedAt + (input.ttl_ms ?? DEFAULT_PERMIT_TTL_MS)).toISOString(),
     nonce: randomBytes(16).toString('hex'),

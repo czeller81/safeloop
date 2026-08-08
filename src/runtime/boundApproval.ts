@@ -58,6 +58,17 @@ export interface RedeemApprovalInput extends ApprovalIdentity {
    * now denies outright.
    */
   approval_was_required: boolean;
+  /**
+   * Workspace relation as classified when the approval is redeemed. Signed
+   * into the resulting permit so the executor can detect the target resolving
+   * somewhere else before the side effect runs (SL-RC1-HIGH-001).
+   *
+   * An approved outside-workspace action must keep working: the executor
+   * requires the relation to be *unchanged*, not to be inside.
+   */
+  workspace_relation?: 'inside' | 'outside' | 'unknown';
+  /** Resolved workspace root at redemption time; signed into the permit. */
+  workspace_root?: string;
 }
 
 function tokenClaims(token: Omit<BoundApprovalToken, 'signature'>): string {
@@ -283,6 +294,8 @@ export function createApprovalAuthority(config: ApprovalAuthorityConfig = {}): A
         tenant_id: approved.tenant_id,
         disposition: 'REQUIRE_APPROVAL',
         approval_id: approved.approval_id,
+        workspace_relation: input.workspace_relation,
+        workspace_root: input.workspace_root,
         ttl_ms: config.permitTtlMs,
       });
 

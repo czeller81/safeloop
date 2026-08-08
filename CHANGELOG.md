@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0-rc2 - Filesystem execution-time containment (unreleased)
+
+Remediates **SL-RC1-HIGH-001**, a HIGH-severity filesystem authorization bypass
+independently reproduced against the frozen RC1 (`e4d24ee`). RC1 remains
+unchanged as historical certification evidence; it did **not** pass this audit.
+
+### Fixed
+
+- **Filesystem proposal→execution TOCTOU.** RC1 bound authorization to a path
+  string and a proposal-time workspace classification, then wrote to that path
+  without rechecking. Repointing a symlink between authorization and execution
+  placed the write outside the workspace with `status: EXECUTED`. The executor
+  now re-verifies containment immediately before every syscall and operates on
+  the resolved real path.
+- **Dangling symlinks resolved lexically.** `existsSync` follows symlinks, so a
+  dangling symlink read as absent and was classified in-workspace while
+  `writeFileSync` followed it out. The resolver now probes with `lstat`.
+- **Workspace root swap.** Replacing the workspace directory with a symlink
+  moved target and root together, preserving an "inside" reading. The resolved
+  root is now bound into the permit.
+
+### Added
+
+- `workspace_relation` and `workspace_root` on `ExecutionPermit`, signed. They
+  are carried on the permit rather than in the action fingerprint, which must
+  remain deterministic and host-portable.
+- Rejection reasons `workspace_relation_changed` and
+  `workspace_verification_failed`.
+- Conformance check **C35**: an in-workspace action cannot be redirected
+  outside between authorization and execution. Verified to fail
+  `NOT_CONFORMANT` when the guard is removed.
+- `tests/runtime.workspaceToctou.test.ts` — 23 regression tests, each
+  asserting both the status and the absence of the side effect.
+
+### Known analogous defects, not fixed in this RC
+
+The same defect class exists in the `git` and `shell` executors via `cwd`
+symlink swap, and was reproduced. Both are out of scope for RC2 and are
+reported separately.
+
 ## 0.2.0 - Local Runtime Governance (unreleased, pending human merge approval)
 
 SafeLoop becomes a local runtime governance layer for autonomous AI agents. The

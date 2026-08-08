@@ -78,6 +78,17 @@
     "signature": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "workspace_relation": {
+      "type": "string",
+      "enum": [
+        "inside",
+        "outside",
+        "unknown"
+      ]
+    },
+    "workspace_root": {
+      "type": "string"
     }
   }
 }

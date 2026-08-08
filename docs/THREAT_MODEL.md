@@ -123,3 +123,101 @@ Use OS sandboxing, least-privilege accounts, local firewall rules, endpoint cont
   judgement (see `docs/HERMES_REFERENCE_ADAPTER.md`).
 - **The legacy substring risk heuristic produces false positives**, which makes
   SafeLoop stricter rather than looser.
+
+---
+
+# RC2 — Filesystem execution-time containment (SL-RC1-HIGH-001)
+
+## What RC1 got wrong
+
+RC1 bound authorization to a **pathname** plus a workspace classification
+computed **at proposal time**. The filesystem executor then wrote to the
+approved path string without rechecking. Symlinks are mutable, so:
+
+```
+propose  workspace/link/pwned.txt   (link → inside)   → ALLOW + permit
+                 …attacker repoints link → outside…
+execute  workspace/link/pwned.txt                     → EXECUTED, file lands outside
+```
+
+An independent audit reproduced this against the frozen RC1. The defect is
+that **an authorized path string is not an authorized filesystem object**.
+
+## What RC2 enforces
+
+The sequence is now:
+
+```
+proposal → classify → policy → permit → redeem → EXECUTOR-TIME verification → side effect
+```
+
+`src/runtime/executors/filesystem.ts` re-verifies containment immediately
+before every syscall, via `verifyContainment()` in `src/runtime/workspace.ts`.
+
+Three facts are bound into the **signed permit** (not the action fingerprint,
+which must stay deterministic and host-portable):
+
+| Bound fact | Why |
+| --- | --- |
+| `workspace_relation` | the relation the authorization was granted under |
+| `workspace_root` | the resolved workspace root at proposal time |
+
+The rule is **equality**, not "inside":
+
+| Authorized | At execution | Outcome |
+| --- | --- | --- |
+| inside | inside | execute |
+| inside | outside | **reject** `workspace_relation_changed` |
+| outside | outside | execute — approved outside-workspace work still runs |
+| outside | inside | **reject** — not the object the human approved |
+| unknown | unknown | execute if policy allowed it |
+| any | unverifiable | **reject** `workspace_verification_failed` |
+
+This preserves SafeLoop's policy model: the executor did **not** become a
+workspace-only executor. An explicitly approved outside-workspace action still
+executes, provided it is still outside.
+
+## Two further defects found while remediating
+
+**Dangling symlinks.** `existsSync` follows symlinks, so a *dangling* symlink
+read as absent and the path resolved lexically — while `writeFileSync` happily
+followed it. The resolver now probes with `lstat` and follows dangling links
+manually, with a depth limit. This was also present at proposal time.
+
+**Workspace root swap.** Binding the relation alone was insufficient: replacing
+the workspace *directory* with a symlink moves the target and the root
+together, so containment still read "inside" while the bytes landed elsewhere.
+The resolved root is therefore bound too.
+
+## Residual race — stated precisely
+
+Between `verifyContainment()` and the syscall there remains a small
+check-to-use window. RC2 materially narrows it rather than eliminating it:
+
+- for follow-mode operations the syscall is issued against the **fully resolved
+  real path**, so it no longer traverses the mutable component at all. An
+  attacker must now win a race against a component of the *resolved* path.
+- for `delete` and `move` the final component is deliberately not followed, so
+  the entry itself is acted on rather than its target.
+
+**Eliminating the race entirely would require descriptor-relative syscalls**
+(`openat2` with `RESOLVE_BENEATH`, or `O_NOFOLLOW` on each component), which
+Node does not portably expose. SafeLoop does **not** claim kernel-level
+filesystem race elimination. The demonstrated proposal→execution window is
+closed; a sub-syscall TOCTOU against the resolved path is not addressed in
+userspace.
+
+## Known analogous defects — NOT fixed in RC2
+
+The same class was found in two other executors during the RC2 narrow review
+and is **deliberately out of scope** for this remediation:
+
+- **`git` cwd** — an approved `git commit` in repo A commits into repo B when
+  the `cwd` symlink is swapped after approval. Reproduced: `status EXECUTED`,
+  approved repo unchanged, swapped repo received the commit.
+- **`shell` cwd** — a command approved with `cwd` inside the workspace runs
+  with `cwd` outside it after a swap. Reproduced: marker file landed outside.
+
+These are tracked separately and must be decided before any recertification
+that claims a general execution-boundary guarantee. RC2 closes the filesystem
+finding only.

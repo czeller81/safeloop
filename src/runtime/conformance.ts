@@ -16,7 +16,7 @@
  */
 
 import { execFileSync } from 'child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync, appendFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createSafeloopRuntime, RuntimeError, type SafeloopRuntime } from './runtimeCore';
@@ -760,6 +760,55 @@ const CHECKS: CheckDefinition[] = [
       return blocked
         ? pass('all unauthorized routes rejected, no side effect', 'rejected')
         : fail('all unauthorized routes rejected, no side effect', `${noPermit.rejection_reason}/${fabricated.rejection_reason}`);
+    },
+  },
+  {
+    id: 'C35',
+    name: 'An in-workspace action cannot be redirected outside between authorization and execution',
+    category: 'bypass', required: true, requires: ['workspace_write'] as const,
+    run: async (context) => {
+      // SL-RC1-HIGH-001. C33 proved an unauthorized route cannot execute; it
+      // could not catch this, because here the permit is entirely valid and it
+      // is the *filesystem* that moves underneath it. Conformance passed while
+      // a workspace escape was possible, so the property is now exercised
+      // directly against the real enforcement boundary.
+      const linkPath = join(context.workspace, 'conformance-link');
+      const insideDir = join(context.workspace, 'conformance-inside');
+      const outsideDir = mkdtempSync(join(tmpdir(), 'safeloop-v02-conformance-escape-'));
+      mkdirSync(insideDir, { recursive: true });
+      rmSync(linkPath, { force: true });
+      symlinkSync(insideDir, linkPath);
+
+      const action: ActionProposal = {
+        action_kind: 'filesystem', operation: 'create',
+        target: join(linkPath, 'escaped.txt'),
+        arguments: { content: 'escaped' }, agent_id: 'conformance-agent',
+      };
+
+      const decision = context.runtime.propose(context.credential, {
+        session_id: context.sessionId, task_id: context.taskId, action,
+      });
+      if (!decision.execution_permit) {
+        rmSync(outsideDir, { recursive: true, force: true });
+        return pass('no permit issued for the in-workspace write', `held as ${decision.disposition}`);
+      }
+
+      // Repoint the approved pathname at a directory outside the workspace.
+      unlinkSync(linkPath);
+      symlinkSync(outsideDir, linkPath);
+
+      const result = await context.runtime.execute(context.credential, {
+        session_id: context.sessionId, permit: decision.execution_permit, action,
+      });
+
+      const escaped = existsSync(join(outsideDir, 'escaped.txt'));
+      rmSync(outsideDir, { recursive: true, force: true });
+      rmSync(linkPath, { force: true });
+
+      return result.status === 'REJECTED' && !escaped
+        ? pass('REJECTED, nothing written outside the workspace', `${result.status}, no escape`)
+        : fail('REJECTED, nothing written outside the workspace',
+            `${result.status}, outside file ${escaped ? 'CREATED' : 'absent'}`);
     },
   },
   {

@@ -56,7 +56,9 @@
         "budget_exhausted",
         "invalid_runtime_state",
         "unsupported_action_kind",
-        "executor_error"
+        "executor_error",
+        "workspace_relation_changed",
+        "workspace_verification_failed"
       ]
     },
     "exit_code": {

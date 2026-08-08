@@ -264,6 +264,23 @@ export interface ExecutionPermit {
   tenant_id: string;
   disposition: RuntimeDispositionCode;
   approval_id?: string;
+  /**
+   * The workspace relation this authorization was granted under, as classified
+   * at proposal time. Signed, so it cannot be edited.
+   *
+   * It is carried on the permit rather than in the action fingerprint because
+   * it is a fact about host filesystem state, not about the logical request.
+   * Putting it in the fingerprint would make the fingerprint non-deterministic
+   * across hosts and unreproducible offline.
+   */
+  workspace_relation?: 'inside' | 'outside' | 'unknown';
+  /**
+   * The workspace root as it resolved at proposal time. Binding the relation
+   * alone is not enough: replacing the workspace directory itself with a
+   * symlink moves both the target and the root together, so containment still
+   * reads "inside" while the bytes land somewhere else entirely.
+   */
+  workspace_root?: string;
   issued_at: string;
   expires_at: string;
   nonce: string;
@@ -298,7 +315,11 @@ export type ExecutionRejectionReason =
   | 'budget_exhausted'
   | 'invalid_runtime_state'
   | 'unsupported_action_kind'
-  | 'executor_error';
+  | 'executor_error'
+  /** The path resolved somewhere else than when it was authorized. */
+  | 'workspace_relation_changed'
+  /** Containment could not be determined at execution time; fail closed. */
+  | 'workspace_verification_failed';
 
 export interface ExecutionResult {
   protocol_version: string;

@@ -22,7 +22,7 @@ import { randomUUID } from 'crypto';
 import { canonicalizeAction, fingerprintAction } from './canonicalAction';
 import { redactSecrets } from './redaction';
 import { assertProtocol } from './schemaValidator';
-import { ExecutorArgumentError, type ExecutorOutcome, type ManagedExecutorPlugin } from './executors/types';
+import { ExecutorArgumentError, WorkspaceContainmentError, type ExecutorOutcome, type ManagedExecutorPlugin } from './executors/types';
 import type { PermitAuthority } from './executionPermit';
 import type { BudgetTracker } from './budgets';
 import {
@@ -232,12 +232,38 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         outcome = await plugin.execute({
           action: canonical,
           workspace: config.workspace,
+          authorizedWorkspaceRelation: input.permit?.workspace_relation,
+          authorizedWorkspaceRoot: input.permit?.workspace_root,
           timeoutMs: input.timeout_ms ?? defaultTimeout,
           maxOutputBytes,
           redact: redactSecrets,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+
+        // A containment failure is a rejection, not a failure: the side effect
+        // was refused because the target moved, and nothing was written.
+        if (error instanceof WorkspaceContainmentError) {
+          config.recorder.recordEvent({
+            type: 'tool.denied',
+            agent_id: canonical.agent_id,
+            task_id: canonical.task_id,
+            session_id: canonical.session_id,
+            tenant_id: canonical.tenant_id,
+            action_fingerprint: fingerprint,
+            decision: 'DENY',
+            summary: `Managed execution refused: ${message}`,
+            detail: { rejection_reason: error.reason, ...error.detail },
+          });
+          return {
+            ...rejection(error.reason, message, permitId, fingerprint),
+            started_at: startedAt,
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - startedMs,
+            detail: { rejection_detail: message, ...error.detail },
+          };
+        }
+
         const reason: ExecutionRejectionReason = error instanceof ExecutorArgumentError ? 'executor_error' : 'executor_error';
         config.recorder.recordEvent({
           type: 'tool.failed',
