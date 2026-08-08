@@ -22,7 +22,7 @@ state.
 | HEAD | tip of `runtime-governance-v0.2` — the RC1 audit commit listed below |
 | origin/master | `e0c93ec` — **unmodified** |
 | Master merged? | **NO.** Human approval required. |
-| Hermes repo | `/home/charleszeller/.hermes/hermes-agent` @ `72773be23`, local-only, **not pushed** |
+| Hermes repo | `/home/charleszeller/.hermes/hermes-agent` @ `6f50545de`, local-only, **not pushed** |
 
 Commits created on this branch:
 

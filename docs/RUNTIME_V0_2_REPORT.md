@@ -134,7 +134,7 @@ own outcome rather than being quietly counted as a pass.
 
 ## Hermes reference certification
 
-Hermes v0.17.0 (2026.6.19), upstream `190e1ffac`, adapter `72773be23`
+Hermes v0.17.0 (2026.6.19), upstream `190e1ffac`, adapter `6f50545de`
 (local-only, **not pushed**). Certified profile: `coding`.
 
 - **MANAGED:** shell/terminal, filesystem, git, memory

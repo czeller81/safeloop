@@ -10,7 +10,7 @@ Hermes-specific lives in the plugin.
 | Hermes version | v0.17.0 (2026.6.19) |
 | Hermes upstream commit | `190e1ffac976ee5fc41c9f1845ba8fd886a827b1` |
 | Adapter (pre-v0.2) | `53f91ef1dcc4daeb271d0063e49088fa67ce79bd` |
-| Adapter (v0.2) | `72773be23` — local-only, **not pushed upstream** |
+| Adapter (v0.2) | `6f50545de` — local-only, **not pushed upstream** |
 | Location | `/home/charleszeller/.hermes/hermes-agent/plugins/safeloop_guard/` |
 | Certified profile | `coding` |
 
