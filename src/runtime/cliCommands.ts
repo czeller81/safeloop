@@ -13,7 +13,7 @@ import { resolve } from 'path';
 import { startDaemon, DEFAULT_DAEMON_PORT } from './daemon';
 import { createSafeloopClient } from './client';
 import { readConnectionFile, removeConnectionFile } from './runtimeAuth';
-import { listProfiles, loadProfile } from './profiles';
+import { applyLaunchEnvironment, listProfiles, loadProfile } from './profiles';
 import { runConformanceSuite, formatConformanceReport } from './conformance';
 import { sealLedger, verifyLedger } from '../ledgerIntegrity';
 import { RUNTIME_VERSION } from './runtimeCore';
@@ -264,6 +264,19 @@ export async function runAgentLaunch(args: string[], options: CliOptions): Promi
   console.log('  Declared paths for this profile:');
   for (const line of renderManagedPaths(profile.managed_paths)) console.log(line);
 
+  const hardening = profile.launch_environment;
+  if (hardening && (Object.keys(hardening.set ?? {}).length > 0 || (hardening.unset ?? []).length > 0)) {
+    console.log('');
+    console.log('  Environment hardening applied to the launched process:');
+    for (const [name, value] of Object.entries(hardening.set ?? {})) {
+      console.log(`    set   ${name}=${value}`);
+    }
+    for (const name of hardening.unset ?? []) {
+      console.log(`    unset ${name}`);
+    }
+    if (hardening.rationale) console.log(`    ${hardening.rationale}`);
+  }
+
   const unmanaged = profile.managed_paths.filter(
     (path) => path.state === 'UNMANAGED' && path.consequential,
   );
@@ -279,7 +292,9 @@ export async function runAgentLaunch(args: string[], options: CliOptions): Promi
   const child = spawn(agentArgv[0], agentArgv.slice(1), {
     stdio: 'inherit',
     env: {
-      ...process.env,
+      // Profile-declared hardening first, so SafeLoop's own connection
+      // variables below cannot be removed by a profile's `unset` list.
+      ...applyLaunchEnvironment(process.env, profile),
       SAFELOOP_RUNTIME_URL: `http://${connection.host}:${connection.port}`,
       SAFELOOP_RUNTIME_CREDENTIAL: connection.credential,
       SAFELOOP_SESSION_ID: session.session.session_id,

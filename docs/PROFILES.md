@@ -111,6 +111,36 @@ Each profile declares ceilings for actions, runtime, tokens, cost, and retries.
 These are admission control at the executor, not risk inputs. Delegated sessions
 are capped at the parent's *remaining* budget.
 
+## Launch environment hardening
+
+A profile may declare environment changes applied to the process `safeloop run`
+launches:
+
+```json
+"launch_environment": {
+  "set":   { "HERMES_DISABLE_LAZY_INSTALLS": "1", "PIP_NO_INPUT": "1" },
+  "unset": [ "HERMES_LAZY_INSTALL_TARGET" ],
+  "rationale": "Disables runtime dependency installation in the launched agent."
+}
+```
+
+`unset` is applied after `set`, so a profile can force a variable off even when
+the parent environment defines it. A profile that both sets and unsets the same
+variable fails validation.
+
+The mechanism is deliberately generic: **SafeLoop core names no agent.** Variable
+names live in profile data, so hardening a new agent is a data change rather
+than a code change, and variables an agent does not recognise are inert.
+
+All four shipped profiles disable runtime dependency installation. Package
+installation is a consequential network-and-code-execution path that SafeLoop
+does not manage, so a governed session must not be able to reach it. Declaring
+it explicitly is stronger than relying on it happening to be unreachable.
+
+Launcher-applied hardening is a floor, not a guarantee — a process can change
+its own environment. Adapters should verify the property they depend on and
+fail closed; the Hermes adapter does exactly that at registration.
+
 ## Managed path declarations
 
 Each profile declares MANAGED / UNMANAGED / DISABLED per path, with

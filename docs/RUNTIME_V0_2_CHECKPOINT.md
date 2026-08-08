@@ -102,13 +102,13 @@ See `docs/RUNTIME_ARCHITECTURE.md` for the module map.
 
 | Suite | Result |
 | --- | --- |
-| Jest | 66 suites / 651 tests PASS |
+| Jest | 66 suites / 656 tests PASS |
 | Python | 36 passed (23 runtime SDK, 13 legacy) |
 | Conformance — coding | 34/34 PROFILE_CONFORMANT |
 | Conformance — research | 34/34 PROFILE_CONFORMANT |
 | Conformance — assistant | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
 | Conformance — strict-local | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
-| Hermes live proof | 17/17 |
+| Hermes live proof | 19/19 |
 | Build / build:ui / tsc | PASS |
 | npm audit | 0 vulnerabilities |
 | MCP hermes doctor | 8/8 PASS |
@@ -124,11 +124,13 @@ None.
    integration. Root cause of the original pilot limitation was a config issue
    (`toolsets: [hermes-cli]` omits the `memory` toolset), not a Hermes version
    limitation. See `docs/HERMES_REFERENCE_ADAPTER.md`.
-2. **`tools/lazy_deps.py` is consequential** (`pip install`) but not
-   agent-reachable in the certified profile. `_allow_lazy_installs()` defaults
-   true and fails open; certified deployments should set
-   `security.allow_lazy_installs: false`. `env_probe` is genuinely
-   non-consequential; `checkpoint_manager` is DISABLED.
+2. **`tools/lazy_deps.py` is consequential** (`pip install`) and is now
+   explicitly DISABLED by the certified profile's `launch_environment`, with the
+   adapter verifying the seal against Hermes' own gate and refusing to register
+   otherwise. Launcher hardening is a floor, not a guarantee — a process can
+   change its own environment — which is why the adapter verifies rather than
+   trusts. `env_probe` is genuinely non-consequential; `checkpoint_manager` is
+   DISABLED.
 3. **Legacy substring risk heuristic produces false positives** — an action
    whose text contains "post" scores as EXTERNAL_COMMUNICATION. Because rules
    and risk combine most-severe-wins this is noisy, not unsafe.
@@ -149,8 +151,15 @@ risk heuristic with structural facts; model-in-the-loop Hermes run.
 
 A release-truth audit repaired: the memory store being mandatory over the
 protocol (added `/v1/memory/authorize`, SDK methods, injectable store), two
-Hermes path misclassifications, and one flaky TTL test. Verdict held at
-`READY_FOR_V0_2_CONTROLLED_RELEASE`.
+Hermes path misclassifications, and one flaky TTL test.
+
+A follow-up profile-invariant pass then made runtime dependency installation
+**explicitly disabled** rather than merely unreachable: profiles gained a
+generic `launch_environment` block applied by `safeloop run`, and the Hermes
+adapter seals and verifies the gate at registration, refusing to register if
+the seal cannot be confirmed.
+
+Verdict held at `READY_FOR_V0_2_CONTROLLED_RELEASE`.
 
 ## Next exact implementation task
 

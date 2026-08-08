@@ -142,8 +142,8 @@ Hermes v0.17.0 (2026.6.19), upstream `190e1ffac`, adapter `72773be23`
   cron, messaging, voice, gateway service, desktop/updater helpers, container
   environments
 - **UNMANAGED, non-consequential:** environment probing (`env_probe.py` — read-only version probes)
-- **UNMANAGED, consequential but not agent-reachable:** `lazy_deps.py` (`pip install`) —
-  a host-level path outside the routed-action boundary; see the limitation below
+- **DISABLED:** `lazy_deps.py` (`pip install`) — runtime dependency installation is
+  explicitly sealed by the certified profile and verified against Hermes' own gate
 
 17/17 live checks against a real runtime and a disposable git repository,
 driving the actual plugin middleware. Including: `SAFELOOP_HERMES_APPROVED=1` set
@@ -234,14 +234,12 @@ not part of this certification.
    The original "memory tool unavailable" finding was a configuration issue
    (`toolsets: [hermes-cli]` omits the `memory` toolset), not a Hermes v0.17.0
    limitation. No claim of Hermes native memory certification is made.
-2. **`tools/lazy_deps.py` is a consequential host-level path.** It can
-   `pip install`. No model-called action reaches it in the certified profile,
-   but `_allow_lazy_installs()` defaults to `True` and fails open, so the
-   protection is "the code path is not loaded", not "installs are disabled".
-   Enabling any media, web, platform, or remote-environment toolset would make
-   it reachable without SafeLoop knowing. Certified deployments should set
-   `security.allow_lazy_installs: false`. This is the weakest link in the
-   Hermes certification and it is a property of the configuration.
+2. **Launcher-applied environment hardening is a floor, not a guarantee.** A
+   process can change its own environment after launch. This is why the Hermes
+   adapter verifies the seal against Hermes' own gate at registration and
+   refuses to register if it cannot be confirmed, rather than trusting the
+   launcher. Adapters for other agents should do the same for properties they
+   depend on.
 3. **Legacy substring risk heuristic false positives** — text containing "post"
    scores as EXTERNAL_COMMUNICATION. Makes SafeLoop stricter, not looser.
 4. **Linux/WSL is the only certified platform.** Windows named-pipe transport is

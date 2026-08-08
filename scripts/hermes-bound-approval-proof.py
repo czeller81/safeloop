@@ -30,7 +30,7 @@ CLI = REPO_ROOT / "dist" / "cli.js"
 HERMES_PLUGIN = Path("/home/charleszeller/.hermes/hermes-agent")
 
 sys.path.insert(0, str(REPO_ROOT / "python"))
-sys.path.insert(0, str(HERMES_PLUGIN))
+sys.path.insert(0, str(HERMES_PLUGIN))  # tools.* and plugins.* both live here
 
 RESULTS: list[dict[str, object]] = []
 
@@ -134,6 +134,37 @@ def main() -> int:
     print("\nHermes reference adapter — live bound approval proof")
     print(f"  Repo: {repo}")
     print(f"  Runtime: http://{connection['host']}:{connection['port']}\n")
+
+    # 0. Lazy dependency installation is explicitly sealed, not merely
+    #    unreachable. The durable-install-target case is used deliberately:
+    #    HERMES_DISABLE_LAZY_INSTALLS=1 alone does NOT block when a target is
+    #    configured, because Hermes redirects installs there instead.
+    os.environ["HERMES_LAZY_INSTALL_TARGET"] = str(workdir / "durable-target")
+    from tools import lazy_deps
+    from plugins.safeloop_guard import seal_lazy_installs
+
+    gate_before = lazy_deps._allow_lazy_installs()
+    sealed = seal_lazy_installs()
+    gate_after = lazy_deps._allow_lazy_installs()
+    record("lazy installs sealed by the certified profile",
+           "gate True before, False after, seal verified",
+           f"before={gate_before}, after={gate_after}, verified={sealed}",
+           "no install possible",
+           gate_before is True and gate_after is False and sealed is True)
+
+    missing = [f for f in lazy_deps.LAZY_DEPS if lazy_deps.feature_missing(f)]
+    blocked = False
+    detail = "no missing-package feature available to probe"
+    if missing:
+        try:
+            lazy_deps.ensure(missing[0], prompt=False)
+            detail = "ensure() did not block"
+        except lazy_deps.FeatureUnavailable as exc:
+            blocked = "lazy installs disabled" in str(exc)
+            detail = f"FeatureUnavailable: {str(exc)[:60]}"
+    record("real install attempt refused under the seal",
+           "FeatureUnavailable: lazy installs disabled", detail,
+           "no package installed", blocked)
 
     # 1. Safe read is allowed and executed by SafeLoop.
     result = call("read_file", {"path": str(repo / "app.py")})

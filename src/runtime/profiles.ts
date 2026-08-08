@@ -54,6 +54,22 @@ export interface ProfileBudgets {
   maximum_retries?: number;
 }
 
+/**
+ * Environment hardening applied to a process launched by `safeloop run`.
+ *
+ * Deliberately generic: SafeLoop core names no agent. The variable names live
+ * in profile *data*, so hardening a new agent is a data change, not a code
+ * change. Variables an agent does not recognise are inert.
+ */
+export interface LaunchEnvironment {
+  /** Variables forced on for the launched process. */
+  set?: Record<string, string>;
+  /** Variables removed from the launched process environment. */
+  unset?: string[];
+  /** Why this hardening exists, surfaced in `safeloop run` output. */
+  rationale?: string;
+}
+
 export interface GovernanceProfile {
   id: string;
   name: string;
@@ -65,6 +81,7 @@ export interface GovernanceProfile {
   memory_write_policy: 'allow' | 'allow_with_ttl' | 'require_review' | 'quarantine' | 'reject';
   minimum_memory_confidence: number;
   managed_paths: ManagedPathDeclaration[];
+  launch_environment?: LaunchEnvironment;
 }
 
 export interface ActionFacts {
@@ -245,6 +262,23 @@ export function validateProfile(profile: GovernanceProfile): void {
   if (!(profile.default_disposition in SEVERITY)) {
     throw new Error(`Profile ${profile.id} has an invalid default_disposition.`);
   }
+  const hardening = profile.launch_environment;
+  if (hardening) {
+    for (const [name, value] of Object.entries(hardening.set ?? {})) {
+      if (typeof value !== 'string') {
+        throw new Error(`Profile ${profile.id} launch_environment.set.${name} must be a string.`);
+      }
+    }
+    if (hardening.unset && !Array.isArray(hardening.unset)) {
+      throw new Error(`Profile ${profile.id} launch_environment.unset must be an array.`);
+    }
+    for (const name of hardening.unset ?? []) {
+      if (hardening.set && name in hardening.set) {
+        throw new Error(`Profile ${profile.id} launch_environment both sets and unsets ${name}.`);
+      }
+    }
+  }
+
   const seen = new Set<string>();
   for (const rule of profile.rules ?? []) {
     if (!rule.id) throw new Error(`Profile ${profile.id} has a rule without an id.`);
@@ -263,6 +297,25 @@ export function validateProfile(profile: GovernanceProfile): void {
       }
     }
   }
+}
+
+/**
+ * Apply a profile's launch hardening to a child environment.
+ *
+ * `unset` is applied after `set`, so a profile can force a variable off even if
+ * the parent environment defines it — the common case for disabling an
+ * install-target redirect that would otherwise defeat a seal.
+ */
+export function applyLaunchEnvironment(
+  base: NodeJS.ProcessEnv,
+  profile: GovernanceProfile,
+): NodeJS.ProcessEnv {
+  const hardening = profile.launch_environment;
+  if (!hardening) return { ...base };
+
+  const env: NodeJS.ProcessEnv = { ...base, ...(hardening.set ?? {}) };
+  for (const name of hardening.unset ?? []) delete env[name];
+  return env;
 }
 
 /** Clears the profile cache. Used by tests and by `safeloop daemon reload`. */

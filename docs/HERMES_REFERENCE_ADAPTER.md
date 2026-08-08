@@ -80,7 +80,7 @@ The governed boundary is `agent/tool_executor.py`, which runs
 | Voice sidecar | `tools/voice_mode.py` | yes | no | **DISABLED** — denied by the adapter; not enabled |
 | Background processes | `tools/process_registry.py` | yes | only via terminal | **MANAGED** at the terminal boundary; direct API not reachable from a model-called tool |
 | Environment probing | `tools/env_probe.py` | no | yes | **UNMANAGED** — read-only `--version` probes via `_run()`: `capture_output`, `stdin=DEVNULL`, 3s timeout, no writes, no network |
-| Lazy dependency install | `tools/lazy_deps.py` | **yes** | not agent-reachable | **UNMANAGED (host-level)** — `_install()` runs `uv pip install` / `pip install` / `ensurepip`. See below. |
+| Lazy dependency install | `tools/lazy_deps.py` | **yes** | **explicitly disabled** | **DISABLED** — sealed by the certified profile; verified against Hermes' own gate. See below. |
 | Checkpoint maintenance | `tools/checkpoint_manager.py` | yes | **no** | **DISABLED** — `checkpoints.enabled: false`, and no non-test caller exists in the tree |
 | Gateway service | `gateway/run.py` | yes | **no** | **DISABLED** — the gateway is not run in the certified configuration |
 | Desktop / updater helpers | `apps/desktop/electron/*` | yes | **no** | **DISABLED** — desktop app not run |
@@ -125,24 +125,58 @@ as a **host-level** consequential path — the same category as the operator
 having run `pip install` before starting Hermes — and it sits outside SafeLoop's
 routed-action boundary by construction.
 
-**Certified-configuration dependency, stated plainly.** `_allow_lazy_installs()`
-defaults to `True` and *fails open* when config is unreadable. The kill switch
-`security.allow_lazy_installs: false` is opt-in. So the protection here is "the
-code path is not loaded", not "installs are disabled". Enabling any media, web,
-platform, or remote-environment toolset would make a consequential
-network-and-install path reachable **without SafeLoop being aware of it**.
+**This is now explicitly disabled, not merely unreachable.**
 
-Recommended hardening for a certified deployment:
+Relying on "the code path is not loaded" was the weak form of the argument: it
+holds only until someone enables a media, web, platform, or remote-environment
+toolset, at which point a consequential network-and-install path becomes
+reachable without SafeLoop being aware of it. The certified profile therefore
+disables it outright.
+
+Hermes resolves the gate as:
+
+```
+security.allow_lazy_installs: false   → blocked outright
+HERMES_DISABLE_LAZY_INSTALLS=1        → blocked *unless* a durable install
+                                        target is configured, in which case
+                                        installs are redirected there and
+                                        allowed
+```
+
+So the disable flag alone is not sufficient. Sealing requires both setting it
+and removing `HERMES_LAZY_INSTALL_TARGET`. Two independent mechanisms do this:
+
+1. **The profile declares it.** Every shipped profile carries a
+   `launch_environment` block, and `safeloop run` applies it to the launched
+   process. The mechanism is generic — SafeLoop core names no agent, the
+   variable names live in profile data — and variables an agent does not
+   recognise are inert.
+
+2. **The adapter enforces it.** `plugins/safeloop_guard.seal_lazy_installs()`
+   applies the same seal at `register()` and then *verifies it against Hermes'
+   own gate* by calling `lazy_deps._allow_lazy_installs()`. If the seal cannot
+   be confirmed, registration raises `LazyInstallStillEnabled` and the session
+   does not start. A certified profile that cannot disable dependency
+   installation is not the profile that was certified, so refusing is safer
+   than governing tool calls while an unmanaged install path stays reachable.
+
+Neither mechanism modifies the user's `config.yaml`, and neither changes Hermes
+behaviour outside a governed session — `os.environ` is read on every gate
+evaluation and the gate runs at install time, so a process-scoped seal is
+sufficient and contained.
+
+Operators who want the setting pinned at the config layer as well may still set:
 
 ```yaml
 security:
   allow_lazy_installs: false
 ```
 
-This is the weakest link in the Hermes certification, and it is a property of
-the *configuration*, not of SafeLoop. A reviewer who disagrees with the
-reachability analysis should treat the coding profile as
-`PASS_WITH_LIMITATIONS` rather than fully certified.
+**Proof.** The live proof exercises the harder case deliberately: it sets
+`HERMES_LAZY_INSTALL_TARGET` first, so the disable flag alone would *not* block.
+It then records the gate flipping `True → False`, and calls the real
+`lazy_deps.ensure()` for a genuinely missing package, which raises
+`FeatureUnavailable: lazy installs disabled` instead of installing.
 
 ### The enabled-toolset finding
 

@@ -1,11 +1,25 @@
 {
-  "generated_at": "2026-08-08T04:52:07Z",
+  "generated_at": "2026-08-08T05:02:18Z",
   "hermes_version": "v0.17.0 (2026.6.19)",
   "adapter": "plugins/safeloop_guard",
   "profile": "coding",
-  "passed": 17,
-  "total": 17,
+  "passed": 19,
+  "total": 19,
   "checks": [
+    {
+      "test": "lazy installs sealed by the certified profile",
+      "expected": "gate True before, False after, seal verified",
+      "actual": "before=True, after=False, verified=True",
+      "side_effect": "no install possible",
+      "result": "PASS"
+    },
+    {
+      "test": "real install attempt refused under the seal",
+      "expected": "FeatureUnavailable: lazy installs disabled",
+      "actual": "FeatureUnavailable: Feature 'provider.anthropic' unavailable: lazy installs disa",
+      "side_effect": "no package installed",
+      "result": "PASS"
+    },
     {
       "test": "safe read allowed",
       "expected": "executed_by_safeloop",
@@ -44,7 +58,7 @@
     {
       "test": "git commit held for approval",
       "expected": "blocked with an approval request",
-      "actual": "approval-request-1786164727361-372fefd04bee2d3c",
+      "actual": "approval-request-1786165338525-b6d201b562660fec",
       "side_effect": "no commit",
       "result": "PASS"
     },

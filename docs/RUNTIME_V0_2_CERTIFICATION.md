@@ -49,7 +49,7 @@ Statuses: `VERIFIED_WORKING`, `PARTIAL`, `MISSING`, `OUT_OF_SCOPE`.
 | 37 | Hermes reference adapter | VERIFIED_WORKING | Migrated to bound approvals; managed families execute in SafeLoop |
 | 38 | Hermes live adapter/middleware bound approval | VERIFIED_WORKING | 17/17 against real runtime + disposable repo. Provider-backed model generation not included — see below. |
 | 39 | Hermes native memory | **OUT_OF_SCOPE** | Lifecycle proven through the adapter; Hermes' *native* store deliberately unused — see below |
-| 40 | Hermes path inventory | VERIFIED_WORKING | Re-audited at RC1: `checkpoint_manager` corrected to DISABLED; `lazy_deps` corrected to consequential-but-not-agent-reachable |
+| 40 | Hermes path inventory | VERIFIED_WORKING | Re-audited at RC1: `checkpoint_manager` → DISABLED; `lazy_deps` → DISABLED via profile seal, verified against Hermes' gate |
 | 41 | Bypass audit | VERIFIED_WORKING | No enabled consequential bypass found within the certified boundary |
 | 42 | Failure testing | VERIFIED_WORKING | Exception, timeout, corrupt state, corrupt ledger, outage — all fail closed |
 | 43 | Multi-tenant testing | VERIFIED_WORKING | Cross-tenant permit/approval/memory all rejected |
@@ -57,6 +57,7 @@ Statuses: `VERIFIED_WORKING`, `PARTIAL`, `MISSING`, `OUT_OF_SCOPE`.
 | 45 | Dependency audit | VERIFIED_WORKING | 0 vulnerabilities; **no new runtime dependencies added** |
 | 46 | External memory store compatibility | VERIFIED_WORKING | `/v1/memory/authorize` + SDK methods; reference store injectable and optional |
 | 47 | Model-in-the-loop Hermes certification | **OUT_OF_SCOPE** | No provider credentials used; explicitly not claimed |
+| 48 | Lazy dependency installation disabled | VERIFIED_WORKING | Profile `launch_environment` + adapter seal verified against `lazy_deps._allow_lazy_installs()`; real `ensure()` refused |
 
 ## Explicit release claims
 
@@ -126,19 +127,22 @@ messaging, voice, gateway service, desktop/updater helpers, container envs,
 checkpoint maintenance.
 **UNMANAGED, non-consequential:** `env_probe.py` — read-only version probes, no
 writes, no network.
-**UNMANAGED, consequential but not agent-reachable:** `lazy_deps.py` — can
-`pip install`, but no model-called action in the certified profile reaches it.
+**DISABLED (was UNMANAGED):** `lazy_deps.py` — runtime dependency installation
+is now explicitly sealed by the certified profile and verified against Hermes'
+own gate, rather than being merely unreachable.
 
 No enabled consequential **agent-reachable** UNMANAGED path exists in the
 certified boundary, so full-profile certification is available.
 
-The `lazy_deps` reachability analysis is the weakest link, and it depends on
-configuration rather than on SafeLoop: `_allow_lazy_installs()` defaults to
-`True` and fails open, so the protection is "the code path is not loaded", not
-"installs are disabled". Certified deployments should set
-`security.allow_lazy_installs: false`. A reviewer who disagrees with the
-reachability analysis should treat the coding profile as `PASS_WITH_LIMITATIONS`.
-Stated plainly in `docs/HERMES_REFERENCE_ADAPTER.md` rather than buried.
+Runtime dependency installation is disabled by two independent mechanisms: the
+profile's `launch_environment` declaration applied by `safeloop run`, and the
+adapter's `seal_lazy_installs()` which verifies the seal against Hermes' own
+gate at registration and refuses to register if it cannot be confirmed. The live
+proof exercises the harder durable-install-target case, where the disable flag
+alone would not block, and confirms a real `ensure()` call is refused.
+
+The certified boundary therefore no longer rests on a reachability argument for
+this path. Details in `docs/HERMES_REFERENCE_ADAPTER.md`.
 
 ## Security boundary
 
