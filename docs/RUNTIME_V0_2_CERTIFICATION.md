@@ -58,6 +58,58 @@ Statuses: `VERIFIED_WORKING`, `PARTIAL`, `MISSING`, `OUT_OF_SCOPE`.
 | 46 | External memory store compatibility | VERIFIED_WORKING | `/v1/memory/authorize` + SDK methods; reference store injectable and optional |
 | 47 | Model-in-the-loop Hermes certification | **OUT_OF_SCOPE** | No provider credentials used; explicitly not claimed |
 | 48 | Lazy dependency installation disabled | VERIFIED_WORKING | Profile `launch_environment` + adapter seal verified against `lazy_deps._allow_lazy_installs()`; real `ensure()` refused |
+| 49 | Runtime control dashboard visibility | VERIFIED_WORKING | Six distinct states; live positive and negative proofs; no secrets rendered |
+| 50 | Certification input reproducibility | VERIFIED_WORKING | Certified adapter source vendored with SHA-256 manifest |
+
+## Certified control: Hermes lazy dependency installation
+
+| Field | Value |
+| --- | --- |
+| Control | Hermes lazy dependency installation (`dependency_installation`) |
+| Classification | **DISABLED** |
+| Enforcement layer 1 | Profile `launch_environment`, applied by `safeloop run` |
+| Enforcement layer 2 | Hermes adapter runtime verification at `register()` |
+| Adversarial condition | Durable install target present in the parent environment — the case where `HERMES_DISABLE_LAZY_INSTALLS=1` alone would **not** block, because Hermes redirects installs there |
+| Result | Target forcibly removed; Hermes gate changed allowed → denied; missing-dependency request raised `FeatureUnavailable`; installer not executed |
+| Governance boundary | SafeLoop-governed sessions only |
+| Dashboard state | `DISABLED` with runtime verification `PASSED` |
+| Failure behaviour | Adapter raises `LazyInstallStillEnabled`; session does not start; dashboard shows `VERIFICATION_FAILED` and a blocked session |
+
+Enforcement is unchanged by the visibility work: the adapter fails closed on its
+own, and the reporting call is best effort and non-authoritative.
+
+### Evidence
+
+| Item | Result |
+| --- | --- |
+| Profile tests | 23/23 |
+| Dashboard control tests | 21/21 |
+| Hermes live adapter proof | 19/19 |
+| Dashboard control proof (positive + negative) | 12/12 |
+| Full regression | 67 suites / 677 tests |
+| Python | 36 |
+| Conformance — coding, research | 34/34 `PROFILE_CONFORMANT` |
+| Conformance — assistant, strict-local | 33/33 `PASS_WITH_LIMITATIONS` |
+| npm audit | 0 vulnerabilities |
+| Build / UI build / TypeScript | clean |
+
+### Certified inputs
+
+| Input | Reference |
+| --- | --- |
+| SafeLoop commit | see `docs/RUNTIME_V0_2_CHECKPOINT.md` (branch tip) |
+| Hermes version | v0.17.0 (2026.6.19) |
+| Hermes upstream base | `190e1ffac976ee5fc41c9f1845ba8fd886a827b1` |
+| Hermes adapter local commit | `df926a32d` |
+| Hermes adapter local tag | `safeloop-v0.2-rc1-adapter` |
+| **Adapter source artifact** | `docs/evidence/hermes-adapter/` with SHA-256 manifest |
+
+The Hermes working repository is local-only and is not pushed upstream, so a
+commit hash alone would not let a reviewer reproduce this certification. The
+exact certified adapter source is vendored under `docs/evidence/hermes-adapter/`
+with checksums, so the evidence stands without access to that repository. The
+commit hash and tag are recorded for provenance, not as the reproducibility
+mechanism.
 
 ## Explicit release claims
 

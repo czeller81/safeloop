@@ -457,6 +457,61 @@ export interface ManagedPathDeclaration {
   notes?: string;
 }
 
+/**
+ * State of one runtime security control for one session.
+ *
+ * These are deliberately NOT collapsed into pass/fail. "Explicitly enforced and
+ * verified" and "happens to be unreachable today" are different security
+ * postures, and an operator deciding whether to trust a session needs to tell
+ * them apart without reading source.
+ */
+export type RuntimeControlState =
+  /** Explicitly enforced, and runtime verification confirmed it. */
+  | 'DISABLED'
+  /** Enforcement declared, but the agent has not yet confirmed it. */
+  | 'PENDING_VERIFICATION'
+  /** The path exists but the current profile cannot reach it. Weaker than DISABLED. */
+  | 'UNREACHABLE'
+  /** A consequential path exists and SafeLoop has no explicit control over it. */
+  | 'UNMANAGED'
+  /** Policy intended to disable the path, but verification failed. Fail closed. */
+  | 'VERIFICATION_FAILED'
+  /** The control does not apply to this agent. */
+  | 'NOT_APPLICABLE';
+
+/**
+ * A single environment policy entry. Carries the variable NAME and the effect
+ * only — never a value. An operator needs to know that a control is enforced,
+ * not what the process environment contains.
+ */
+export interface RuntimeControlPolicyEntry {
+  name: string;
+  effect: 'enforced' | 'unset';
+}
+
+export interface RuntimeControlVerification {
+  performed: boolean;
+  passed: boolean;
+  /** Which adapter confirmed it, e.g. an adapter id. Never a credential. */
+  verified_by?: string;
+  verified_at?: string;
+  detail?: string;
+}
+
+export interface RuntimeControlStatus {
+  control_id: string;
+  name: string;
+  state: RuntimeControlState;
+  consequential: boolean;
+  /** Layers that enforce this control, most authoritative last. */
+  enforcement: string[];
+  policy: RuntimeControlPolicyEntry[];
+  verification?: RuntimeControlVerification;
+  /** The honest scope of the control. Never implies host-wide enforcement. */
+  boundary: string;
+  rationale?: string;
+}
+
 export interface RuntimeHealth {
   protocol_version: string;
   runtime_version: string;

@@ -1,4 +1,5 @@
 import { calculateReadinessScore, type ReadinessScoreResult } from '../readinessScore';
+import type { DashboardRuntimeControl } from './runtimeControls';
 import type { DashboardSnapshot } from './dashboardData';
 import type { EventReadDiagnostics, SafeloopStreamEvent } from '../eventStream';
 import type { ModelUsageRecord } from '../modelUsage';
@@ -331,6 +332,7 @@ export interface OperatorConsole {
 }
 
 export interface MonitorViewModel {
+  runtimeControls: DashboardRuntimeControl[];
   status: {
     connection: 'connected';
     lastUpdated: string;
@@ -1606,6 +1608,10 @@ export function buildMonitorViewModel(snapshot: DashboardSnapshot): MonitorViewM
   const deployment = deriveDeploymentMetadata();
 
   return {
+    // Passed through from the ledger-derived snapshot, not recomputed here:
+    // the dashboard reports recorded evidence rather than deriving security
+    // state of its own.
+    runtimeControls: snapshot.runtimeControls ?? [],
     status: {
       connection: 'connected',
       lastUpdated: snapshot.lastUpdated,

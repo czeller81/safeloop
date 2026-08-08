@@ -12,6 +12,8 @@ import {
 import type { SafeloopStorageOptions } from '../localStorage';
 import { readLines } from '../localStorage';
 
+import { deriveRuntimeControls, type DashboardRuntimeControl } from './runtimeControls';
+
 export interface ActiveLoopSnapshot {
   key: string;
   agent: string;
@@ -23,6 +25,7 @@ export interface ActiveLoopSnapshot {
 }
 
 export interface DashboardSnapshot {
+  runtimeControls: DashboardRuntimeControl[];
   activeLoops: ActiveLoopSnapshot[];
   events: SafeloopStreamEvent[];
   eventCount: number;
@@ -358,6 +361,7 @@ export function getDashboardSnapshot(options: SafeloopStorageOptions = {}): Dash
   const lastUpdated = events.length > 0 ? events[events.length - 1].timestamp : new Date().toISOString();
 
   return {
+    runtimeControls: deriveRuntimeControls(events),
     activeLoops: deriveActiveLoops(events),
     events,
     eventCount: events.length,

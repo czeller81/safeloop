@@ -10,6 +10,7 @@ import { renderLatestRunCard } from './LatestRunCard';
 import { renderLoopTimecards } from './LoopTimecards';
 import { renderOversightPanel } from './OversightPanel';
 import { renderRiskPanel } from './RiskPanel';
+import { renderRuntimeControlsPanel } from './RuntimeControlsPanel';
 import { renderSpendPanel } from './SpendPanel';
 import { renderHandoffsCard } from './HandoffsCard';
 import { renderOperatorSummaryPanel } from './OperatorSummaryPanel';
@@ -39,6 +40,7 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
               ${renderSpendPanel(viewModel)}
               ${renderHandoffsCard(viewModel)}
               ${renderLoopTimecards(viewModel)}
+              ${renderRuntimeControlsPanel(viewModel)}
               ${renderRiskPanel(viewModel)}
               ${renderHumanReviewPanel(viewModel)}
               ${renderDiagnosticsPanel(viewModel)}

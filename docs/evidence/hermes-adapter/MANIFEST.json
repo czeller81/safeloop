@@ -1,0 +1,16 @@
+{
+  "artifact": "SafeLoop v0.2 RC1 certified Hermes reference adapter",
+  "why_vendored": "The Hermes working repository is local-only and is not pushed upstream, so a certification that referenced only its commit hash would not be reproducible by a reviewer. The exact certified adapter source is vendored here with checksums so the evidence stands on its own.",
+  "hermes_upstream_base_commit": "190e1ffac976ee5fc41c9f1845ba8fd886a827b1",
+  "hermes_local_commit": "df926a32d5dd26479754b2ffc6486aee9d770fb8",
+  "hermes_local_tag": "safeloop-v0.2-rc1-adapter",
+  "hermes_version": "v0.17.0 (2026.6.19)",
+  "source_path_in_hermes": "plugins/safeloop_guard/",
+  "certified_profile": "coding",
+  "files": {
+    "plugin.yaml": "sha256:3526d409bed17bc3acd69bb6f941e56682607cc5be17bc24e35f8d6a2711c944",
+    "safeloop_guard.py": "sha256:8e36c5027416eec10dc29ea7046493a0939ecc8017210c4d28939e5ed926788e"
+  },
+  "verify": "sha256sum docs/evidence/hermes-adapter/* \u2014 compare against the values above, and against plugins/safeloop_guard/ in a Hermes checkout at the recorded commit or tag.",
+  "note": "The local commit hash is recorded for provenance but is NOT the reproducibility mechanism; the vendored source and its checksums are."
+}

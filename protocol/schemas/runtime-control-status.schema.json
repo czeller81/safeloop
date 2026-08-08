@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/runtime-control-status.schema.json",
+  "title": "RuntimeControlStatus",
+  "description": "State of one runtime security control for one governed session. States are distinct by design: explicitly enforced is not the same as currently unreachable.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "control_id",
+    "name",
+    "state",
+    "consequential",
+    "enforcement",
+    "policy",
+    "boundary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "control_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "DISABLED",
+        "PENDING_VERIFICATION",
+        "UNREACHABLE",
+        "UNMANAGED",
+        "VERIFICATION_FAILED",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "consequential": {
+      "type": "boolean"
+    },
+    "enforcement": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "policy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "effect"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "enforced",
+              "unset"
+            ]
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "performed",
+        "passed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "performed": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "verified_by": {
+          "type": "string"
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "boundary": {
+      "type": "string"
+    },
+    "rationale": {
+      "type": "string"
+    }
+  }
+}

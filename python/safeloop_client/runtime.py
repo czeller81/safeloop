@@ -342,6 +342,29 @@ class RuntimeSession:
             task_id,
         )
 
+    # --- Runtime controls -------------------------------------------------
+
+    def report_control_verification(
+        self,
+        control_id: str,
+        passed: bool,
+        *,
+        verified_by: str | None = None,
+        detail: str | None = None,
+    ) -> dict[str, Any]:
+        """Report that this adapter verified a declared runtime control.
+
+        Reporting only. The adapter must still fail closed on its own — a
+        control that depends on a reporting call having succeeded is not a
+        control.
+        """
+        body: dict[str, Any] = {"control_id": control_id, "passed": bool(passed)}
+        if verified_by is not None:
+            body["verified_by"] = verified_by
+        if detail is not None:
+            body["detail"] = detail
+        return self.client.request("/v1/control/verify", self._auth(body))
+
     # --- Memory ----------------------------------------------------------
 
     def propose_memory(self, candidate: dict[str, Any], task_id: str) -> dict[str, Any]:

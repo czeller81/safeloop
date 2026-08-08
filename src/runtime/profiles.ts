@@ -70,6 +70,31 @@ export interface LaunchEnvironment {
   rationale?: string;
 }
 
+/**
+ * A security control a profile declares and expects an adapter to confirm.
+ *
+ * Generic by construction: SafeLoop core names no agent. The control id, the
+ * human-readable name, and the environment variable names all live in profile
+ * data, so declaring a control for a new agent is a data change.
+ */
+export interface RuntimeControlDeclaration {
+  control_id: string;
+  name: string;
+  /** What the profile intends. `DISABLED` requires confirmation to be claimed. */
+  intended_state: 'DISABLED' | 'UNREACHABLE' | 'UNMANAGED';
+  consequential: boolean;
+  /**
+   * When true, the profile will not claim DISABLED until an adapter confirms
+   * it at runtime. Until then the control reports PENDING_VERIFICATION.
+   */
+  requires_runtime_verification: boolean;
+  enforcement: string[];
+  /** Variable names and effects only. Values are never declared or displayed. */
+  policy: Array<{ name: string; effect: 'enforced' | 'unset' }>;
+  boundary: string;
+  rationale?: string;
+}
+
 export interface GovernanceProfile {
   id: string;
   name: string;
@@ -82,6 +107,7 @@ export interface GovernanceProfile {
   minimum_memory_confidence: number;
   managed_paths: ManagedPathDeclaration[];
   launch_environment?: LaunchEnvironment;
+  runtime_controls?: RuntimeControlDeclaration[];
 }
 
 export interface ActionFacts {
@@ -275,6 +301,27 @@ export function validateProfile(profile: GovernanceProfile): void {
     for (const name of hardening.unset ?? []) {
       if (hardening.set && name in hardening.set) {
         throw new Error(`Profile ${profile.id} launch_environment both sets and unsets ${name}.`);
+      }
+    }
+  }
+
+  const controlIds = new Set<string>();
+  for (const control of profile.runtime_controls ?? []) {
+    if (!control.control_id) throw new Error(`Profile ${profile.id} has a runtime control without a control_id.`);
+    if (controlIds.has(control.control_id)) {
+      throw new Error(`Profile ${profile.id} has duplicate runtime control id: ${control.control_id}`);
+    }
+    controlIds.add(control.control_id);
+    if (!control.boundary) {
+      throw new Error(`Profile ${profile.id} runtime control ${control.control_id} must state its boundary.`);
+    }
+    for (const entry of control.policy ?? []) {
+      if (entry.effect !== 'enforced' && entry.effect !== 'unset') {
+        throw new Error(`Profile ${profile.id} runtime control ${control.control_id} has an invalid policy effect.`);
+      }
+      if ('value' in (entry as Record<string, unknown>)) {
+        // Values would end up on an operator dashboard. Names and effects only.
+        throw new Error(`Profile ${profile.id} runtime control ${control.control_id} must not declare policy values.`);
       }
     }
   }

@@ -2267,3 +2267,59 @@ p {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Runtime security controls -------------------------------------------
+   Six distinct states, deliberately not a green/red badge: "explicitly
+   enforced and verified" and "happens to be unreachable" are different
+   security postures and must be visually distinguishable. */
+
+.control-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+.control-card {
+  border: 1px solid var(--border, #2a2f3a);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: var(--surface, #161a22);
+}
+.control-card.control-ok      { border-left-color: #3fb950; }
+.control-card.control-pending { border-left-color: #d29922; }
+.control-card.control-weak    { border-left-color: #58a6ff; }
+.control-card.control-warn    { border-left-color: #db6d28; }
+.control-card.control-fail    { border-left-color: #f85149; }
+.control-card.control-muted   { border-left-color: #6e7681; }
+
+.control-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+
+.control-state {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+}
+.control-state.control-ok      { background: rgba(63,185,80,.15);  color: #3fb950; }
+.control-state.control-pending { background: rgba(210,153,34,.15); color: #d29922; }
+.control-state.control-weak    { background: rgba(88,166,255,.15); color: #58a6ff; }
+.control-state.control-warn    { background: rgba(219,109,40,.15); color: #db6d28; }
+.control-state.control-fail    { background: rgba(248,81,73,.15);  color: #f85149; }
+.control-state.control-muted   { background: rgba(110,118,129,.15);color: #8b949e; }
+
+.control-meaning  { margin: 8px 0 10px; font-size: 12.5px; color: var(--muted, #8b949e); }
+.control-row      { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; padding: 3px 0; }
+.control-row span:first-child { color: var(--muted, #8b949e); }
+.control-rationale{ margin: 10px 0 0; font-size: 12px; color: var(--muted, #8b949e); }
+.control-card-meta{ margin-top: 8px; font-size: 11px; color: var(--muted, #6e7681); }
+
+.control-details  { margin-top: 10px; }
+.control-details summary { cursor: pointer; font-size: 12px; color: var(--muted, #8b949e); }
+.control-detail-body { padding-top: 8px; }
+.control-detail-heading { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #6e7681); }
+.control-policy { list-style: none; padding: 6px 0 0; margin: 0; font-size: 12.5px; }
+.control-policy li { padding: 2px 0; }
+.control-effect { color: var(--muted, #8b949e); }
+.control-note { font-size: 11.5px; color: var(--muted, #6e7681); margin: 6px 0 0; }
+
+.control-blocked {
+  border: 1px solid #f85149; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;
+  background: rgba(248,81,73,.08);
+}
+.control-blocked-title { font-weight: 700; color: #f85149; margin-bottom: 4px; }
+.control-blocked ul { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; }

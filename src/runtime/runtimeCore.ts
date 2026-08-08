@@ -22,7 +22,7 @@ import { createManagedExecutor, type BreakerGate, type ManagedExecutor } from '.
 import { createRuntimeRecorder, type RuntimeRecorder } from './recorder';
 import { createMemoryGateway, type MemoryGateway, type MemoryPersistenceAuthorization } from './memoryGateway';
 import { createGovernedMemoryStore, type GovernedMemoryStore, type MemoryWriteResult } from './memoryStore';
-import { evaluateProfile, loadProfile, moreSevere, type GovernanceProfile } from './profiles';
+import { evaluateProfile, loadProfile, moreSevere, type GovernanceProfile, type RuntimeControlDeclaration } from './profiles';
 import { createShellExecutor } from './executors/shell';
 import { createFilesystemExecutor } from './executors/filesystem';
 import { createGitExecutor } from './executors/git';
@@ -45,6 +45,8 @@ import {
   type MemoryDecision,
   type MemoryPersistencePermit,
   type RuntimeDispositionCode,
+  type RuntimeControlStatus,
+  type RuntimeControlVerification,
   type RuntimeHealth,
   type SessionContext,
   type TaskContext,
@@ -83,6 +85,10 @@ export interface SessionState {
   pendingApprovals: Map<string, { request: ReturnType<ApprovalAuthority['request']>; proposal: ActionProposal }>;
   parent_session_id?: string;
   finished_at?: string;
+  /** Adapter-reported control verifications, keyed by control_id. */
+  controlVerifications: Map<string, RuntimeControlVerification>;
+  /** Set when a control the profile requires could not be confirmed. */
+  blocked_reason?: string;
 }
 
 export type RuntimeErrorCode =
@@ -137,6 +143,14 @@ export interface SafeloopRuntime {
   authorizeMemoryPersistence(credential: string, input: { session_id: string; candidate: MemoryCandidate; permit?: MemoryPersistencePermit }): MemoryPersistenceAuthorization;
   persistMemory(credential: string, input: { session_id: string; candidate: MemoryCandidate; decision: MemoryDecision; permit?: MemoryPersistencePermit }): MemoryWriteResult;
   activeMemories(credential: string, sessionId: string): ReturnType<GovernedMemoryStore['active']>;
+  /**
+   * Record an adapter's verification of a declared runtime control. Reporting
+   * only — enforcement remains with the adapter, which fails closed on its own.
+   */
+  reportControlVerification(credential: string, input: {
+    session_id: string; control_id: string; passed: boolean; verified_by?: string; detail?: string;
+  }): RuntimeControlStatus;
+  controlStatus(sessionId: string): RuntimeControlStatus[];
   finishTask(credential: string, input: { session_id: string; task_id: string }): void;
   finishSession(credential: string, sessionId: string): void;
   health(): RuntimeHealth;
@@ -169,8 +183,45 @@ export interface RuntimeStatus {
     budget_remaining: ReturnType<BudgetTracker['remaining']>;
     pending_approvals: number;
     managed_paths: ManagedPathDeclaration[];
+    runtime_controls: RuntimeControlStatus[];
+    blocked_reason?: string;
     finished_at?: string;
   }>;
+}
+
+/**
+ * Compute the honest state of a declared control.
+ *
+ * A profile declaring `intended_state: DISABLED` is an intention, not a fact.
+ * When the declaration requires runtime verification, DISABLED is only claimed
+ * once an adapter has confirmed it against the agent's own gate. Anything less
+ * reports PENDING_VERIFICATION or VERIFICATION_FAILED, never DISABLED.
+ */
+export function computeControlStatus(
+  declaration: RuntimeControlDeclaration,
+  verification: RuntimeControlVerification | undefined,
+): RuntimeControlStatus {
+  const base = {
+    control_id: declaration.control_id,
+    name: declaration.name,
+    consequential: declaration.consequential,
+    enforcement: declaration.enforcement,
+    policy: declaration.policy,
+    boundary: declaration.boundary,
+    rationale: declaration.rationale,
+    verification,
+  };
+
+  if (declaration.intended_state !== 'DISABLED') {
+    return { ...base, state: declaration.intended_state };
+  }
+  if (!declaration.requires_runtime_verification) {
+    return { ...base, state: 'DISABLED' };
+  }
+  if (!verification || !verification.performed) {
+    return { ...base, state: 'PENDING_VERIFICATION' };
+  }
+  return { ...base, state: verification.passed ? 'DISABLED' : 'VERIFICATION_FAILED' };
 }
 
 function newId(prefix: string): string {
@@ -350,6 +401,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         tasks: new Map(),
         pendingApprovals: new Map(),
         parent_session_id: input.parent_session_id,
+        controlVerifications: new Map(),
       };
 
       sessions.set(sessionId, state);
@@ -369,6 +421,29 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           runtime_version: RUNTIME_VERSION,
         },
       });
+
+      for (const declaration of profile.runtime_controls ?? []) {
+        const status = computeControlStatus(declaration, undefined);
+        recorder.recordEvent({
+          type: 'runtime.control.declared',
+          agent_id: session.agent.agent_id,
+          session_id: sessionId,
+          tenant_id: session.tenant_id,
+          decision: status.state,
+          summary: `${declaration.name}: ${status.state}`,
+          detail: {
+            controlId: declaration.control_id,
+            controlName: declaration.name,
+            controlState: status.state,
+            consequential: declaration.consequential,
+            enforcement: declaration.enforcement,
+            policy: declaration.policy,
+            boundary: declaration.boundary,
+            rationale: declaration.rationale,
+            profile: profile.id,
+          },
+        });
+      }
 
       return { session, credential, profile, managed_paths: profile.managed_paths };
     },
@@ -628,6 +703,65 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       return memoryStore.persist(bindCandidate(state, input.candidate, permit), input.decision, permit);
     },
 
+    reportControlVerification(credential, input): RuntimeControlStatus {
+      const state = authenticate(credential, input.session_id);
+      const declaration = (state.profile.runtime_controls ?? [])
+        .find((control) => control.control_id === input.control_id);
+      if (!declaration) {
+        throw new RuntimeError('invalid_request', `profile ${state.profile.id} declares no control "${input.control_id}"`);
+      }
+
+      const verification: RuntimeControlVerification = {
+        performed: true,
+        passed: input.passed,
+        verified_by: input.verified_by,
+        verified_at: new Date().toISOString(),
+        detail: input.detail,
+      };
+      state.controlVerifications.set(input.control_id, verification);
+
+      const status = computeControlStatus(declaration, verification);
+      if (status.state === 'VERIFICATION_FAILED') {
+        // The adapter fails closed on its own; the runtime records why the
+        // session could not proceed so an operator sees a blocked session
+        // rather than a generic startup error.
+        state.blocked_reason =
+          `Runtime control verification failed: ${declaration.name} could not be confirmed ${declaration.intended_state.toLowerCase()}.`;
+      }
+
+      recorder.recordEvent({
+        type: input.passed ? 'runtime.control.verified' : 'runtime.control.failed',
+        agent_id: state.session.agent.agent_id,
+        session_id: state.session.session_id,
+        tenant_id: state.session.tenant_id,
+        decision: status.state,
+        summary: `${declaration.name}: ${status.state}`,
+        detail: {
+          controlId: declaration.control_id,
+          controlName: declaration.name,
+          controlState: status.state,
+          consequential: declaration.consequential,
+          enforcement: declaration.enforcement,
+          // Names and effects only. Values never reach the ledger.
+          policy: declaration.policy,
+          boundary: declaration.boundary,
+          rationale: declaration.rationale,
+          verifiedBy: input.verified_by,
+          verificationDetail: input.detail,
+          profile: state.profile.id,
+        },
+      });
+
+      return status;
+    },
+
+    controlStatus(sessionId) {
+      const state = sessions.get(sessionId);
+      if (!state) return [];
+      return (state.profile.runtime_controls ?? []).map((declaration) =>
+        computeControlStatus(declaration, state.controlVerifications.get(declaration.control_id)));
+    },
+
     activeMemories(credential, sessionId) {
       const state = authenticate(credential, sessionId);
       return memoryStore.active(state.session.tenant_id);
@@ -696,6 +830,9 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           budget_remaining: state.budget.remaining(),
           pending_approvals: state.pendingApprovals.size,
           managed_paths: state.profile.managed_paths,
+          runtime_controls: (state.profile.runtime_controls ?? []).map((declaration) =>
+            computeControlStatus(declaration, state.controlVerifications.get(declaration.control_id))),
+          blocked_reason: state.blocked_reason,
           finished_at: state.finished_at,
         })),
       };

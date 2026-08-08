@@ -126,6 +126,12 @@ export function buildRoutes(): Route[] {
       handle: (body, runtime) => runtime.execute(sessionCredential(body), body as never),
     },
     {
+      // Reporting only. Enforcement stays with the adapter, which fails closed
+      // independently of whether this call succeeds.
+      method: 'POST', path: '/v1/control/verify', authenticated: true,
+      handle: (body, runtime) => runtime.reportControlVerification(sessionCredential(body), body as never),
+    },
+    {
       method: 'POST', path: '/v1/memory/propose', authenticated: true,
       handle: (body, runtime) => runtime.proposeMemory(sessionCredential(body), body as never),
     },

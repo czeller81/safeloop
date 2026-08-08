@@ -1,0 +1,7 @@
+﻿name: safeloop-guard
+version: "0.1.0"
+description: "Opt-in SafeLoop pre-execution governance middleware for Hermes controlled pilots. Calls the configured SafeLoop CLI before governed tool execution and fails closed for blocked or approval-required actions."
+author: "SafeLoop pilot"
+hooks: []
+middleware:
+  - tool_execution

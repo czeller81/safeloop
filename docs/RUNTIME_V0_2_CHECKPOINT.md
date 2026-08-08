@@ -22,7 +22,7 @@ state.
 | HEAD | tip of `runtime-governance-v0.2` — the RC1 audit commit listed below |
 | origin/master | `e0c93ec` — **unmodified** |
 | Master merged? | **NO.** Human approval required. |
-| Hermes repo | `/home/charleszeller/.hermes/hermes-agent` @ `6f50545de`, local-only, **not pushed** |
+| Hermes repo | `/home/charleszeller/.hermes/hermes-agent` @ `df926a32d` (tag `safeloop-v0.2-rc1-adapter`), local-only, **not pushed**; source vendored at `docs/evidence/hermes-adapter/` |
 
 Commits created on this branch:
 
@@ -109,6 +109,7 @@ See `docs/RUNTIME_ARCHITECTURE.md` for the module map.
 | Conformance — assistant | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
 | Conformance — strict-local | 33/33, 1 N/A, PASS_WITH_LIMITATIONS |
 | Hermes live proof | 19/19 |
+| Dashboard control proof | 12/12 (positive + negative) |
 | Build / build:ui / tsc | PASS |
 | npm audit | 0 vulnerabilities |
 | MCP hermes doctor | 8/8 PASS |

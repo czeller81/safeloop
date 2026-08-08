@@ -30,6 +30,7 @@ import type {
   MemoryCandidate,
   MemoryDecision,
   MemoryPersistencePermit,
+  RuntimeControlStatus,
   RuntimeHealth,
   SessionContext,
 } from './protocol';
@@ -125,6 +126,14 @@ export interface SafeloopSession {
   execute(input: ExecuteInput, taskId: string): Promise<ExecuteOutcome>;
   /** Resume a held action once an approval token has been granted. */
   executeApproved(proposal: ActionProposal, taskId: string, token: BoundApprovalToken): Promise<ExecutionResult>;
+  /**
+   * Report that this adapter verified a declared runtime control against the
+   * agent's own mechanism. Reporting only: the adapter must still fail closed
+   * on its own rather than relying on this call.
+   */
+  reportControlVerification(input: {
+    control_id: string; passed: boolean; verified_by?: string; detail?: string;
+  }): Promise<RuntimeControlStatus>;
   memory: {
     propose(candidate: MemoryCandidate, taskId: string): Promise<MemoryDecision>;
     /**
@@ -269,6 +278,10 @@ export function createSafeloopClient(options: SafeloopClientOptions = {}): Safel
             action: proposal,
           });
         },
+
+        reportControlVerification: (input) => request<RuntimeControlStatus>('/v1/control/verify', {
+          credential: sessionCredential, session_id: sessionId, ...input,
+        }),
 
         memory: {
           authorize: (candidate, permit) => request<MemoryPersistenceAuthorization>('/v1/memory/authorize', {

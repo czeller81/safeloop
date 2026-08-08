@@ -10,7 +10,8 @@ Hermes-specific lives in the plugin.
 | Hermes version | v0.17.0 (2026.6.19) |
 | Hermes upstream commit | `190e1ffac976ee5fc41c9f1845ba8fd886a827b1` |
 | Adapter (pre-v0.2) | `53f91ef1dcc4daeb271d0063e49088fa67ce79bd` |
-| Adapter (v0.2) | `6f50545de` — local-only, **not pushed upstream** |
+| Adapter (v0.2) | `df926a32d`, tag `safeloop-v0.2-rc1-adapter` — local-only, **not pushed upstream** |
+| Certified adapter source | `docs/evidence/hermes-adapter/` (vendored with SHA-256 manifest) |
 | Location | `/home/charleszeller/.hermes/hermes-agent/plugins/safeloop_guard/` |
 | Certified profile | `coding` |
 
@@ -276,3 +277,50 @@ SAFELOOP_HERMES_GUARD=1 safeloop run --profile coding -- hermes
 `SAFELOOP_SESSION_ID`, `SAFELOOP_SESSION_CREDENTIAL`, `SAFELOOP_TASK_ID`,
 `SAFELOOP_WORKSPACE`, and `SAFELOOP_PROFILE` for the child. Grant approvals with
 `safeloop` or by writing a token to `SAFELOOP_APPROVAL_DIR/<fingerprint>.json`.
+
+
+## Reproducibility of the certified adapter
+
+The Hermes working repository is local-only and is not pushed upstream, so a
+certification that referenced only its commit hash would not be reproducible by
+a reviewer who cannot reach that repository.
+
+The exact certified adapter source is therefore vendored into this repository at
+`docs/evidence/hermes-adapter/`, with a SHA-256 manifest:
+
+```bash
+sha256sum docs/evidence/hermes-adapter/*
+```
+
+Compare those values against `docs/evidence/hermes-adapter/MANIFEST.json`, and —
+if you have a Hermes checkout — against `plugins/safeloop_guard/` at commit
+`df926a32d` or tag `safeloop-v0.2-rc1-adapter`.
+
+The commit hash and tag are recorded for provenance. **The vendored source and
+its checksums are the reproducibility mechanism**, not the hash.
+
+## Operator visibility
+
+The lazy-install control is surfaced on both operator surfaces rather than only
+in source:
+
+- `safeloop status` prints a **Runtime security controls** section per session:
+  state, enforcement layers, policy (variable names and effect tokens only),
+  verification outcome, and scope.
+- The monitor dashboard renders a **Runtime Security Controls** panel derived
+  from the ledger, with six visually distinct states.
+
+The six states are deliberately not collapsed into a green/red badge:
+
+| State | Meaning |
+| --- | --- |
+| `DISABLED` | Explicitly enforced, and the adapter confirmed it at runtime |
+| `PENDING_VERIFICATION` | Enforcement declared, adapter has not confirmed yet |
+| `UNREACHABLE` | The path exists but this profile cannot reach it — weaker than disabled |
+| `UNMANAGED` | A consequential path exists with no explicit SafeLoop control |
+| `VERIFICATION_FAILED` | Policy intended to disable it, verification failed, session blocked |
+| `NOT_APPLICABLE` | The control does not apply to the running agent |
+
+Environment **values are never displayed** — only variable names and an
+`[enforced]` / `[unset]` effect token. A value that somehow reached the ledger is
+dropped before rendering, and there is a test for that.

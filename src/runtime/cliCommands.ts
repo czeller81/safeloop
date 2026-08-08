@@ -17,7 +17,7 @@ import { applyLaunchEnvironment, listProfiles, loadProfile } from './profiles';
 import { runConformanceSuite, formatConformanceReport } from './conformance';
 import { sealLedger, verifyLedger } from '../ledgerIntegrity';
 import { RUNTIME_VERSION } from './runtimeCore';
-import { PROTOCOL_VERSION, type ManagedPathDeclaration } from './protocol';
+import { PROTOCOL_VERSION, type ManagedPathDeclaration, type RuntimeControlStatus } from './protocol';
 import type { SafeloopStorageOptions } from '../localStorage';
 
 export interface CliOptions {
@@ -169,6 +169,40 @@ function renderManagedPaths(paths: ManagedPathDeclaration[]): string[] {
   });
 }
 
+/** Distinct markers per state. Never collapsed into green/red. */
+const CONTROL_MARKER: Record<RuntimeControlStatus['state'], string> = {
+  DISABLED: '✓',
+  PENDING_VERIFICATION: '…',
+  UNREACHABLE: '~',
+  UNMANAGED: '!',
+  VERIFICATION_FAILED: '✗',
+  NOT_APPLICABLE: '·',
+};
+
+function renderRuntimeControls(controls: RuntimeControlStatus[]): string[] {
+  if (controls.length === 0) return ['    (none declared by this profile)'];
+
+  const lines: string[] = [];
+  for (const control of controls) {
+    lines.push(`    ${CONTROL_MARKER[control.state]} ${control.name}`);
+    lines.push(`        State           ${control.state}`);
+    lines.push(`        Enforcement     ${control.enforcement.join(' + ') || '(none)'}`);
+    for (const entry of control.policy) {
+      // Names and effects only. Environment values are never displayed.
+      lines.push(`        Policy          ${entry.name} = [${entry.effect}]`);
+    }
+    if (control.verification?.performed) {
+      lines.push(`        Verification    ${control.verification.passed ? 'PASSED' : 'FAILED'}`
+        + (control.verification.verified_by ? ` (${control.verification.verified_by})` : ''));
+      if (control.verification.detail) lines.push(`        Detail          ${control.verification.detail}`);
+    } else {
+      lines.push('        Verification    not yet reported by the adapter');
+    }
+    lines.push(`        Scope           ${control.boundary}`);
+  }
+  return lines;
+}
+
 export async function runStatusCommand(_args: string[], options: CliOptions): Promise<number> {
   const connection = readConnectionFile(options.storageOptions);
   if (!connection || !isProcessAlive(connection.pid)) {
@@ -209,6 +243,13 @@ export async function runStatusCommand(_args: string[], options: CliOptions): Pr
     console.log(`    Approvals    ${session.pending_approvals} pending`);
     console.log('    Managed paths:');
     for (const line of renderManagedPaths(session.managed_paths)) console.log(line);
+    console.log('    Runtime security controls:');
+    for (const line of renderRuntimeControls(session.runtime_controls ?? [])) console.log(line);
+    if (session.blocked_reason) {
+      console.log('');
+      console.log(`    SESSION BLOCKED  ${session.blocked_reason}`);
+      console.log('    The session was not permitted to proceed.');
+    }
   }
 
   return 0;

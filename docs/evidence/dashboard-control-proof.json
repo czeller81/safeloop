@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-08-08T05:57:20Z",
+  "control": "dependency_installation",
+  "adversarial_condition": "durable install target present in parent environment",
+  "passed": 12,
+  "total": 12,
+  "checks": [
+    {
+      "test": "hostile parent target does not keep installs enabled",
+      "expected": "gate True -> False",
+      "actual": "True -> False",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard shows DISABLED",
+      "expected": "DISABLED",
+      "actual": "DISABLED",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard shows runtime verification PASSED",
+      "expected": "verified and passed",
+      "actual": "verified=True, passed=True",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard shows the durable target as unset by policy",
+      "expected": "effect=unset",
+      "actual": "[{'name': 'HERMES_LAZY_INSTALL_TARGET', 'effect': 'unset'}]",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard never prints the durable target value",
+      "expected": "value absent",
+      "actual": "absent",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard states the governance boundary",
+      "expected": "scope names governed sessions",
+      "actual": "Enforced for sessions launched through SafeLoop. Processes s",
+      "result": "PASS"
+    },
+    {
+      "test": "session is not blocked",
+      "expected": "no blocked flag",
+      "actual": "False",
+      "result": "PASS"
+    },
+    {
+      "test": "real dependency request refused, nothing installed",
+      "expected": "FeatureUnavailable: lazy installs disabled",
+      "actual": "FeatureUnavailable: Feature 'provider.anthropic' unavailable: lazy ins",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard shows VERIFICATION_FAILED",
+      "expected": "VERIFICATION_FAILED",
+      "actual": "VERIFICATION_FAILED",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard marks the session blocked",
+      "expected": "blocked=True",
+      "actual": "True",
+      "result": "PASS"
+    },
+    {
+      "test": "dashboard never shows DISABLED when verification failed",
+      "expected": "no DISABLED state",
+      "actual": "['VERIFICATION_FAILED']",
+      "result": "PASS"
+    },
+    {
+      "test": "runtime status reports a blocked reason",
+      "expected": "blocked_reason present",
+      "actual": "Runtime control verification failed: Lazy dependency install",
+      "result": "PASS"
+    }
+  ]
+}

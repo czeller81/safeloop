@@ -328,5 +328,30 @@
       "HERMES_LAZY_INSTALL_TARGET"
     ],
     "rationale": "Disables runtime dependency installation in the launched agent. Package installation is a consequential network and code-execution path that SafeLoop does not manage, so a governed session must not be able to reach it. Variables an agent does not recognise are inert."
-  }
+  },
+  "runtime_controls": [
+    {
+      "control_id": "dependency_installation",
+      "name": "Lazy dependency installation",
+      "intended_state": "DISABLED",
+      "consequential": true,
+      "requires_runtime_verification": true,
+      "enforcement": [
+        "profile launch_environment",
+        "adapter runtime verification"
+      ],
+      "policy": [
+        {
+          "name": "HERMES_DISABLE_LAZY_INSTALLS",
+          "effect": "enforced"
+        },
+        {
+          "name": "HERMES_LAZY_INSTALL_TARGET",
+          "effect": "unset"
+        }
+      ],
+      "boundary": "Enforced for sessions launched through SafeLoop. Processes started outside the SafeLoop governed-session boundary are not covered by this control.",
+      "rationale": "Package installation is a consequential network and code-execution path that SafeLoop does not manage, so a governed session must not be able to reach it."
+    }
+  ]
 }
