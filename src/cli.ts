@@ -20,8 +20,27 @@ import {
   type SafeloopPolicyProfile,
   writeDefaultSafeloopPolicyConfig,
 } from './policyConfig';
+import {
+  isAgentLaunch,
+  runAgentLaunch,
+  runCertifyCommand,
+  runDaemonCommand,
+  runProfilesCommand,
+  runRuntimeInit,
+  runStatusCommand,
+  type CliOptions,
+} from './runtime/cliCommands';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
+
+/** Shared option parsing for the v0.2 runtime commands. */
+function runtimeCliOptions(args: string[]): CliOptions {
+  const baseDir = parseBaseDir(args);
+  return {
+    storageOptions: baseDir ? { baseDir } : {},
+    json: args.includes('--json'),
+  };
+}
 
 function parsePort(args: string[]): number | undefined {
   for (let index = 0; index < args.length; index += 1) {
@@ -505,7 +524,14 @@ async function main(): Promise<void> {
   const command = process.argv[2];
 
   if (command === 'init') {
-    runInit(process.argv.slice(3));
+    const initArgs = process.argv.slice(3);
+    // `--agent` selects the v0.2 onboarding flow; `--profile` keeps the v0.1
+    // policy-config behaviour.
+    if (initArgs.includes('--agent') || initArgs.some((value) => value.startsWith('--agent='))) {
+      process.exitCode = runRuntimeInit(initArgs, runtimeCliOptions(initArgs));
+      return;
+    }
+    runInit(initArgs);
     return;
   }
 
@@ -515,7 +541,39 @@ async function main(): Promise<void> {
   }
 
   if (command === 'run') {
-    runGuardedCommand(process.argv.slice(3));
+    const runArgs = process.argv.slice(3);
+    // `--` selects the v0.2 agent-launch form. Without it, `safeloop run
+    // --command "..."` keeps its v0.1 meaning, so no existing invocation
+    // changes behaviour.
+    if (isAgentLaunch(runArgs)) {
+      process.exitCode = await runAgentLaunch(runArgs, runtimeCliOptions(runArgs));
+      return;
+    }
+    runGuardedCommand(runArgs);
+    return;
+  }
+
+  if (command === 'daemon') {
+    const daemonArgs = process.argv.slice(3);
+    process.exitCode = await runDaemonCommand(daemonArgs, runtimeCliOptions(daemonArgs));
+    return;
+  }
+
+  if (command === 'status') {
+    const statusArgs = process.argv.slice(3);
+    process.exitCode = await runStatusCommand(statusArgs, runtimeCliOptions(statusArgs));
+    return;
+  }
+
+  if (command === 'certify') {
+    const certifyArgs = process.argv.slice(3);
+    process.exitCode = await runCertifyCommand(certifyArgs, runtimeCliOptions(certifyArgs));
+    return;
+  }
+
+  if (command === 'profiles') {
+    const profileArgs = process.argv.slice(3);
+    process.exitCode = runProfilesCommand(profileArgs, runtimeCliOptions(profileArgs));
     return;
   }
 
@@ -556,6 +614,16 @@ async function main(): Promise<void> {
 
   console.log('Safeloop CLI');
   console.log('Usage:');
+  console.log('');
+  console.log('  Runtime governance (v0.2):');
+  console.log('  safeloop init --agent <coding|research|assistant|strict-local> [--workspace <path>]');
+  console.log('  safeloop daemon <start|stop|status> [--port <port>] [--profile <profile>] [--foreground]');
+  console.log('  safeloop run --profile <profile> -- <agent command> [args...]');
+  console.log('  safeloop status [--json] [--baseDir <path>]');
+  console.log('  safeloop certify [--profile <profile>] [--adapter <name>] [--json] [--out <path>]');
+  console.log('  safeloop profiles [--profile <profile>] [--json]');
+  console.log('');
+  console.log('  Agent governance (v0.1):');
   console.log('  safeloop init [--profile <default|k12-offline-rag>] [--baseDir <path>]');
   console.log('  safeloop check --command "<command>" [--baseDir <path>]');
   console.log('  safeloop run --command "<command>" [--baseDir <path>]');

@@ -6,5 +6,25 @@ SafeLoop CLI/stdin JSON surface.
 """
 
 from .client import SafeLoopClient, SafeLoopClientError
+from .runtime import (
+    PROTOCOL_VERSION,
+    ExecuteOutcome,
+    RuntimeSession,
+    SafeLoopRuntimeClient,
+    SafeLoopRuntimeError,
+    connect,
+    session,
+)
 
-__all__ = ["SafeLoopClient", "SafeLoopClientError"]
+__all__ = [
+    "SafeLoopClient",
+    "SafeLoopClientError",
+    # safeloop.runtime.v1 adapter SDK
+    "PROTOCOL_VERSION",
+    "ExecuteOutcome",
+    "RuntimeSession",
+    "SafeLoopRuntimeClient",
+    "SafeLoopRuntimeError",
+    "connect",
+    "session",
+]
