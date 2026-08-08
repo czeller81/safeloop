@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/memory-persistence-permit.schema.json",
+  "title": "MemoryPersistencePermit",
+  "description": "Authorization to durably activate one exact memory candidate.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "permit_id",
+    "memory_decision_id",
+    "candidate_fingerprint",
+    "memory_id",
+    "agent_id",
+    "task_id",
+    "tenant_id",
+    "decision",
+    "issued_at",
+    "expires_at",
+    "nonce",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "permit_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memory_decision_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "memory_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "ALLOW_WITH_TTL",
+        "MERGE",
+        "QUARANTINE",
+        "REQUIRE_REVIEW",
+        "REJECT"
+      ]
+    },
+    "ttl": {
+      "type": "string"
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 16
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

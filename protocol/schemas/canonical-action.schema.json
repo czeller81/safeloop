@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/canonical-action.schema.json",
+  "title": "CanonicalAction",
+  "description": "Deterministic normalized form of an ActionProposal. All slots are present.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "action_kind",
+    "tool",
+    "operation",
+    "arguments",
+    "cwd",
+    "target",
+    "resource",
+    "method",
+    "agent_id",
+    "parent_agent_id",
+    "task_id",
+    "session_id",
+    "scenario_id",
+    "tenant_id",
+    "trace_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "action_kind": {
+      "type": "string",
+      "enum": [
+        "shell",
+        "filesystem",
+        "git",
+        "http",
+        "mcp",
+        "memory",
+        "delegation",
+        "custom"
+      ]
+    },
+    "tool": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string"
+    },
+    "arguments": {
+      "type": "object"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "resource": {
+      "type": "string"
+    },
+    "method": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "parent_agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    }
+  }
+}

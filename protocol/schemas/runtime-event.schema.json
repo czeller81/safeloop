@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/runtime-event.schema.json",
+  "title": "RuntimeEvent",
+  "description": "An append-only governance ledger entry.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "event_id",
+    "type",
+    "timestamp",
+    "agent_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "action_fingerprint": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/agent-identity.schema.json",
+  "title": "AgentIdentity",
+  "description": "Stable identity of an agent participating in a SafeLoop session.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "agent_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_name": {
+      "type": "string"
+    },
+    "agent_type": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "parent_agent_id": {
+      "type": "string"
+    },
+    "human_operator": {
+      "type": "string"
+    }
+  }
+}

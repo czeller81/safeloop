@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/session-context.schema.json",
+  "title": "SessionContext",
+  "description": "A governed runtime session established before any managed action.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "session_id",
+    "tenant_id",
+    "agent",
+    "started_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/agent-identity.schema.json"
+    },
+    "workspace": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "trace_id": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/execution-result.schema.json",
+  "title": "ExecutionResult",
+  "description": "Outcome of a managed execution, recorded as evidence.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "execution_id",
+    "permit_id",
+    "action_fingerprint",
+    "status",
+    "evidence_ids",
+    "artifact_ids"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "execution_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "permit_id": {
+      "type": "string"
+    },
+    "action_fingerprint": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "EXECUTED",
+        "REJECTED",
+        "FAILED",
+        "TIMED_OUT",
+        "BLOCKED_BY_BREAKER",
+        "BLOCKED_BY_BUDGET"
+      ]
+    },
+    "rejection_reason": {
+      "type": "string",
+      "enum": [
+        "missing_permit",
+        "permit_forged",
+        "permit_expired",
+        "permit_consumed",
+        "fingerprint_mismatch",
+        "identity_mismatch",
+        "tenant_mismatch",
+        "task_mismatch",
+        "breaker_open",
+        "budget_exhausted",
+        "invalid_runtime_state",
+        "unsupported_action_kind",
+        "executor_error"
+      ]
+    },
+    "exit_code": {
+      "type": "number"
+    },
+    "stdout": {
+      "type": "string"
+    },
+    "stderr": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifact_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "detail": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/managed-path-declaration.schema.json",
+  "title": "ManagedPathDeclaration",
+  "description": "Declares whether a consequential path is MANAGED, UNMANAGED, or DISABLED.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "path",
+    "state",
+    "consequential",
+    "certification_impact"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "MANAGED",
+        "UNMANAGED",
+        "DISABLED"
+      ]
+    },
+    "consequential": {
+      "type": "boolean"
+    },
+    "certification_impact": {
+      "type": "boolean"
+    },
+    "mechanism": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

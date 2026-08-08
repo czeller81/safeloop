@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/memory-decision.schema.json",
+  "title": "MemoryDecision",
+  "description": "Binding SafeLoop decision for one memory candidate.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "memory_decision_id",
+    "decision",
+    "allowed",
+    "candidate_fingerprint",
+    "reasons",
+    "recommended_remediation",
+    "decided_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "memory_decision_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "ALLOW_WITH_TTL",
+        "MERGE",
+        "QUARANTINE",
+        "REQUIRE_REVIEW",
+        "REJECT"
+      ]
+    },
+    "allowed": {
+      "type": "boolean"
+    },
+    "candidate_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommended_remediation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "persistence_permit": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/memory-persistence-permit.schema.json"
+    }
+  }
+}

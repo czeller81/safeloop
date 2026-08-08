@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/conformance-result.schema.json",
+  "title": "ConformanceResult",
+  "description": "Machine-readable adapter/runtime certification output.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "status",
+    "profile",
+    "adapter",
+    "total",
+    "passed",
+    "failed",
+    "limitations",
+    "managed_paths",
+    "checks",
+    "generated_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "CORE_CONFORMANT",
+        "RUNTIME_CONFORMANT",
+        "PROFILE_CONFORMANT",
+        "PASS_WITH_LIMITATIONS",
+        "NOT_CONFORMANT"
+      ]
+    },
+    "profile": {
+      "type": "string"
+    },
+    "adapter": {
+      "type": "string"
+    },
+    "total": {
+      "type": "number",
+      "minimum": 0
+    },
+    "passed": {
+      "type": "number",
+      "minimum": 0
+    },
+    "failed": {
+      "type": "number",
+      "minimum": 0
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "managed_paths": {
+      "type": "array",
+      "items": {
+        "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/managed-path-declaration.schema.json"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "category",
+          "required",
+          "passed",
+          "expected",
+          "actual"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "expected": {
+            "type": "string"
+          },
+          "actual": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

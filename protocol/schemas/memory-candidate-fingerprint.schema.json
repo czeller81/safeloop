@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/memory-candidate-fingerprint.schema.json",
+  "title": "MemoryCandidateFingerprint",
+  "description": "SHA-256 identity of the exact governed memory candidate.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "fingerprint",
+    "algorithm",
+    "canonical_form"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "algorithm": {
+      "type": "string",
+      "const": "sha256"
+    },
+    "canonical_form": {
+      "type": "string"
+    }
+  }
+}

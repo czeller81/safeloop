@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/memory-candidate.schema.json",
+  "title": "MemoryCandidate",
+  "description": "Proposed durable memory, before governance.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "memory_id",
+    "memory_type",
+    "situation",
+    "lesson"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string"
+    },
+    "memory_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memory_type": {
+      "type": "string"
+    },
+    "situation": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "outcome": {
+      "type": "string"
+    },
+    "lesson": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance": {
+      "type": "string"
+    },
+    "reuse_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "do_not_generalize": {
+      "type": "boolean"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "source_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requested_ttl": {
+      "type": "string"
+    },
+    "contradicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supersedes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contains_sensitive_data": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

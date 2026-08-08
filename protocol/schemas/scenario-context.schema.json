@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/scenario-context.schema.json",
+  "title": "ScenarioContext",
+  "description": "Declarative contract constraining what a session may do.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "scenario_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goal": {
+      "type": "string"
+    },
+    "allowed_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "require_approval_for": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "memory_write_policy": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "allow_with_ttl",
+        "require_review",
+        "quarantine",
+        "reject"
+      ]
+    },
+    "maximum_cost_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "maximum_tokens": {
+      "type": "number",
+      "minimum": 0
+    },
+    "maximum_runtime_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "maximum_tool_calls": {
+      "type": "number",
+      "minimum": 0
+    },
+    "max_loops": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

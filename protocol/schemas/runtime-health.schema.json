@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/runtime-health.schema.json",
+  "title": "RuntimeHealth",
+  "description": "Local runtime liveness and transport state.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "runtime_version",
+    "status",
+    "transport",
+    "started_at",
+    "uptime_ms",
+    "active_sessions",
+    "pid"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "runtime_version": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "HEALTHY",
+        "DEGRADED",
+        "STOPPING"
+      ]
+    },
+    "transport": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "uptime_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "active_sessions": {
+      "type": "number",
+      "minimum": 0
+    },
+    "pid": {
+      "type": "number"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/execution-request.schema.json",
+  "title": "ExecutionRequest",
+  "description": "A permit plus the exact action to execute under it.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "permit",
+    "action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "permit": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/execution-permit.schema.json"
+    },
+    "action": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/action-proposal.schema.json"
+    },
+    "timeout_ms": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

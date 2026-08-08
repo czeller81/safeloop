@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/approval-redemption.schema.json",
+  "title": "ApprovalRedemption",
+  "description": "Result of atomically redeeming a bound approval against an exact action.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "redeemed",
+    "approval_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "redeemed": {
+      "type": "boolean"
+    },
+    "approval_id": {
+      "type": "string"
+    },
+    "failure": {
+      "type": "string",
+      "enum": [
+        "forged",
+        "expired",
+        "revoked",
+        "consumed",
+        "fingerprint_mismatch",
+        "agent_mismatch",
+        "task_mismatch",
+        "session_mismatch",
+        "scenario_mismatch",
+        "tenant_mismatch",
+        "not_approval_required",
+        "unknown_token",
+        "state_corrupted"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "redeemed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "execution_permit": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/execution-permit.schema.json"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/approval-request.schema.json",
+  "title": "ApprovalRequest",
+  "description": "A held action awaiting human authorization.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "approval_request_id",
+    "action_fingerprint",
+    "agent_id",
+    "task_id",
+    "session_id",
+    "scenario_id",
+    "tenant_id",
+    "reason",
+    "risk_score",
+    "requested_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "approval_request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "risk_score": {
+      "type": "number",
+      "minimum": 0
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

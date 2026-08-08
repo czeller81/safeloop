@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/approval-grant.schema.json",
+  "title": "ApprovalGrant",
+  "description": "The record of a human granting an approval request.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "approval_id",
+    "approval_request_id",
+    "approver",
+    "granted_at",
+    "token"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "approval_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approval_request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approver": {
+      "type": "string",
+      "minLength": 1
+    },
+    "granted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "token": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/approval-token.schema.json"
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/execution-permit.schema.json",
+  "title": "ExecutionPermit",
+  "description": "The only authorization a SafeLoop managed executor accepts. Single-use and expiring.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "permit_id",
+    "action_fingerprint",
+    "agent_id",
+    "task_id",
+    "session_id",
+    "scenario_id",
+    "tenant_id",
+    "disposition",
+    "issued_at",
+    "expires_at",
+    "nonce",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "permit_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "ALLOW_WITH_WARNING",
+        "REQUIRE_APPROVAL",
+        "PAUSE",
+        "DENY",
+        "STOP_AGENT"
+      ]
+    },
+    "approval_id": {
+      "type": "string"
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 16
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/action-proposal.schema.json",
+  "title": "ActionProposal",
+  "description": "What an agent asks to do, before canonicalization. Adapters emit this.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "action_kind",
+    "agent_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string"
+    },
+    "action_kind": {
+      "type": "string",
+      "enum": [
+        "shell",
+        "filesystem",
+        "git",
+        "http",
+        "mcp",
+        "memory",
+        "delegation",
+        "custom"
+      ]
+    },
+    "tool": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string"
+    },
+    "arguments": {
+      "type": "object"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "resource": {
+      "type": "string"
+    },
+    "method": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "scenario_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/governance-decision.schema.json",
+  "title": "GovernanceDecision",
+  "description": "Binding SafeLoop decision for one canonical action.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "decision_id",
+    "disposition",
+    "allowed",
+    "requires_approval",
+    "action_fingerprint",
+    "risk_score",
+    "triggered_policies",
+    "explanation",
+    "recommended_remediation",
+    "evaluated_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "decision_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "ALLOW_WITH_WARNING",
+        "REQUIRE_APPROVAL",
+        "PAUSE",
+        "DENY",
+        "STOP_AGENT"
+      ]
+    },
+    "allowed": {
+      "type": "boolean"
+    },
+    "requires_approval": {
+      "type": "boolean"
+    },
+    "action_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "risk_score": {
+      "type": "number",
+      "minimum": 0
+    },
+    "triggered_policies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "explanation": {
+      "type": "string"
+    },
+    "recommended_remediation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "execution_permit": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/execution-permit.schema.json"
+    },
+    "approval_request": {
+      "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/approval-request.schema.json"
+    }
+  }
+}

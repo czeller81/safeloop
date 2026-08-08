@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/evidence-record.schema.json",
+  "title": "EvidenceRecord",
+  "description": "A recorded observation supporting a decision or result.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "evidence_id",
+    "kind",
+    "description",
+    "agent_id",
+    "task_id",
+    "tenant_id",
+    "recorded_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "safeloop.runtime.v1"
+    },
+    "evidence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "content_hash": {
+      "type": "string"
+    },
+    "uri": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
