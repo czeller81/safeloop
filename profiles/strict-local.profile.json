@@ -1,0 +1,116 @@
+{
+  "id": "strict-local",
+  "name": "Strict local / regulated",
+  "description": "Maximum-restraint profile for regulated or air-gapped work. Nothing leaves the host, nothing is written outside the workspace without a human, and durable memory is reviewed before it can become active.",
+  "default_disposition": "REQUIRE_APPROVAL",
+  "memory_write_policy": "require_review",
+  "minimum_memory_confidence": 0.9,
+  "budgets": {
+    "maximum_actions": 100,
+    "maximum_runtime_ms": 900000,
+    "maximum_tokens": 500000,
+    "maximum_cost_usd": 5,
+    "maximum_retries": 3
+  },
+  "rules": [
+    {
+      "id": "fs.read.workspace",
+      "description": "Reading inside the declared workspace is the only ungated operation.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["filesystem"], "operations": ["read", "list", "stat"], "workspace": "inside" }
+    },
+    {
+      "id": "fs.read.outside",
+      "description": "Reading outside the workspace requires a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["filesystem"], "operations": ["read", "list", "stat"], "workspace": "outside" }
+    },
+    {
+      "id": "fs.write.workspace",
+      "description": "Writing inside the workspace is allowed but always recorded.",
+      "disposition": "ALLOW_WITH_WARNING",
+      "match": { "action_kinds": ["filesystem"], "operations": ["create", "write", "append", "mkdir"], "workspace": "inside" }
+    },
+    {
+      "id": "fs.write.outside",
+      "description": "Writing outside the workspace is refused in a regulated profile.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "operations": ["create", "write", "append", "mkdir"], "workspace": "outside" }
+    },
+    {
+      "id": "fs.destructive",
+      "description": "Destructive filesystem operations are refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "destructive": true }
+    },
+    {
+      "id": "path.sensitive",
+      "description": "Credential, key, and secret paths are refused regardless of workspace.",
+      "disposition": "DENY",
+      "match": { "sensitive_path": true }
+    },
+    {
+      "id": "path.governance-config",
+      "description": "An agent may not modify the configuration that governs it.",
+      "disposition": "DENY",
+      "match": { "governance_config": true }
+    },
+    {
+      "id": "shell.destructive",
+      "description": "Destructive or privilege-escalating shell commands are refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["shell"], "destructive": true }
+    },
+    {
+      "id": "git.read",
+      "description": "Git inspection is allowed and recorded.",
+      "disposition": "ALLOW_WITH_WARNING",
+      "match": { "action_kinds": ["git"], "operations": ["status", "diff", "log", "show", "branch_list", "remote_list"] }
+    },
+    {
+      "id": "git.publish",
+      "description": "Nothing is published from a strict-local session.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["git"], "operations": ["push", "force_push", "remote_add", "remote_set_url", "remote_remove"] }
+    },
+    {
+      "id": "git.destructive",
+      "description": "History rewriting and work discarding are refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["git"], "operations": ["reset_hard", "clean", "branch_delete", "tag_delete"] }
+    },
+    {
+      "id": "http.any",
+      "description": "A strict-local session performs no network I/O at all.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["http"] }
+    },
+    {
+      "id": "governance.bypass",
+      "description": "Any attempt to disable, bypass, or ignore SafeLoop governance is refused.",
+      "disposition": "DENY",
+      "match": {
+        "argument_pattern": "(ignore|bypass|disable|skip|turn off|circumvent)\\s+(the\\s+)?(safeloop|approval|guardrail|governance|polic)",
+        "ignore_case": true
+      }
+    },
+    {
+      "id": "delegation.any",
+      "description": "Sub-agent delegation is refused in a regulated profile.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["delegation"] }
+    }
+  ],
+  "managed_paths": [
+    { "path": "shell", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed shell executor" },
+    { "path": "filesystem", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed filesystem executor" },
+    { "path": "git", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed git executor" },
+    { "path": "http", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Network I/O is denied by policy in this profile." },
+    { "path": "mcp", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop MCP governance gateway" },
+    { "path": "memory", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop memory gateway with persistence permits" },
+    { "path": "delegation", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Denied by policy in this profile." },
+    { "path": "browser", "state": "DISABLED", "consequential": true, "certification_impact": false },
+    { "path": "computer_use", "state": "DISABLED", "consequential": true, "certification_impact": false },
+    { "path": "cron", "state": "DISABLED", "consequential": true, "certification_impact": false }
+  ]
+}

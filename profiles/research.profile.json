@@ -1,0 +1,137 @@
+{
+  "id": "research",
+  "name": "Research agent",
+  "description": "Read-heavy profile for an agent gathering and synthesizing information. Public reads flow freely; anything that writes outside the workspace, publishes, or leaves the host is held or refused.",
+  "default_disposition": "ALLOW_WITH_WARNING",
+  "memory_write_policy": "require_review",
+  "minimum_memory_confidence": 0.75,
+  "budgets": {
+    "maximum_actions": 400,
+    "maximum_runtime_ms": 3600000,
+    "maximum_tokens": 3000000,
+    "maximum_cost_usd": 20,
+    "maximum_retries": 8
+  },
+  "rules": [
+    {
+      "id": "fs.read",
+      "description": "Reading source material is the point of this profile.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["filesystem"], "operations": ["read", "list", "stat"] }
+    },
+    {
+      "id": "fs.write.workspace",
+      "description": "Writing notes and outputs inside the workspace is ordinary work.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["filesystem"], "operations": ["create", "write", "append", "mkdir"], "workspace": "inside" }
+    },
+    {
+      "id": "fs.write.outside",
+      "description": "Writing outside the workspace requires a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["filesystem"], "operations": ["create", "write", "append", "mkdir"], "workspace": "outside" }
+    },
+    {
+      "id": "fs.destructive.outside",
+      "description": "Destructive filesystem operations outside the workspace are refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "destructive": true, "workspace": "outside" }
+    },
+    {
+      "id": "fs.destructive.unknown",
+      "description": "A destructive operation with an undeterminable workspace relation is refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "destructive": true, "workspace": "unknown" }
+    },
+    {
+      "id": "path.sensitive",
+      "description": "Credential, key, and secret paths are refused regardless of workspace.",
+      "disposition": "DENY",
+      "match": { "sensitive_path": true }
+    },
+    {
+      "id": "path.governance-config",
+      "description": "An agent may not modify the configuration that governs it.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "governance_config": true, "operations": ["create", "write", "append", "overwrite", "delete", "move", "chmod"] }
+    },
+    {
+      "id": "http.public-read",
+      "description": "Reading public sources is ordinary research work.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["http"], "operations": ["read"] }
+    },
+    {
+      "id": "http.mutation",
+      "description": "A research agent should not be changing external state.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["http"], "operations": ["write", "authenticated_mutation", "external_communication"] }
+    },
+    {
+      "id": "http.credential-export",
+      "description": "Transmitting credentials off the host is refused.",
+      "disposition": "DENY",
+      "match": {
+        "action_kinds": ["http"],
+        "argument_pattern": "(BEGIN [A-Z ]*PRIVATE KEY|aws_secret_access_key|api[_-]?key\"\\s*:|password\"\\s*:|ssh-rsa AAAA)"
+      }
+    },
+    {
+      "id": "git.read",
+      "description": "Git inspection is ordinary work.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["git"], "operations": ["status", "diff", "log", "show", "branch_list", "remote_list"] }
+    },
+    {
+      "id": "git.write",
+      "description": "A research agent commits and pushes only with a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["git"], "operations": ["commit", "push", "add", "remote_add", "remote_set_url", "remote_remove", "reset_hard", "clean", "branch_delete"] }
+    },
+    {
+      "id": "git.force-push",
+      "description": "Force pushing rewrites published history and is refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["git"], "operations": ["force_push"] }
+    },
+    {
+      "id": "shell.destructive",
+      "description": "Destructive or privilege-escalating shell commands are refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["shell"], "destructive": true }
+    },
+    {
+      "id": "mcp.call",
+      "description": "Downstream MCP calls are governed and recorded.",
+      "disposition": "ALLOW_WITH_WARNING",
+      "match": { "action_kinds": ["mcp"] }
+    },
+    {
+      "id": "mcp.consequential",
+      "description": "Downstream MCP tools that write, send, deploy, or delete require a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["mcp"], "argument_pattern": "\"(write|send|delete|deploy|publish|create|update|remove|execute)" }
+    },
+    {
+      "id": "governance.bypass",
+      "description": "Any attempt to disable, bypass, or ignore SafeLoop governance is refused.",
+      "disposition": "DENY",
+      "match": {
+        "argument_pattern": "(ignore|bypass|disable|skip|turn off|circumvent)\\s+(the\\s+)?(safeloop|approval|guardrail|governance|polic)",
+        "ignore_case": true
+      }
+    }
+  ],
+  "managed_paths": [
+    { "path": "shell", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed shell executor" },
+    { "path": "filesystem", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed filesystem executor" },
+    { "path": "git", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed git executor" },
+    { "path": "http", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed HTTP executor" },
+    { "path": "mcp", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop MCP governance gateway" },
+    { "path": "memory", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop memory gateway with persistence permits" },
+    { "path": "delegation", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop delegation inheritance" },
+    { "path": "browser", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Not enabled in the certified research profile." },
+    { "path": "computer_use", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Not enabled in the certified research profile." },
+    { "path": "cron", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Not enabled in the certified research profile." }
+  ]
+}

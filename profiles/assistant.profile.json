@@ -1,0 +1,125 @@
+{
+  "id": "assistant",
+  "name": "General assistant",
+  "description": "Conversational assistant profile. Local reads are fine; shell and git are not part of the job, and anything that reaches another person or system is held for a human.",
+  "default_disposition": "ALLOW_WITH_WARNING",
+  "memory_write_policy": "allow_with_ttl",
+  "minimum_memory_confidence": 0.75,
+  "budgets": {
+    "maximum_actions": 200,
+    "maximum_runtime_ms": 1800000,
+    "maximum_tokens": 1000000,
+    "maximum_cost_usd": 10,
+    "maximum_retries": 5
+  },
+  "rules": [
+    {
+      "id": "fs.read.workspace",
+      "description": "Reading inside the workspace is ordinary work.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["filesystem"], "operations": ["read", "list", "stat"], "workspace": "inside" }
+    },
+    {
+      "id": "fs.read.outside",
+      "description": "Reading outside the workspace requires a human decision in this profile.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["filesystem"], "operations": ["read", "list", "stat"], "workspace": "outside" }
+    },
+    {
+      "id": "fs.write.workspace",
+      "description": "Writing inside the workspace is ordinary work.",
+      "disposition": "ALLOW",
+      "match": { "action_kinds": ["filesystem"], "operations": ["create", "write", "append", "mkdir"], "workspace": "inside" }
+    },
+    {
+      "id": "fs.write.outside",
+      "description": "Writing outside the workspace requires a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["filesystem"], "operations": ["create", "write", "append", "mkdir"], "workspace": "outside" }
+    },
+    {
+      "id": "fs.destructive",
+      "description": "An assistant does not delete or overwrite outside its workspace.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "destructive": true, "workspace": "outside" }
+    },
+    {
+      "id": "fs.destructive.unknown",
+      "description": "A destructive operation with an undeterminable workspace relation is refused.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "destructive": true, "workspace": "unknown" }
+    },
+    {
+      "id": "path.sensitive",
+      "description": "Credential, key, and secret paths are refused regardless of workspace.",
+      "disposition": "DENY",
+      "match": { "sensitive_path": true }
+    },
+    {
+      "id": "path.governance-config",
+      "description": "An agent may not modify the configuration that governs it.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["filesystem"], "governance_config": true, "operations": ["create", "write", "append", "overwrite", "delete", "move", "chmod"] }
+    },
+    {
+      "id": "shell.any",
+      "description": "Shell execution is not part of the assistant profile.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["shell"] }
+    },
+    {
+      "id": "git.write",
+      "description": "Repository mutation is not part of the assistant profile.",
+      "disposition": "DENY",
+      "match": { "action_kinds": ["git"], "operations": ["commit", "push", "force_push", "reset_hard", "clean", "branch_delete", "remote_add", "remote_set_url", "remote_remove"] }
+    },
+    {
+      "id": "http.public-read",
+      "description": "Reading public sources is allowed and recorded.",
+      "disposition": "ALLOW_WITH_WARNING",
+      "match": { "action_kinds": ["http"], "operations": ["read"] }
+    },
+    {
+      "id": "http.mutation",
+      "description": "Anything that changes external state or reaches a person requires a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["http"], "operations": ["write", "authenticated_mutation", "external_communication"] }
+    },
+    {
+      "id": "http.credential-export",
+      "description": "Transmitting credentials off the host is refused.",
+      "disposition": "DENY",
+      "match": {
+        "action_kinds": ["http"],
+        "argument_pattern": "(BEGIN [A-Z ]*PRIVATE KEY|aws_secret_access_key|api[_-]?key\"\\s*:|password\"\\s*:|ssh-rsa AAAA)"
+      }
+    },
+    {
+      "id": "mcp.consequential",
+      "description": "Downstream MCP tools that write, send, deploy, or delete require a human decision.",
+      "disposition": "REQUIRE_APPROVAL",
+      "match": { "action_kinds": ["mcp"], "argument_pattern": "\"(write|send|delete|deploy|publish|create|update|remove|execute)" }
+    },
+    {
+      "id": "governance.bypass",
+      "description": "Any attempt to disable, bypass, or ignore SafeLoop governance is refused.",
+      "disposition": "DENY",
+      "match": {
+        "argument_pattern": "(ignore|bypass|disable|skip|turn off|circumvent)\\s+(the\\s+)?(safeloop|approval|guardrail|governance|polic)",
+        "ignore_case": true
+      }
+    }
+  ],
+  "managed_paths": [
+    { "path": "shell", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Shell is denied by policy in this profile." },
+    { "path": "filesystem", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed filesystem executor" },
+    { "path": "git", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed git executor" },
+    { "path": "http", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop managed HTTP executor" },
+    { "path": "mcp", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop MCP governance gateway" },
+    { "path": "memory", "state": "MANAGED", "consequential": true, "certification_impact": true, "mechanism": "SafeLoop memory gateway with persistence permits" },
+    { "path": "delegation", "state": "DISABLED", "consequential": true, "certification_impact": false, "notes": "Sub-agent delegation is not enabled in the assistant profile." },
+    { "path": "browser", "state": "DISABLED", "consequential": true, "certification_impact": false },
+    { "path": "computer_use", "state": "DISABLED", "consequential": true, "certification_impact": false },
+    { "path": "cron", "state": "DISABLED", "consequential": true, "certification_impact": false }
+  ]
+}
