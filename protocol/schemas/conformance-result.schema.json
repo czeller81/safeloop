@@ -102,6 +102,9 @@
           },
           "detail": {
             "type": "string"
+          },
+          "applicable": {
+            "type": "boolean"
           }
         }
       }
@@ -109,6 +112,10 @@
     "generated_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "not_applicable": {
+      "type": "number",
+      "minimum": 0
     }
   }
 }

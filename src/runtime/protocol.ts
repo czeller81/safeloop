@@ -480,6 +480,12 @@ export interface ConformanceCheckResult {
   name: string;
   category: string;
   required: boolean;
+  /**
+   * False when the profile under test does not enable the capability this
+   * check exercises. Not applicable is neither a pass nor a failure, and is
+   * excluded from the status calculation.
+   */
+  applicable?: boolean;
   passed: boolean;
   expected: string;
   actual: string;
@@ -494,6 +500,8 @@ export interface ConformanceResult {
   total: number;
   passed: number;
   failed: number;
+  /** Checks excluded because the profile does not enable what they exercise. */
+  not_applicable?: number;
   limitations: string[];
   managed_paths: ManagedPathDeclaration[];
   checks: ConformanceCheckResult[];

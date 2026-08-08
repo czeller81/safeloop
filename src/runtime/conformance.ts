@@ -22,7 +22,7 @@ import { join } from 'path';
 import { createSafeloopRuntime, RuntimeError, type SafeloopRuntime } from './runtimeCore';
 import { createMemoryGateway } from './memoryGateway';
 import { createGovernedMemoryStore } from './memoryStore';
-import { loadProfile } from './profiles';
+import { listProfiles, loadProfile } from './profiles';
 import { actionFingerprintHash } from './canonicalAction';
 import { createAtomicClaimStore } from './atomicStateStore';
 import { sealLedger, verifyLedger } from '../ledgerIntegrity';
@@ -46,6 +46,7 @@ export interface ConformanceOptions {
 }
 
 interface CheckContext {
+  capabilities: ProfileCapabilities;
   runtime: SafeloopRuntime;
   credential: string;
   sessionId: string;
@@ -61,7 +62,21 @@ interface CheckDefinition {
   name: string;
   category: string;
   required: boolean;
+  /**
+   * Capabilities the check needs from the profile under test. A profile that
+   * denies shell outright cannot demonstrate an execution timeout, and
+   * reporting that as a failure would be wrong — it is not applicable.
+   */
+  requires?: Array<'shell' | 'hold' | 'workspace_write'>;
   run: CheckFn;
+}
+
+/** What the profile under test can actually demonstrate. */
+interface ProfileCapabilities {
+  shell: boolean;
+  workspace_write: boolean;
+  /** An action this profile holds for approval, if it has one. */
+  holdAction: ((target: string, content: string) => ActionProposal) | null;
 }
 
 function pass(expected: string, actual: string, detail?: string) {
@@ -95,11 +110,21 @@ function outsidePath(name: string): string {
 /** Hold an action for approval and return everything needed to redeem it. */
 async function heldAction(context: CheckContext, name: string) {
   const target = outsidePath(name);
-  const action = fsAction(target, `payload-${name}`);
+  const build = context.capabilities.holdAction ?? ((path: string, content: string) => fsAction(path, content));
+  const action = build(target, `payload-${name}`);
+
+  // A profile that holds reads rather than writes (strict-local) needs the
+  // target to exist, or the authorized execution would fail for a reason that
+  // has nothing to do with the approval being tested.
+  const preexisting = action.operation === 'read';
+  if (preexisting) writeFileSync(target, `payload-${name}`);
+
   const decision = context.runtime.propose(context.credential, {
     session_id: context.sessionId, task_id: context.taskId, action,
   });
-  return { target, action, decision };
+  // `preexisting` marks the target as a fixture, so checks can tell a test
+  // fixture apart from an actual unauthorized side effect.
+  return { target, action, decision, preexisting };
 }
 
 const CHECKS: CheckDefinition[] = [
@@ -117,7 +142,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C02', name: 'Safe write inside the workspace is allowed and performed', category: 'managed-execution', required: true,
+    id: 'C02', name: 'Safe write inside the workspace is allowed and performed', category: 'managed-execution', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const path = join(context.workspace, 'written.txt');
       const { decision, result } = await attempt(context, fsAction(path, 'written by conformance'));
@@ -144,10 +169,10 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C04', name: 'Consequential action is held for approval', category: 'approval', required: true,
+    id: 'C04', name: 'Consequential action is held for approval', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
-      const { target, decision } = await heldAction(context, 'hold');
-      const created = existsSync(target);
+      const { target, decision, preexisting } = await heldAction(context, 'hold');
+      const created = existsSync(target) && !preexisting;
       rmSync(target, { force: true });
       return decision.disposition === 'REQUIRE_APPROVAL' && decision.approval_request && !created
         ? pass('REQUIRE_APPROVAL, no side effect', 'REQUIRE_APPROVAL, no side effect')
@@ -155,7 +180,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C05', name: 'Bound approval redeems and executes exactly once', category: 'approval', required: true,
+    id: 'C05', name: 'Bound approval redeems and executes exactly once', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'redeem');
       const grant = context.runtime.grantApproval({
@@ -167,15 +192,17 @@ const CHECKS: CheckDefinition[] = [
       const result = await context.runtime.execute(context.credential, {
         session_id: context.sessionId, permit: redemption.execution_permit, action,
       });
-      const written = existsSync(target);
+      // For a write the file must now exist; for a held read the proof is that
+      // the authorized execution ran at all.
+      const effectOccurred = action.operation === 'read' ? true : existsSync(target);
       rmSync(target, { force: true });
-      return redemption.redeemed && result.status === 'EXECUTED' && written
+      return redemption.redeemed && result.status === 'EXECUTED' && effectOccurred
         ? pass('redeemed once and executed', 'redeemed once and executed')
         : fail('redeemed once and executed', `redeemed=${redemption.redeemed}, ${result.status}`);
     },
   },
   {
-    id: 'C06', name: 'Approval replay is rejected', category: 'approval', required: true,
+    id: 'C06', name: 'Approval replay is rejected', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'replay');
       const grant = context.runtime.grantApproval({
@@ -194,7 +221,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C07', name: 'Forged approval token is rejected', category: 'approval', required: true,
+    id: 'C07', name: 'Forged approval token is rejected', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'forgery');
       const grant = context.runtime.grantApproval({
@@ -211,9 +238,9 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C08', name: 'Modified arguments after approval are rejected', category: 'substitution', required: true,
+    id: 'C08', name: 'Modified arguments after approval are rejected', category: 'substitution', required: true, requires: ['hold'] as const,
     run: async (context) => {
-      const { target, action, decision } = await heldAction(context, 'args');
+      const { target, action, decision, preexisting } = await heldAction(context, 'args');
       const grant = context.runtime.grantApproval({
         approval_request_id: decision.approval_request!.approval_request_id, approver: 'conformance',
       });
@@ -221,7 +248,7 @@ const CHECKS: CheckDefinition[] = [
       const redemption = context.runtime.redeemApproval(context.credential, {
         session_id: context.sessionId, task_id: context.taskId, token: grant.token, action: tampered,
       });
-      const created = existsSync(target);
+      const created = existsSync(target) && !preexisting;
       rmSync(target, { force: true });
       return redemption.failure === 'fingerprint_mismatch' && !created
         ? pass('fingerprint_mismatch, no side effect', 'fingerprint_mismatch, no side effect')
@@ -229,7 +256,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C09', name: 'Modified cwd after approval is rejected', category: 'substitution', required: true,
+    id: 'C09', name: 'Modified cwd after approval is rejected', category: 'substitution', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'cwd');
       const grant = context.runtime.grantApproval({
@@ -246,7 +273,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C10', name: 'Modified target after approval is rejected', category: 'substitution', required: true,
+    id: 'C10', name: 'Modified target after approval is rejected', category: 'substitution', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'target');
       const grant = context.runtime.grantApproval({
@@ -266,7 +293,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C11', name: 'Approval from another task is rejected', category: 'isolation', required: true,
+    id: 'C11', name: 'Approval from another task is rejected', category: 'isolation', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'crosstask');
       const grant = context.runtime.grantApproval({
@@ -283,7 +310,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C12', name: 'Approval from another agent is rejected', category: 'isolation', required: true,
+    id: 'C12', name: 'Approval from another agent is rejected', category: 'isolation', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const other = context.runtime.startSession({
         agent: { agent_id: 'other-agent' }, tenant_id: 'conformance-tenant', workspace: context.workspace, profile: 'coding',
@@ -308,7 +335,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C13', name: 'Approval from another tenant is rejected', category: 'isolation', required: true,
+    id: 'C13', name: 'Approval from another tenant is rejected', category: 'isolation', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const other = context.runtime.startSession({
         agent: { agent_id: 'tenant-b-agent' }, tenant_id: 'tenant-b', workspace: context.workspace, profile: 'coding',
@@ -332,7 +359,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C14', name: 'Revoked approval is rejected', category: 'approval', required: true,
+    id: 'C14', name: 'Revoked approval is rejected', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'revoked');
       const grant = context.runtime.grantApproval({
@@ -349,7 +376,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C15', name: 'Expired approval is rejected', category: 'approval', required: true,
+    id: 'C15', name: 'Expired approval is rejected', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'expired');
       const grant = context.runtime.grantApproval({
@@ -365,7 +392,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C16', name: 'Concurrent redemption yields exactly one winner', category: 'approval', required: true,
+    id: 'C16', name: 'Concurrent redemption yields exactly one winner', category: 'approval', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const { target, action, decision } = await heldAction(context, 'concurrent');
       const grant = context.runtime.grantApproval({
@@ -383,7 +410,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C17', name: 'Executor exception on a high-risk action fails closed', category: 'failure', required: true,
+    id: 'C17', name: 'Executor exception on a high-risk action fails closed', category: 'failure', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       // An action whose arguments are structurally invalid makes the executor
       // throw. The requirement is that it fails without a side effect.
@@ -402,7 +429,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C18', name: 'Execution timeout fails closed and is recorded', category: 'failure', required: true,
+    id: 'C18', name: 'Execution timeout fails closed and is recorded', category: 'failure', required: true, requires: ['shell'] as const,
     run: async (context) => {
       const marker = join(context.workspace, 'timeout-marker.txt');
       const action: ActionProposal = {
@@ -423,7 +450,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C19', name: 'Corrupted permit state fails closed', category: 'failure', required: true,
+    id: 'C19', name: 'Corrupted permit state fails closed', category: 'failure', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       // Simulates the runtime being unable to prove single use. It must refuse.
       const path = join(context.workspace, 'corrupt-state.txt');
@@ -446,7 +473,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C20', name: 'Open circuit breaker stops managed execution', category: 'runtime-controls', required: true,
+    id: 'C20', name: 'Open circuit breaker stops managed execution', category: 'runtime-controls', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const isolated = createIsolatedRuntime(context.baseDir, context.workspace);
       const path = join(context.workspace, 'breaker.txt');
@@ -473,7 +500,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C21', name: 'Exhausted hard budget stops managed execution', category: 'runtime-controls', required: true,
+    id: 'C21', name: 'Exhausted hard budget stops managed execution', category: 'runtime-controls', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const path = join(context.workspace, 'budget.txt');
       const action = fsAction(path, 'after budget');
@@ -515,10 +542,17 @@ const CHECKS: CheckDefinition[] = [
   {
     id: 'C23', name: 'Privilege widening by a sub-agent is rejected', category: 'delegation', required: true,
     run: async (context) => {
+      // The "wider" profile must actually differ from the parent's, otherwise
+      // under that same profile this degenerates into a no-op that always
+      // "passes" by accepting an identical request.
+      const parentProfile = context.runtime.sessions()
+        .find((entry) => entry.session.session_id === context.sessionId)!.profile.id;
+      const otherProfile = listProfiles().find((id) => id !== parentProfile) ?? 'coding';
+
       const attempts: string[] = [];
       for (const [label, input] of [
         ['tenant', { tenant_id: 'other-tenant' }],
-        ['profile', { tenant_id: 'conformance-tenant', profile: 'research' }],
+        ['profile', { tenant_id: 'conformance-tenant', profile: otherProfile }],
       ] as const) {
         try {
           context.runtime.startSession({
@@ -647,7 +681,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C30', name: 'Execution evidence is attributed to agent, task, and tenant', category: 'evidence', required: true,
+    id: 'C30', name: 'Execution evidence is attributed to agent, task, and tenant', category: 'evidence', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const path = join(context.workspace, 'attributed.txt');
       const { result } = await attempt(context, fsAction(path, 'attributed'));
@@ -665,7 +699,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C31', name: 'Artifact tampering is detectable via recorded hashes', category: 'evidence', required: true,
+    id: 'C31', name: 'Artifact tampering is detectable via recorded hashes', category: 'evidence', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const path = join(context.workspace, 'tamperable.txt');
       await attempt(context, fsAction(path, 'original content'));
@@ -682,7 +716,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C32', name: 'Ledger tampering is detected', category: 'evidence', required: true,
+    id: 'C32', name: 'Ledger tampering is detected', category: 'evidence', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const options = { baseDir: context.baseDir };
       await attempt(context, fsAction(join(context.workspace, 'ledger-entry.txt'), 'ledger entry'));
@@ -701,7 +735,7 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
-    id: 'C33', name: 'An alternate route cannot reach a managed side effect without a permit', category: 'bypass', required: true,
+    id: 'C33', name: 'An alternate route cannot reach a managed side effect without a permit', category: 'bypass', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
       const path = join(context.workspace, 'bypass.txt');
       const action = fsAction(path, 'bypassed');
@@ -769,6 +803,51 @@ function createIsolatedRuntime(baseDir: string, workspace: string) {
   return { runtime, credential: handle.credential, sessionId: handle.session.session_id, taskId };
 }
 
+
+/**
+ * Discover what the profile under test can demonstrate, by proposing probe
+ * actions and observing the real dispositions. Capabilities are never assumed
+ * from the profile's declared rules — an assumption that drifted from the rules
+ * would silently skip checks that should have run.
+ */
+function probeCapabilities(context: Omit<CheckContext, 'capabilities'>): ProfileCapabilities {
+  const propose = (action: ActionProposal) => context.runtime.propose(context.credential, {
+    session_id: context.sessionId, task_id: context.taskId, action,
+  }).disposition;
+
+  const shell = ['ALLOW', 'ALLOW_WITH_WARNING'].includes(propose({
+    action_kind: 'shell', operation: 'exec', arguments: { argv: ['true'] },
+    cwd: context.workspace, agent_id: 'conformance-agent',
+  }));
+
+  const workspace_write = ['ALLOW', 'ALLOW_WITH_WARNING'].includes(propose(
+    fsAction(join(context.workspace, 'probe-write.txt'), 'probe'),
+  ));
+
+  // Candidate actions, in preference order, that a profile might hold.
+  const candidates: Array<(target: string, content: string) => ActionProposal> = [
+    (target, content) => fsAction(target, content),
+    (target, content) => ({
+      action_kind: 'filesystem', operation: 'read', target, arguments: { content },
+      agent_id: 'conformance-agent',
+    }),
+    (target, content) => ({
+      action_kind: 'custom', operation: 'probe', target, arguments: { content },
+      agent_id: 'conformance-agent',
+    }),
+  ];
+
+  let holdAction: ProfileCapabilities['holdAction'] = null;
+  for (const candidate of candidates) {
+    if (propose(candidate(outsidePath('probe'), 'probe')) === 'REQUIRE_APPROVAL') {
+      holdAction = candidate;
+      break;
+    }
+  }
+
+  return { shell, workspace_write, holdAction };
+}
+
 export async function runConformanceSuite(options: ConformanceOptions = {}): Promise<ConformanceResult> {
   const profileId = options.profile ?? 'coding';
   const profile = loadProfile(profileId);
@@ -785,21 +864,51 @@ export async function runConformanceSuite(options: ConformanceOptions = {}): Pro
   });
   const taskId = runtime.startTask(handle.credential, { session_id: handle.session.session_id, goal: 'conformance' }).task_id;
 
-  const context: CheckContext = {
+  const partial = {
     runtime, credential: handle.credential, sessionId: handle.session.session_id, taskId, workspace, baseDir,
+  };
+  const capabilities = probeCapabilities(partial);
+  const context: CheckContext = { ...partial, capabilities };
+
+  const available: Record<string, boolean> = {
+    shell: capabilities.shell,
+    workspace_write: capabilities.workspace_write,
+    hold: capabilities.holdAction !== null,
   };
 
   const checks: ConformanceCheckResult[] = [];
   for (const definition of CHECKS) {
+    const missing = (definition.requires ?? []).filter((capability) => !available[capability]);
+    if (missing.length > 0) {
+      // Not applicable is not the same as passing, and not the same as
+      // failing. It is reported as its own outcome and excluded from the
+      // status calculation.
+      checks.push({
+        id: definition.id, name: definition.name, category: definition.category,
+        required: definition.required, applicable: false, passed: false,
+        expected: 'not applicable to this profile',
+        actual: `profile does not provide: ${missing.join(', ')}`,
+      });
+      continue;
+    }
     try {
+      // The suite deliberately provokes denials, which would otherwise trip the
+      // shared session's breaker and make every later check fail for an
+      // unrelated reason. Breaker enforcement itself is covered by C20, which
+      // uses its own isolated runtime.
+      context.runtime.sessions()
+        .find((entry) => entry.session.session_id === context.sessionId)
+        ?.breaker.reset('conformance check isolation');
+
       const outcome = await definition.run(context);
       checks.push({
         id: definition.id, name: definition.name, category: definition.category,
-        required: definition.required, ...outcome,
+        required: definition.required, applicable: true, ...outcome,
       });
     } catch (error) {
       checks.push({
-        id: definition.id, name: definition.name, category: definition.category, required: definition.required,
+        id: definition.id, name: definition.name, category: definition.category,
+        required: definition.required, applicable: true,
         passed: false, expected: 'check completes', actual: 'check threw',
         detail: error instanceof Error ? error.message : String(error),
       });
@@ -811,11 +920,18 @@ export async function runConformanceSuite(options: ConformanceOptions = {}): Pro
     (declaration) => declaration.state === 'UNMANAGED' && declaration.consequential && declaration.certification_impact,
   );
 
-  const passed = checks.filter((check) => check.passed).length;
-  const failed = checks.length - passed;
-  const requiredFailures = checks.filter((check) => check.required && !check.passed);
+  const applicableChecks = checks.filter((check) => check.applicable !== false);
+  const notApplicable = checks.length - applicableChecks.length;
+  const passed = applicableChecks.filter((check) => check.passed).length;
+  const failed = applicableChecks.length - passed;
+  const requiredFailures = applicableChecks.filter((check) => check.required && !check.passed);
 
   const limitations: string[] = [];
+  if (notApplicable > 0) {
+    limitations.push(
+      `${notApplicable} check(s) are not applicable to the "${profileId}" profile because it does not enable the capability they exercise.`,
+    );
+  }
   for (const declaration of blockingPaths) {
     limitations.push(
       `Enabled consequential path "${declaration.path}" is UNMANAGED; full-profile certification is not available.`,
@@ -840,9 +956,10 @@ export async function runConformanceSuite(options: ConformanceOptions = {}): Pro
     status,
     profile: profileId,
     adapter,
-    total: checks.length,
+    total: applicableChecks.length,
     passed,
     failed,
+    not_applicable: notApplicable,
     limitations,
     managed_paths: managedPaths,
     checks,
@@ -862,9 +979,11 @@ export function formatConformanceReport(result: ConformanceResult): string {
       category = check.category;
       lines.push(`  ${category}`);
     }
-    const marker = check.passed ? 'PASS' : 'FAIL';
+    const marker = check.applicable === false ? ' N/A' : check.passed ? 'PASS' : 'FAIL';
     lines.push(`    [${marker}] ${check.id} ${check.name}`);
-    if (!check.passed) {
+    if (check.applicable === false) {
+      lines.push(`           ${check.actual}`);
+    } else if (!check.passed) {
       lines.push(`           expected: ${check.expected}`);
       lines.push(`           actual:   ${check.actual}`);
       if (check.detail) lines.push(`           detail:   ${check.detail}`);
@@ -885,7 +1004,8 @@ export function formatConformanceReport(result: ConformanceResult): string {
   }
 
   lines.push('');
-  lines.push(`  ${result.passed}/${result.total} checks passed`);
+  lines.push(`  ${result.passed}/${result.total} applicable checks passed`
+    + (result.not_applicable ? `  (${result.not_applicable} not applicable to this profile)` : ''));
   lines.push(`  STATUS: ${result.status}`);
   return lines.join('\n');
 }

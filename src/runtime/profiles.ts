@@ -184,10 +184,16 @@ export function evaluateProfile(
   const facts = computeActionFacts(action, workspace);
   const matched: ProfileRule[] = profile.rules.filter((rule) => ruleMatches(rule, facts));
 
-  const disposition = matched.reduce<RuntimeDispositionCode>(
-    (current, rule) => moreSevere(current, rule.disposition),
-    profile.default_disposition,
-  );
+  // The default applies only when nothing matched. Seeding the reduce with it
+  // would make a restrictive default swallow every ALLOW rule — under
+  // strict-local (default REQUIRE_APPROVAL) even an explicitly allowed
+  // in-workspace read would be held, which makes the rule set meaningless.
+  const disposition = matched.length === 0
+    ? profile.default_disposition
+    : matched.reduce<RuntimeDispositionCode>(
+      (current, rule) => moreSevere(current, rule.disposition),
+      'ALLOW',
+    );
 
   return {
     disposition,
