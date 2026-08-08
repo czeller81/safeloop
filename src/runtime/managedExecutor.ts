@@ -23,6 +23,7 @@ import { canonicalizeAction, fingerprintAction } from './canonicalAction';
 import { redactSecrets } from './redaction';
 import { assertProtocol } from './schemaValidator';
 import { ExecutorArgumentError, WorkspaceContainmentError, type ExecutorOutcome, type ManagedExecutorPlugin } from './executors/types';
+import { ExecutionContextError } from './executionContext';
 import type { PermitAuthority } from './executionPermit';
 import type { BudgetTracker } from './budgets';
 import {
@@ -234,6 +235,8 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           workspace: config.workspace,
           authorizedWorkspaceRelation: input.permit?.workspace_relation,
           authorizedWorkspaceRoot: input.permit?.workspace_root,
+          authorizedExecutionCwd: input.permit?.execution_cwd,
+          authorizedRepositoryIdentity: input.permit?.repository_identity,
           timeoutMs: input.timeout_ms ?? defaultTimeout,
           maxOutputBytes,
           redact: redactSecrets,
@@ -243,7 +246,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
 
         // A containment failure is a rejection, not a failure: the side effect
         // was refused because the target moved, and nothing was written.
-        if (error instanceof WorkspaceContainmentError) {
+        if (error instanceof WorkspaceContainmentError || error instanceof ExecutionContextError) {
           config.recorder.recordEvent({
             type: 'tool.denied',
             agent_id: canonical.agent_id,

@@ -812,6 +812,173 @@ const CHECKS: CheckDefinition[] = [
     },
   },
   {
+    id: 'C36',
+    name: 'A shell command cannot be redirected to another working directory after authorization',
+    category: 'bypass', required: true, requires: ['shell'] as const,
+    run: async (context) => {
+      const insideDir = join(context.workspace, 'conformance-shell');
+      const outsideDir = mkdtempSync(join(tmpdir(), 'safeloop-v02-conformance-cwd-'));
+      mkdirSync(insideDir, { recursive: true });
+      const link = join(context.workspace, 'conformance-cwd-link');
+      rmSync(link, { force: true });
+      symlinkSync(insideDir, link);
+
+      const action: ActionProposal = {
+        action_kind: 'shell', operation: 'exec', cwd: link,
+        arguments: { argv: ['sh', '-c', 'echo landed > marker.txt'] }, agent_id: 'conformance-agent',
+      };
+      const decision = context.runtime.propose(context.credential, {
+        session_id: context.sessionId, task_id: context.taskId, action,
+      });
+      if (!decision.execution_permit) {
+        rmSync(outsideDir, { recursive: true, force: true }); rmSync(link, { force: true });
+        return pass('no permit issued for the shell action', `held as ${decision.disposition}`);
+      }
+
+      unlinkSync(link);
+      symlinkSync(outsideDir, link);
+
+      const result = await context.runtime.execute(context.credential, {
+        session_id: context.sessionId, permit: decision.execution_permit, action,
+      });
+      const escaped = existsSync(join(outsideDir, 'marker.txt'));
+      rmSync(outsideDir, { recursive: true, force: true });
+      rmSync(link, { force: true });
+
+      return result.status === 'REJECTED' && !escaped
+        ? pass('REJECTED, command never ran in the substituted directory', 'REJECTED, no escape')
+        : fail('REJECTED, command never ran in the substituted directory',
+            `${result.status}, marker ${escaped ? 'CREATED' : 'absent'}`);
+    },
+  },
+  {
+    id: 'C37',
+    name: 'A git operation authorized for one repository cannot act on another',
+    category: 'bypass', required: true,
+    run: async (context) => {
+      const scratch = mkdtempSync(join(tmpdir(), 'safeloop-v02-conformance-git-'));
+      const repoA = join(scratch, 'repoA');
+      const repoB = join(scratch, 'repoB');
+      const cleanup = () => rmSync(scratch, { recursive: true, force: true });
+
+      for (const [dir, file] of [[repoA, 'a.txt'], [repoB, 'b.txt']] as const) {
+        mkdirSync(dir, { recursive: true });
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+        execFileSync('git', ['config', 'user.email', 'conformance@example.invalid'], { cwd: dir });
+        execFileSync('git', ['config', 'user.name', 'SafeLoop Conformance'], { cwd: dir });
+        writeFileSync(join(dir, file), 'content');
+        execFileSync('git', ['add', '.'], { cwd: dir });
+      }
+
+      const link = join(scratch, 'link');
+      symlinkSync(repoA, link);
+
+      const action: ActionProposal = {
+        action_kind: 'git', operation: 'commit', cwd: link, target: link,
+        arguments: { message: 'conformance-authorized-for-A' }, agent_id: 'conformance-agent',
+      };
+      const decision = context.runtime.propose(context.credential, {
+        session_id: context.sessionId, task_id: context.taskId, action,
+      });
+
+      let permit = decision.execution_permit;
+      if (!permit && decision.approval_request) {
+        const grant = context.runtime.grantApproval({
+          approval_request_id: decision.approval_request.approval_request_id, approver: 'conformance',
+        });
+        permit = context.runtime.redeemApproval(context.credential, {
+          session_id: context.sessionId, task_id: context.taskId, token: grant.token, action,
+        }).execution_permit;
+      }
+      if (!permit) { cleanup(); return pass('no permit issued for the git action', `held as ${decision.disposition}`); }
+
+      unlinkSync(link);
+      symlinkSync(repoB, link);
+
+      const result = await context.runtime.execute(context.credential, {
+        session_id: context.sessionId, permit, action,
+      });
+      const logOf = (dir: string): string => {
+        try { return execFileSync('git', ['log', '--oneline'], { cwd: dir, encoding: 'utf8' }); } catch { return ''; }
+      };
+      const mutatedB = logOf(repoB).includes('conformance-authorized-for-A');
+      cleanup();
+
+      return result.status === 'REJECTED' && !mutatedB
+        ? pass('REJECTED, unauthorized repository unchanged', 'REJECTED, repoB unchanged')
+        : fail('REJECTED, unauthorized repository unchanged',
+            `${result.status}, repoB ${mutatedB ? 'COMMITTED' : 'unchanged'}`);
+    },
+  },
+  {
+    id: 'C38',
+    name: 'A consequential HTTP request cannot be redirected to an unauthorized destination',
+    category: 'bypass', required: true,
+    run: async (context) => {
+      const { createServer } = require('http') as typeof import('http');
+      const received: string[] = [];
+
+      const listen = (handler: (req: never, res: never) => void): Promise<{ server: never; port: number }> =>
+        new Promise((resolvePromise) => {
+          const server = createServer(handler as never);
+          server.listen(0, '127.0.0.1', () =>
+            resolvePromise({ server: server as never, port: (server.address() as { port: number }).port }));
+        });
+
+      const unauthorized = await listen(((request: never, response: never) => {
+        let body = '';
+        (request as unknown as NodeJS.EventEmitter).on('data', (chunk) => { body += String(chunk); });
+        (request as unknown as NodeJS.EventEmitter).on('end', () => {
+          received.push(body);
+          (response as unknown as { writeHead(c: number): void; end(b?: string): void }).writeHead(200);
+          (response as unknown as { writeHead(c: number): void; end(b?: string): void }).end('B');
+        });
+      }) as never);
+
+      const authorized = await listen(((_request: never, response: never) => {
+        (response as unknown as { writeHead(c: number, h: Record<string, string>): void; end(): void })
+          .writeHead(307, { location: `http://127.0.0.1:${unauthorized.port}/landed` });
+        (response as unknown as { end(): void }).end();
+      }) as never);
+
+      const close = () => {
+        (authorized.server as unknown as { close(): void }).close();
+        (unauthorized.server as unknown as { close(): void }).close();
+      };
+
+      const action: ActionProposal = {
+        action_kind: 'http', operation: 'write', method: 'POST',
+        resource: `http://127.0.0.1:${authorized.port}/authorized`,
+        arguments: { body: 'CONFORMANCE-CONSEQUENTIAL-PAYLOAD' }, agent_id: 'conformance-agent',
+      };
+      const decision = context.runtime.propose(context.credential, {
+        session_id: context.sessionId, task_id: context.taskId, action,
+      });
+      let permit = decision.execution_permit;
+      if (!permit && decision.approval_request) {
+        const grant = context.runtime.grantApproval({
+          approval_request_id: decision.approval_request.approval_request_id, approver: 'conformance',
+        });
+        permit = context.runtime.redeemApproval(context.credential, {
+          session_id: context.sessionId, task_id: context.taskId, token: grant.token, action,
+        }).execution_permit;
+      }
+      if (!permit) { close(); return pass('no permit issued for the http action', `held as ${decision.disposition}`); }
+
+      await context.runtime.execute(context.credential, {
+        session_id: context.sessionId, permit, action,
+      });
+      const leaked = received.some((body) => body.includes('CONFORMANCE-CONSEQUENTIAL-PAYLOAD'));
+      const reached = received.length > 0;
+      close();
+
+      return !reached && !leaked
+        ? pass('unauthorized destination never receives the request', 'redirect not followed')
+        : fail('unauthorized destination never receives the request',
+            `unauthorized host reached=${reached}, payload leaked=${leaked}`);
+    },
+  },
+  {
     id: 'C34', name: 'Enabled consequential UNMANAGED paths prevent full-profile certification', category: 'managed-paths', required: true,
     run: async () => {
       // The rule itself is under test: a profile declaring an enabled

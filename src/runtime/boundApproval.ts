@@ -69,6 +69,10 @@ export interface RedeemApprovalInput extends ApprovalIdentity {
   workspace_relation?: 'inside' | 'outside' | 'unknown';
   /** Resolved workspace root at redemption time; signed into the permit. */
   workspace_root?: string;
+  /** Resolved working directory at redemption time; signed into the permit. */
+  execution_cwd?: string;
+  /** Resolved git repository identity at redemption time; signed. */
+  repository_identity?: string;
 }
 
 function tokenClaims(token: Omit<BoundApprovalToken, 'signature'>): string {
@@ -296,6 +300,8 @@ export function createApprovalAuthority(config: ApprovalAuthorityConfig = {}): A
         approval_id: approved.approval_id,
         workspace_relation: input.workspace_relation,
         workspace_root: input.workspace_root,
+        execution_cwd: input.execution_cwd,
+        repository_identity: input.repository_identity,
         ttl_ms: config.permitTtlMs,
       });
 

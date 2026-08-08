@@ -15,6 +15,7 @@
 
 import { spawn } from 'child_process';
 import { describeEnvironment, redactAndBound } from '../redaction';
+import { verifyExecutionCwd } from '../executionContext';
 import {
   ExecutorArgumentError,
   optionalString,
@@ -69,7 +70,14 @@ export function createShellExecutor(options: ShellExecutorOptions = {}): Managed
         [file, ...argv] = declared;
       }
 
-      const cwd = action.cwd || process.cwd();
+      // Re-verify the execution directory immediately before spawn. A command
+      // authorized to run in one directory must not be redirected into another
+      // by mutable symlink state after the permit was issued. Throws (and so
+      // never spawns) when the directory moved or cannot be resolved.
+      const verifiedCwd = verifyExecutionCwd(action.cwd || undefined, context.authorizedExecutionCwd);
+      // Spawn against the resolved directory so the child does not re-traverse
+      // the mutable component.
+      const cwd = verifiedCwd ?? action.cwd ?? process.cwd();
       const env = childEnvironment(options.baseEnv ?? process.env);
       const startedAt = Date.now();
 

@@ -221,3 +221,101 @@ and is **deliberately out of scope** for this remediation:
 These are tracked separately and must be decided before any recertification
 that claims a general execution-boundary guarantee. RC2 closes the filesystem
 finding only.
+
+---
+
+# RC3 — Execution-context binding (shell, git, HTTP)
+
+## The family, stated once
+
+RC1 failed independent audit because authorization was bound to a *path
+string*. RC2 fixed that for the filesystem and, during its mandatory analogous
+review, reproduced the same defect twice more. RC3 investigated the network
+case and found a third. All four are one architectural mistake:
+
+> A cryptographically valid permit is insufficient if mutable execution context
+> can redirect where its side effect lands.
+
+| Executor | What was authorized | What received the side effect |
+| --- | --- | --- |
+| filesystem (RC1) | a path inside the workspace | a file outside it, via symlink swap |
+| shell (RC2 found, RC3 fixed) | a command in directory A | the same command in directory B |
+| git (RC2 found, RC3 fixed) | a commit in repository A | a commit in repository B |
+| http (RC3 found and fixed) | a POST to host A | the same POST, body intact, to host B |
+
+## What RC3 binds
+
+`src/runtime/executionContext.ts` resolves security-significant context at
+authorization time. It is signed into the permit — never into the action
+fingerprint, which must stay deterministic and reproducible off-host.
+
+| Signed permit fact | Bound for | Verified by |
+| --- | --- | --- |
+| `workspace_relation`, `workspace_root` (RC2) | filesystem | `executors/filesystem.ts` |
+| `execution_cwd` | shell, git | `verifyExecutionCwd()` |
+| `repository_identity` | git | `verifyRepositoryIdentity()` |
+
+The rule is **equality with what was authorized**, not membership of a
+workspace. RC3 did not turn SafeLoop into "shell always runs in the workspace"
+or "git always operates on the initial repository":
+
+| Authorized | At execution | Outcome |
+| --- | --- | --- |
+| cwd A | cwd A | execute |
+| cwd A | cwd B | reject `cwd_context_changed` |
+| repo A | repo A | execute |
+| repo A | repo B | reject `repository_context_changed` |
+| outside-workspace cwd, unchanged | same | execute — policy already approved it |
+| any | unresolvable | reject `execution_context_verification_failed` |
+
+### Why git binds two facts
+
+Verifying the directory alone leaves a second door open: the same directory can
+be made to reach a different repository through a replaced `.git`, a worktree
+redirect, or `GIT_DIR`. Repository identity is taken from git's own plumbing
+(`git rev-parse --absolute-git-dir`, then resolved), so worktrees and `.git`
+files resolve the way git itself resolves them. A regression test swaps `.git`
+while leaving the directory untouched, and it is refused.
+
+### HTTP: redirects are not followed
+
+`fetch` follows redirects by default. Under 307/308 the method and body are
+preserved, so an authorization for host A delivered a `POST` — payload intact —
+to host B, while SafeLoop's evidence still recorded host A. That is destination
+substitution with a misleading audit trail.
+
+Managed requests now use `redirect: 'manual'`. The redirect target is reported
+(`redirect_not_followed`, `redirect_location`) rather than chased, so an agent
+can propose the new destination and have it governed on its own terms.
+
+**This is a deliberate behaviour change**: a managed request that would
+previously have followed a redirect transparently now returns the 3xx. That is
+the honest trade — a destination SafeLoop did not authorize is a destination
+SafeLoop will not deliver to.
+
+## Residual limitations — stated precisely
+
+**Closed:** every demonstrated authorization→execution substitution above. Each
+has a regression test asserting the side effect did not occur, and a conformance
+check (C35 filesystem, C36 shell, C37 git, C38 HTTP) verified to fail
+`NOT_CONFORMANT` when its guard is removed.
+
+**Still open — small userspace check→use races.** Between verification and the
+syscall a window remains. RC3 narrows it the same way RC2 did, by acting on the
+resolved path rather than re-traversing the mutable one, but it does not
+eliminate it. Doing so needs descriptor-relative syscalls (`openat2` with
+`RESOLVE_BENEATH`, per-component `O_NOFOLLOW`, or spawning against a directory
+file descriptor) that Node does not portably expose. **No claim of kernel-level
+race elimination is made.**
+
+**Shell is bound at its directory, not inside the process.** SafeLoop verifies
+where a command starts. Once running, the process can `cd`, use absolute paths,
+or open its own sockets. That has always been outside the routed-action
+boundary and remains so — it is not process containment.
+
+**HTTP is bound at the request SafeLoop issues.** SafeLoop is not a firewall and
+does not intercept sockets. A process that opens its own connection is outside
+the boundary.
+
+**Same-UID trust boundary unchanged.** A process running as the same user can
+read the `0600` credential and secret files.

@@ -85,6 +85,15 @@ function resolveStrict(target: string, cwd: string | undefined, depth: number): 
   return trailing.length ? resolve(real, ...trailing) : real;
 }
 
+/**
+ * Strict resolution: throws when the symlink chain cannot be resolved (loop or
+ * depth limit) instead of falling back to a lexical guess. Callers that must
+ * fail closed use this; classification callers use the lenient form below.
+ */
+export function resolveRealPathStrict(target: string, cwd?: string): string {
+  return resolveStrict(target, cwd, 0);
+}
+
 export function resolveRealPath(target: string, cwd?: string): string {
   try {
     return resolveStrict(target, cwd, 0);

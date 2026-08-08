@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0-rc3 - Execution-context binding (unreleased)
+
+Remediates the execution-context substitution family that RC2 identified and
+partly closed. RC1 and RC2 remain unchanged as historical audit evidence.
+
+### Fixed
+
+- **Shell cwd substitution.** A command authorized to run in one directory ran
+  in another after a symlink swap. Reproduced on the RC3 baseline: `EXECUTED`,
+  marker created outside the intended directory.
+- **Git repository substitution.** A commit authorized for repository A landed
+  in repository B. Reproduced: `EXECUTED`, approved repo unchanged, swapped
+  repo received the commit.
+- **HTTP redirect destination substitution.** `fetch` follows redirects by
+  default; under 307/308 a `POST` authorized for host A was delivered with its
+  body intact to host B, while evidence recorded host A. Managed requests now
+  use `redirect: 'manual'` and report the target instead of following it.
+
+### Added
+
+- `src/runtime/executionContext.ts` — resolves, signs, and re-verifies
+  security-significant execution context.
+- Signed permit fields `execution_cwd` and `repository_identity`.
+- Rejection reasons `cwd_context_changed`, `repository_context_changed`,
+  `execution_context_verification_failed`.
+- Conformance checks C36 (shell), C37 (git), C38 (HTTP), each verified to fail
+  `NOT_CONFORMANT` when its guard is removed.
+- `tests/runtime.executionContext.test.ts` — 30 regression tests asserting
+  side-effect absence, not just status.
+
+### Changed
+
+- A managed HTTP request that would previously have followed a redirect now
+  returns the 3xx with the target reported. Deliberate: SafeLoop does not
+  deliver to a destination it did not authorize.
+
 ## 0.2.0-rc2 - Filesystem execution-time containment (unreleased)
 
 Remediates **SL-RC1-HIGH-001**, a HIGH-severity filesystem authorization bypass

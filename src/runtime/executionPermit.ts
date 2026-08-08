@@ -48,6 +48,10 @@ export interface IssuePermitInput extends PermitIdentity {
   workspace_relation?: 'inside' | 'outside' | 'unknown';
   /** Resolved workspace root at proposal time; signed into the permit. */
   workspace_root?: string;
+  /** Resolved working directory at authorization time; signed. */
+  execution_cwd?: string;
+  /** Resolved git directory for git actions; signed. */
+  repository_identity?: string;
   ttl_ms?: number;
 }
 
@@ -72,6 +76,8 @@ function permitClaims(permit: Omit<ExecutionPermit, 'signature'>): string {
     approval_id: permit.approval_id ?? '',
     workspace_relation: permit.workspace_relation ?? '',
     workspace_root: permit.workspace_root ?? '',
+    execution_cwd: permit.execution_cwd ?? '',
+    repository_identity: permit.repository_identity ?? '',
     issued_at: permit.issued_at,
     expires_at: permit.expires_at,
     nonce: permit.nonce,
@@ -97,6 +103,8 @@ export function issueExecutionPermit(input: IssuePermitInput, secret: string): E
     approval_id: input.approval_id,
     workspace_relation: input.workspace_relation,
     workspace_root: input.workspace_root,
+    execution_cwd: input.execution_cwd,
+    repository_identity: input.repository_identity,
     issued_at: new Date(issuedAt).toISOString(),
     expires_at: new Date(issuedAt + (input.ttl_ms ?? DEFAULT_PERMIT_TTL_MS)).toISOString(),
     nonce: randomBytes(16).toString('hex'),

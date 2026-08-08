@@ -15,6 +15,7 @@
 
 import { spawn } from 'child_process';
 import { redactAndBound } from '../redaction';
+import { verifyExecutionCwd, verifyRepositoryIdentity } from '../executionContext';
 import {
   ExecutorArgumentError,
   optionalString,
@@ -106,7 +107,19 @@ export function createGitExecutor(): ManagedExecutorPlugin {
     async execute(context: ExecutorContext): Promise<ExecutorOutcome> {
       const { action } = context;
       const argv = buildGitArgv(action.operation, action.arguments);
-      const cwd = action.cwd || process.cwd();
+
+      // Two facts must still hold immediately before a git operation runs.
+      //
+      // The directory, because a swapped cwd symlink silently relocates the
+      // command; and the repository itself, because the same directory can be
+      // made to reach a different repository through a replaced `.git`, a
+      // worktree redirect, or GIT_DIR. Verifying only the directory would
+      // leave the second door open, and an approval for repository A must
+      // never act on repository B.
+      const verifiedCwd = verifyExecutionCwd(action.cwd || undefined, context.authorizedExecutionCwd);
+      const cwd = verifiedCwd ?? action.cwd ?? process.cwd();
+      verifyRepositoryIdentity(cwd, context.authorizedRepositoryIdentity);
+
       const startedAt = Date.now();
 
       return new Promise<ExecutorOutcome>((resolvePromise) => {

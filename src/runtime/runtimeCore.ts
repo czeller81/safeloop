@@ -21,6 +21,7 @@ import { createBudgetTracker, type BudgetTracker } from './budgets';
 import { createManagedExecutor, type BreakerGate, type ManagedExecutor } from './managedExecutor';
 import { createRuntimeRecorder, type RuntimeRecorder } from './recorder';
 import { resolveRealPath } from './workspace';
+import { captureExecutionContext } from './executionContext';
 import { createMemoryGateway, type MemoryGateway, type MemoryPersistenceAuthorization } from './memoryGateway';
 import { createGovernedMemoryStore, type GovernedMemoryStore, type MemoryWriteResult } from './memoryStore';
 import { evaluateProfile, loadProfile, moreSevere, type GovernanceProfile, type RuntimeControlDeclaration } from './profiles';
@@ -549,6 +550,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           // resolving somewhere else before the side effect runs.
           workspace_relation: profileEvaluation.facts.workspace,
           workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
+          ...captureExecutionContext(canonical.action_kind, canonical.cwd || undefined),
         });
       } else if (decision.requires_approval) {
         const request = approvals.request({
@@ -637,6 +639,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         approval_was_required: stillRequiresApproval,
         workspace_relation: profileEvaluation.facts.workspace,
         workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
+        ...captureExecutionContext(canonical.action_kind, canonical.cwd || undefined),
       });
 
       recorder.recordEvent({

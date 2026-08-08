@@ -25,7 +25,14 @@ export type HttpOperation = 'read' | 'write' | 'authenticated_mutation' | 'exter
 
 export type HttpFetch = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+    /** Always 'manual' for managed requests. See createHttpExecutor. */
+    redirect?: 'manual' | 'follow' | 'error';
+  },
 ) => Promise<{ status: number; statusText?: string; headers?: Record<string, string>; text(): Promise<string> }>;
 
 export interface HttpExecutorOptions {
@@ -104,13 +111,43 @@ export function createHttpExecutor(options: HttpExecutorOptions = {}): ManagedEx
       const timer = setTimeout(() => controller.abort(), context.timeoutMs);
 
       try {
-        const response = await fetchImpl(url, { method, headers, body, signal: controller.signal });
+        // Redirects are NOT followed for managed requests.
+        //
+        // SafeLoop authorizes a specific destination. `fetch` follows redirects
+        // by default, which means an authorization for host A can deliver the
+        // request — including a POST body, under 307/308 — to host B, while the
+        // evidence still records A. That is the same execution-context
+        // substitution defect as the filesystem and cwd cases, expressed over
+        // the network: the authorized destination is not the destination that
+        // receives the side effect.
+        //
+        // The redirect target is reported instead of chased, so an agent can
+        // propose the new destination and have it governed on its own terms.
+        const response = await fetchImpl(url, {
+          method, headers, body, signal: controller.signal, redirect: 'manual',
+        });
         const text = await response.text();
+
+        const isRedirect = response.status >= 300 && response.status < 400;
+        const location = response.headers?.location ?? response.headers?.Location;
+
         return {
           status: response.status >= 200 && response.status < 400 ? 'EXECUTED' : 'FAILED',
           exit_code: response.status,
           stdout: redactAndBound(text, context.maxOutputBytes),
-          detail: { ...descriptor, response_status: response.status, response_status_text: response.statusText },
+          detail: {
+            ...descriptor,
+            response_status: response.status,
+            response_status_text: response.statusText,
+            ...(isRedirect
+              ? {
+                redirect_not_followed: true,
+                redirect_location: location ?? null,
+                redirect_note:
+                  'SafeLoop authorized this destination only. Propose the redirect target as a new action to have it governed.',
+              }
+              : {}),
+          },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

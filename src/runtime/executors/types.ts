@@ -25,6 +25,10 @@ export interface ExecutorContext {
   authorizedWorkspaceRelation?: 'inside' | 'outside' | 'unknown';
   /** Resolved workspace root the permit was issued against. */
   authorizedWorkspaceRoot?: string;
+  /** Resolved working directory the permit was issued against. */
+  authorizedExecutionCwd?: string;
+  /** Resolved git repository identity the permit was issued against. */
+  authorizedRepositoryIdentity?: string;
   timeoutMs: number;
   maxOutputBytes: number;
   /** Applied to every captured stream before it reaches evidence or the ledger. */

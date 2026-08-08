@@ -281,6 +281,17 @@ export interface ExecutionPermit {
    * reads "inside" while the bytes land somewhere else entirely.
    */
   workspace_root?: string;
+  /**
+   * The working directory as it resolved at authorization time. Bound so a
+   * command authorized to run in one directory cannot be redirected into
+   * another by mutable symlink state before it spawns.
+   */
+  execution_cwd?: string;
+  /**
+   * For git actions: the absolute git directory reached from `execution_cwd`,
+   * resolved. An approval for repository A must not act on repository B.
+   */
+  repository_identity?: string;
   issued_at: string;
   expires_at: string;
   nonce: string;
@@ -319,7 +330,13 @@ export type ExecutionRejectionReason =
   /** The path resolved somewhere else than when it was authorized. */
   | 'workspace_relation_changed'
   /** Containment could not be determined at execution time; fail closed. */
-  | 'workspace_verification_failed';
+  | 'workspace_verification_failed'
+  /** The working directory resolved elsewhere than when authorized. */
+  | 'cwd_context_changed'
+  /** The git repository reached at execution is not the authorized one. */
+  | 'repository_context_changed'
+  /** Execution context could not be determined; fail closed. */
+  | 'execution_context_verification_failed';
 
 export interface ExecutionResult {
   protocol_version: string;

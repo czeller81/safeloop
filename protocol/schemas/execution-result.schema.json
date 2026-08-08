@@ -58,7 +58,10 @@
         "unsupported_action_kind",
         "executor_error",
         "workspace_relation_changed",
-        "workspace_verification_failed"
+        "workspace_verification_failed",
+        "cwd_context_changed",
+        "repository_context_changed",
+        "execution_context_verification_failed"
       ]
     },
     "exit_code": {

@@ -89,6 +89,12 @@
     },
     "workspace_root": {
       "type": "string"
+    },
+    "execution_cwd": {
+      "type": "string"
+    },
+    "repository_identity": {
+      "type": "string"
     }
   }
 }
