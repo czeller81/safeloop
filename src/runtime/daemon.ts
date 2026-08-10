@@ -239,9 +239,37 @@ function send(response: ServerResponse, status: number, payload: unknown): void 
 
 export async function startDaemon(config: DaemonConfig = {}): Promise<RunningDaemon> {
   const storageOptions: SafeloopStorageOptions = config.storageOptions ?? {};
-  const runtime = createSafeloopRuntime(config);
   const credential = config.credential ?? generateRuntimeCredential();
   const operatorCredential = config.operatorCredential ?? loadOperatorCredential(storageOptions);
+
+  // Resolved and checked before anything is constructed or bound, because the
+  // failure this prevents is silent by nature.
+  //
+  // SL-RC3-HIGH-005: the approval routes are separated from the agent routes by
+  // *which secret they check*, and by nothing else. Configure the two to the
+  // same value and both checks consult the same string again, so the agent that
+  // proposes an action can approve it — the whole defect the operator
+  // credential exists to close, restored with no error, no warning, and no log
+  // line. Every execution-context check downstream still passes honestly,
+  // because nothing has been substituted.
+  //
+  // Refusing to start is the only safe response. A warning would be read once,
+  // at boot, by nobody, and the deployment would run that way for months. The
+  // most likely way to reach here is migrating from the single-credential model
+  // by reusing the credential already in hand, which is exactly the case that
+  // must not quietly appear to work.
+  if (credential === operatorCredential) {
+    throw new Error(
+      'SafeLoop refused to start: the operator credential is identical to the runtime credential. '
+      + 'They must be different secrets. The runtime credential is held by the agent so it can propose '
+      + 'and execute actions; the operator credential authorizes human approval on /v1/approval/*. '
+      + 'Making them equal lets an agent approve its own held actions. '
+      + 'Leave `operatorCredential` unset to use the managed operator-credential.json, or supply a '
+      + 'distinct value. See docs/HUMAN_APPROVALS.md.',
+    );
+  }
+
+  const runtime = createSafeloopRuntime(config);
   const routes = buildRoutes();
   const startedAt = new Date().toISOString();
 

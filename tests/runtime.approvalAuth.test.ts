@@ -257,3 +257,89 @@ describe('one request, one grant', () => {
     expect(execution.json.status).toBe('EXECUTED');
   });
 });
+
+// -------------------------------------------- STARTUP CONFIGURATION ------
+
+describe('the two credentials must be different secrets', () => {
+  /**
+   * The separation between agent routes and approval routes is *which secret
+   * they check*, and nothing else. Configuring both to one value collapses it
+   * silently: the agent can approve its own actions again, and every
+   * execution-context check downstream still passes honestly because nothing
+   * has been substituted. A daemon that merely warned would run that way for
+   * months, so it refuses to start.
+   */
+  it('K: refuses to start when the operator credential equals the runtime credential', async () => {
+    const shared = 'a'.repeat(64);
+    await expect(startDaemon({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace, socket: false, port: 0,
+      credential: shared, operatorCredential: shared,
+    })).rejects.toThrow(/operator credential is identical to the runtime credential/);
+  });
+
+  it('L: the refusal names the requirement without echoing either secret', async () => {
+    const shared = 'b'.repeat(64);
+    const failure = await startDaemon({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace, socket: false, port: 0,
+      credential: shared, operatorCredential: shared,
+    }).catch((error: Error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain('must be different secrets');
+    expect(message).toContain('docs/HUMAN_APPROVALS.md');
+    // An error message is a log line waiting to happen.
+    expect(message).not.toContain(shared);
+  });
+
+  it('M: nothing is left listening after the refusal', async () => {
+    const shared = 'c'.repeat(64);
+    await startDaemon({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace, socket: false, port: 4319,
+      credential: shared, operatorCredential: shared,
+    }).catch(() => undefined);
+
+    // The port the refused daemon was asked for is still free.
+    const second = await startDaemon({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace, socket: false, port: 4319,
+    });
+    expect(second.connection.port).toBe(4319);
+    await second.stop();
+  });
+
+  it('N: distinct credentials start normally and keep the boundary', async () => {
+    const explicit = await startDaemon({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace, socket: false, port: 0,
+      credential: 'd'.repeat(64), operatorCredential: 'e'.repeat(64),
+    });
+    const url = `http://${explicit.connection.host}:${explicit.connection.port}`;
+
+    const asAgent = await fetch(`${url}/v1/approval/grant`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${'d'.repeat(64)}` },
+      body: JSON.stringify({ approval_request_id: 'x', approver: 'self' }),
+    });
+    expect(asAgent.status).toBe(401);
+
+    // The operator credential reaches the route: 404 is the request id, not auth.
+    const asOperator = await fetch(`${url}/v1/approval/grant`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${'e'.repeat(64)}` },
+      body: JSON.stringify({ approval_request_id: 'x', approver: 'operator' }),
+    });
+    expect(asOperator.status).toBe(404);
+
+    await explicit.stop();
+  });
+
+  it('O: the default configuration can never collide', async () => {
+    // Nobody has to opt in to the safe case: an unset operator credential comes
+    // from its own file, and the runtime credential is minted per process.
+    const managed = await startDaemon({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace, socket: false, port: 0,
+    });
+    expect(managed.connection.credential)
+      .not.toBe(readOperatorCredentialFile({ baseDir })!.credential);
+    await managed.stop();
+  });
+});

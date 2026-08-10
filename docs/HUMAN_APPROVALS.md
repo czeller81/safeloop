@@ -58,6 +58,13 @@ work around it by handing the operator credential to the agent.
 4. If you provision credentials yourself, pass `operatorCredential` to
    `startDaemon`; it must not equal the runtime `credential`.
 
+**The daemon enforces this at startup.** If the two are equal, `startDaemon`
+throws and nothing is bound. Equal credentials would mean both route groups
+check the same secret, which restores agent self-approval exactly — and does so
+silently, since every execution-context check downstream still passes honestly.
+Reusing the credential already in hand is the path of least resistance when
+migrating, so it is refused rather than warned about.
+
 Examples of approval-worthy actions:
 
 - commit and push
