@@ -292,6 +292,28 @@ export interface ExecutionPermit {
    * resolved. An approval for repository A must not act on repository B.
    */
   repository_identity?: string;
+  /**
+   * For git actions: the branch HEAD pointed at when the permit was issued, or
+   * absent when HEAD was detached. Repository identity does not change when
+   * HEAD is re-pointed, so without this a commit approved on one branch can be
+   * re-aimed at another inside the very same repository.
+   */
+  head_ref?: string;
+  /**
+   * For git actions: the object HEAD resolved to, or absent on an unborn
+   * branch. Bound alongside `head_ref` so that checking out a branch that
+   * already sits on the detached commit is still recognised as a change.
+   */
+  head_commit?: string;
+  /**
+   * For filesystem actions: the absolute real path the target resolved to at
+   * authorization time. The workspace relation only records which side of the
+   * boundary the path fell on, and two directories sharing a relation are
+   * interchangeable under it; this records the object itself.
+   */
+  resolved_target?: string;
+  /** For filesystem moves: the same fact for the destination path. */
+  resolved_destination?: string;
   issued_at: string;
   expires_at: string;
   nonce: string;
@@ -335,6 +357,8 @@ export type ExecutionRejectionReason =
   | 'cwd_context_changed'
   /** The git repository reached at execution is not the authorized one. */
   | 'repository_context_changed'
+  /** The path resolved to a different object than the one authorized. */
+  | 'target_context_changed'
   /** Execution context could not be determined; fail closed. */
   | 'execution_context_verification_failed';
 

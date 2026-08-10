@@ -213,6 +213,22 @@ export function isGovernanceConfigPath(target: string | undefined, cwd?: string)
  */
 export type ContainmentMode = 'follow' | 'no_follow_final';
 
+/**
+ * Filesystem operations that act on the entry itself rather than on what it
+ * points to. `rm` unlinks a symlink; `rename` moves it.
+ *
+ * This lives here rather than in the filesystem executor because the mode has
+ * to be chosen identically in two places — once when the resolved target is
+ * bound into the permit, and again when it is re-verified before the syscall.
+ * Two copies of the table could drift, and a drifted mode would resolve the
+ * same path two different ways and refuse a legitimate action.
+ */
+const NO_FOLLOW_FINAL_OPERATIONS: ReadonlySet<string> = new Set(['delete', 'move']);
+
+export function containmentModeForOperation(operation: string): ContainmentMode {
+  return NO_FOLLOW_FINAL_OPERATIONS.has(operation) ? 'no_follow_final' : 'follow';
+}
+
 export interface ContainmentResult {
   relation: WorkspaceRelation;
   /**

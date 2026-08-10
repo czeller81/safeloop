@@ -95,6 +95,18 @@
     },
     "repository_identity": {
       "type": "string"
+    },
+    "head_ref": {
+      "type": "string"
+    },
+    "head_commit": {
+      "type": "string"
+    },
+    "resolved_target": {
+      "type": "string"
+    },
+    "resolved_destination": {
+      "type": "string"
     }
   }
 }

@@ -29,6 +29,14 @@ export interface ExecutorContext {
   authorizedExecutionCwd?: string;
   /** Resolved git repository identity the permit was issued against. */
   authorizedRepositoryIdentity?: string;
+  /** Branch HEAD pointed at when the permit was issued; '' / absent when detached. */
+  authorizedHeadRef?: string;
+  /** Object HEAD resolved to when the permit was issued; absent on an unborn branch. */
+  authorizedHeadCommit?: string;
+  /** Resolved real path the filesystem target had when the permit was issued. */
+  authorizedResolvedTarget?: string;
+  /** Resolved real path the move destination had when the permit was issued. */
+  authorizedResolvedDestination?: string;
   timeoutMs: number;
   maxOutputBytes: number;
   /** Applied to every captured stream before it reaches evidence or the ledger. */

@@ -108,17 +108,23 @@ export function createGitExecutor(): ManagedExecutorPlugin {
       const { action } = context;
       const argv = buildGitArgv(action.operation, action.arguments);
 
-      // Two facts must still hold immediately before a git operation runs.
+      // Three facts must still hold immediately before a git operation runs.
       //
       // The directory, because a swapped cwd symlink silently relocates the
-      // command; and the repository itself, because the same directory can be
+      // command; the repository itself, because the same directory can be
       // made to reach a different repository through a replaced `.git`, a
-      // worktree redirect, or GIT_DIR. Verifying only the directory would
-      // leave the second door open, and an approval for repository A must
-      // never act on repository B.
+      // worktree redirect, or GIT_DIR; and — for anything that writes — HEAD,
+      // because repository identity is unchanged by `symbolic-ref`, so a
+      // commit approved on one branch could still be re-aimed at a protected
+      // one inside the very same repository. Verifying only the first would
+      // leave the second door open; verifying only the first two leaves the
+      // third.
       const verifiedCwd = verifyExecutionCwd(action.cwd || undefined, context.authorizedExecutionCwd);
       const cwd = verifiedCwd ?? action.cwd ?? process.cwd();
-      verifyRepositoryIdentity(cwd, context.authorizedRepositoryIdentity);
+      verifyRepositoryIdentity(cwd, context.authorizedRepositoryIdentity, action.operation, {
+        head_ref: context.authorizedHeadRef,
+        head_commit: context.authorizedHeadCommit,
+      });
 
       const startedAt = Date.now();
 

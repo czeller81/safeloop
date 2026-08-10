@@ -21,8 +21,13 @@ import {
 import { createHash } from 'crypto';
 import { dirname, isAbsolute, resolve } from 'path';
 import { redactAndBound } from '../redaction';
-import { verifyExecutionCwd } from '../executionContext';
-import { resolveRealPath, verifyContainment, type ContainmentMode } from '../workspace';
+import { verifyExecutionCwd, verifyResolvedPath } from '../executionContext';
+import {
+  containmentModeForOperation,
+  resolveRealPath,
+  verifyContainment,
+  type ContainmentMode,
+} from '../workspace';
 import {
   ExecutorArgumentError,
   WorkspaceContainmentError,
@@ -64,14 +69,6 @@ function absolute(path: string, cwd: string): string {
 }
 
 /**
- * Operations that act on the entry itself rather than on what it points to.
- * `rm` unlinks a symlink; `rename` moves it. Following the final component for
- * these and operating on the resolved target would destroy or move the wrong
- * object — precisely the outcome being defended against.
- */
-const NO_FOLLOW_FINAL: ReadonlySet<string> = new Set(['delete', 'move']);
-
-/**
  * Re-verify containment immediately before the side effect, and return the
  * path to actually operate on.
  *
@@ -95,6 +92,16 @@ const NO_FOLLOW_FINAL: ReadonlySet<string> = new Set(['delete', 'move']);
  * executor simply never consulted it. It does now, on the same equality rule
  * the shell and git executors use, and the *verified* directory becomes the
  * resolution base so the join cannot traverse the mutable component either.
+ *
+ * SL-RC3-HIGH-002: binding the cwd was still not sufficient, because a symlink
+ * anywhere else in the target's ancestry redirects the path just as effectively
+ * — including one directory below a correctly verified cwd. Relation equality
+ * cannot see it: two siblings share a relation, so the guard read "still
+ * inside" while the bytes moved to a sibling the policy engine would have
+ * refused outright. The permit therefore binds the *resolved path* as well, and
+ * the last check below is that the object being written is the object that was
+ * authorized. Relation is checked first so a genuine boundary crossing is still
+ * reported as one.
  */
 function guardPath(
   context: ExecutorContext,
@@ -150,6 +157,14 @@ function guardPath(
     );
   }
 
+  // Same relation, same root, same cwd — and still possibly a different
+  // directory. Throws before any syscall when it is.
+  verifyResolvedPath(
+    check.resolved,
+    role === 'destination' ? context.authorizedResolvedDestination : context.authorizedResolvedTarget,
+    role,
+  );
+
   return check.resolved;
 }
 
@@ -167,12 +182,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
       const cwd = action.cwd || process.cwd();
       const requested = action.target || requireString(action.arguments, 'path');
       // Verified here, immediately before any syscall — not at proposal time.
-      const path = guardPath(
-        context,
-        requested,
-        NO_FOLLOW_FINAL.has(operation) ? 'no_follow_final' : 'follow',
-        'target',
-      );
+      const path = guardPath(context, requested, containmentModeForOperation(operation), 'target');
       const before = hashFile(path);
       const artifacts: ExecutorArtifact[] = [];
 

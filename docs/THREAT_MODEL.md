@@ -252,8 +252,10 @@ fingerprint, which must stay deterministic and reproducible off-host.
 | Signed permit fact | Bound for | Verified by |
 | --- | --- | --- |
 | `workspace_relation`, `workspace_root` (RC2) | filesystem | `executors/filesystem.ts` |
-| `execution_cwd` | shell, git | `verifyExecutionCwd()` |
+| `execution_cwd` | filesystem, shell, git | `verifyExecutionCwd()` |
 | `repository_identity` | git | `verifyRepositoryIdentity()` |
+| `resolved_target`, `resolved_destination` | filesystem | `verifyResolvedPath()` |
+| `head_ref`, `head_commit` | git, writes only | `verifyRepositoryIdentity()` |
 
 The rule is **equality with what was authorized**, not membership of a
 workspace. RC3 did not turn SafeLoop into "shell always runs in the workspace"
@@ -292,6 +294,52 @@ can propose the new destination and have it governed on its own terms.
 previously have followed a redirect transparently now returns the 3xx. That is
 the honest trade — a destination SafeLoop did not authorize is a destination
 SafeLoop will not deliver to.
+
+## Found by independent audit of the RC3 fix — binding the object, not the category
+
+An independent audit of the RC3 remediation found the same defect surviving one
+level below each guard that had just been added. Both are closed here.
+
+### Filesystem: the resolved target is bound, not just its workspace relation
+
+The permit bound the workspace *relation*, which is one bit. Two directories
+that share it are interchangeable under it, so re-pointing a symlink anywhere in
+a target's ancestry — including one directory below a correctly verified `cwd` —
+moved the write into a sibling while containment, workspace root, and the newly
+bound `cwd` all still verified.
+
+The consequences were not limited to landing in the wrong sibling. A write
+proposed against `<ws>/.ssh/authorized_keys` is refused outright by
+`path.sensitive`; proposed through a symlink and then redirected, the same bytes
+were delivered there under an auto-`ALLOW` permit. An operator-approved
+outside-workspace write was likewise delivered to a different outside directory
+with the approval still reading as satisfied.
+
+The permit now signs `resolved_target` (and `resolved_destination` for moves),
+produced by the same `verifyContainment` call the executor re-runs before the
+syscall, so the two answers cannot be computed differently. Relation is still
+checked first, so a genuine boundary crossing is still diagnosed as one.
+
+### Git: HEAD is bound for operations that write
+
+Repository identity answers *which repository*, never *which branch*, and
+`git symbolic-ref HEAD refs/heads/release` does not touch the git directory. A
+commit approved on one branch landed on a protected one inside the same
+repository, in a plain checkout and in a linked worktree.
+
+The permit now signs `head_ref` and `head_commit`. Both halves are needed:
+checking out a branch that already sits on the commit a detached HEAD was
+parked at leaves the commit equal while redirecting the commit onto that branch.
+`git symbolic-ref HEAD` is used rather than `rev-parse --symbolic-full-name`
+because it succeeds on an unborn branch and fails on a detached one, which makes
+those two states distinguishable.
+
+The check is conditional on the operation. Reads (`status`, `diff`, `log`,
+`show`, `branch_list`, `remote_list`) and operations that touch neither HEAD nor
+local refs (`fetch`, the `remote_*` family) are exempt, so a concurrent checkout
+does not turn a legitimate read into a refusal. The exemption is expressed as a
+list of what is *not* bound, so any operation added to the executor's template
+table later is bound by default.
 
 ## Residual limitations — stated precisely
 

@@ -73,6 +73,14 @@ export interface RedeemApprovalInput extends ApprovalIdentity {
   execution_cwd?: string;
   /** Resolved git repository identity at redemption time; signed. */
   repository_identity?: string;
+  /** Branch HEAD pointed at for git actions at redemption time; signed. */
+  head_ref?: string;
+  /** Object HEAD resolved to for git actions at redemption time; signed. */
+  head_commit?: string;
+  /** Resolved real path of the filesystem target at redemption time; signed. */
+  resolved_target?: string;
+  /** Resolved real path of a filesystem move destination; signed. */
+  resolved_destination?: string;
 }
 
 function tokenClaims(token: Omit<BoundApprovalToken, 'signature'>): string {
@@ -302,6 +310,10 @@ export function createApprovalAuthority(config: ApprovalAuthorityConfig = {}): A
         workspace_root: input.workspace_root,
         execution_cwd: input.execution_cwd,
         repository_identity: input.repository_identity,
+        head_ref: input.head_ref,
+        head_commit: input.head_commit,
+        resolved_target: input.resolved_target,
+        resolved_destination: input.resolved_destination,
         ttl_ms: config.permitTtlMs,
       });
 

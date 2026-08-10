@@ -550,7 +550,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           // resolving somewhere else before the side effect runs.
           workspace_relation: profileEvaluation.facts.workspace,
           workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
-          ...captureExecutionContext(canonical.action_kind, canonical.cwd || undefined),
+          ...captureExecutionContext(canonical, state.session.workspace),
         });
       } else if (decision.requires_approval) {
         const request = approvals.request({
@@ -639,7 +639,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         approval_was_required: stillRequiresApproval,
         workspace_relation: profileEvaluation.facts.workspace,
         workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
-        ...captureExecutionContext(canonical.action_kind, canonical.cwd || undefined),
+        ...captureExecutionContext(canonical, state.session.workspace),
       });
 
       recorder.recordEvent({
