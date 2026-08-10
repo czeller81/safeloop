@@ -20,8 +20,13 @@ import { createPermitAuthority, type PermitAuthority } from './executionPermit';
 import { createBudgetTracker, type BudgetTracker } from './budgets';
 import { createManagedExecutor, type BreakerGate, type ManagedExecutor } from './managedExecutor';
 import { createRuntimeRecorder, type RuntimeRecorder } from './recorder';
+import { sep } from 'path';
 import { resolveRealPath } from './workspace';
-import { captureExecutionContext } from './executionContext';
+import {
+  captureExecutionContext,
+  compareAuthorizationContext,
+  type AuthorizationContext,
+} from './executionContext';
 import { createMemoryGateway, type MemoryGateway, type MemoryPersistenceAuthorization } from './memoryGateway';
 import { createGovernedMemoryStore, type GovernedMemoryStore, type MemoryWriteResult } from './memoryStore';
 import { evaluateProfile, loadProfile, moreSevere, type GovernanceProfile, type RuntimeControlDeclaration } from './profiles';
@@ -84,7 +89,16 @@ export interface SessionState {
   budget: BudgetTracker;
   breaker: RuntimeCircuitBreaker;
   tasks: Map<string, TaskContext>;
-  pendingApprovals: Map<string, { request: ReturnType<ApprovalAuthority['request']>; proposal: ActionProposal }>;
+  pendingApprovals: Map<string, {
+    request: ReturnType<ApprovalAuthority['request']>;
+    proposal: ActionProposal;
+    /**
+     * The host state resolved when the operator was asked. Re-checked at
+     * redemption so an approval cannot be spent on a location that moved after
+     * the decision was made (SL-RC3-CRIT-001).
+     */
+    context: AuthorizationContext;
+  }>;
   parent_session_id?: string;
   finished_at?: string;
   /** Adapter-reported control verifications, keyed by control_id. */
@@ -231,6 +245,62 @@ function newId(prefix: string): string {
 }
 
 /** Wraps the existing circuit breaker as an admission gate for the executor. */
+/**
+ * Turn the bound context into the fields an operator reads before deciding.
+ *
+ * Only what is relevant to the action kind: a filesystem approval that
+ * advertised a branch, or a git approval that advertised a target file, would
+ * be noise in the one place noise is most expensive. Every value here is one
+ * the redemption is checked against, so the display cannot drift from what is
+ * actually enforced.
+ */
+interface DescribedContext {
+  resolved_target?: string;
+  resolved_cwd?: string;
+  repository_path?: string;
+  head_ref?: string;
+}
+
+/**
+ * One line naming where a held action would land, for the operator surfaces
+ * that show a summary rather than the full request record.
+ *
+ * The action description alone names the path the agent *wrote*, which is
+ * exactly the string a swapped symlink leaves unchanged. Saying where it
+ * resolves is the difference between approving a name and approving a place.
+ */
+function summarizeAuthorizationContext(described: DescribedContext): string {
+  const parts: string[] = [];
+  if (described.resolved_target) parts.push(`resolves to ${described.resolved_target}`);
+  if (described.repository_path) parts.push(`repository ${described.repository_path}`);
+  if (described.head_ref) parts.push(`on ${described.head_ref}`);
+  else if (described.resolved_cwd) parts.push(`in ${described.resolved_cwd}`);
+  return parts.length ? ` [${parts.join(', ')}]` : '';
+}
+
+function describeAuthorizationContext(
+  actionKind: string,
+  context: AuthorizationContext,
+): DescribedContext {
+  const described: DescribedContext = {};
+
+  if (context.resolved_target) described.resolved_target = context.resolved_target;
+  if (context.execution_cwd) described.resolved_cwd = context.execution_cwd;
+
+  if (actionKind === 'git' && context.repository_identity) {
+    // The signed identity is the git directory. Show the working tree for the
+    // ordinary `<repo>/.git` shape, and the git directory itself for worktrees
+    // and other indirections, where nothing shorter would be truthful.
+    described.repository_path = context.repository_identity.endsWith(`${sep}.git`)
+      ? context.repository_identity.slice(0, -`${sep}.git`.length)
+      : context.repository_identity;
+    // Absent head_ref means HEAD is not a branch; say so rather than say nothing.
+    described.head_ref = context.head_ref || 'detached';
+  }
+
+  return described;
+}
+
 function breakerGate(breaker: RuntimeCircuitBreaker): BreakerGate {
   return {
     isOpen: () => {
@@ -257,6 +327,13 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
   const sessions = new Map<string, SessionState>();
   const credentials = new Map<string, string>(); // credential → session_id
   const approvalRequests = new Map<string, { sessionId: string; taskId: string; proposal: ActionProposal }>();
+  /**
+   * Proposal-time context, keyed by the approval id a grant mints. Redemption
+   * receives a token, not a request id, so the binding has to be reachable from
+   * the token. In-memory like the pending requests themselves: a runtime that
+   * has forgotten the request cannot grant against it either.
+   */
+  const approvedContexts = new Map<string, AuthorizationContext>();
 
   function authenticate(credential: string, sessionId: string): SessionState {
     if (!credential) throw new RuntimeError('unauthenticated', 'a session credential is required');
@@ -537,6 +614,25 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         evaluated_at: new Date().toISOString(),
       };
 
+      // Resolve the host state this decision is about, once, here. For an
+      // allowed action this is the same capture as before. For a held action it
+      // is the change: the facts are pinned at the moment the operator is
+      // asked, not at the moment the agent comes back to collect.
+      //
+      // Only computed for outcomes that can lead to execution — a denied action
+      // has nothing to bind, and probing git for one would add subprocesses to
+      // the refusal path.
+      // Set only for held actions: the operator-facing view of that context.
+      let describedForOperator: DescribedContext | undefined;
+      const authorizationContext: AuthorizationContext | undefined =
+        decision.allowed || decision.requires_approval
+          ? {
+            workspace_relation: profileEvaluation.facts.workspace,
+            workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
+            ...captureExecutionContext(canonical, state.session.workspace),
+          }
+          : undefined;
+
       if (decision.allowed) {
         decision.execution_permit = permits.issue({
           action_fingerprint: fingerprint,
@@ -548,11 +644,11 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           disposition,
           // Signed into the permit so the executor can detect the target
           // resolving somewhere else before the side effect runs.
-          workspace_relation: profileEvaluation.facts.workspace,
-          workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
-          ...captureExecutionContext(canonical, state.session.workspace),
+          ...authorizationContext,
         });
       } else if (decision.requires_approval) {
+        const context = authorizationContext as AuthorizationContext;
+        describedForOperator = describeAuthorizationContext(canonical.action_kind, context);
         const request = approvals.request({
           action_fingerprint: fingerprint,
           agent_id: canonical.agent_id,
@@ -562,9 +658,11 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           tenant_id: canonical.tenant_id,
           reason: decision.explanation,
           risk_score: decision.risk_score,
+          // The operator is shown the place, not just the hash of the request.
+          ...describedForOperator,
         });
         decision.approval_request = request;
-        state.pendingApprovals.set(request.approval_request_id, { request, proposal: bound });
+        state.pendingApprovals.set(request.approval_request_id, { request, proposal: bound, context });
         approvalRequests.set(request.approval_request_id, {
           sessionId: state.session.session_id,
           taskId: input.task_id,
@@ -580,13 +678,16 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         tenant_id: canonical.tenant_id,
         action_fingerprint: fingerprint,
         decision: disposition,
-        summary: `${disposition}: ${describeCanonicalAction(canonical)}`,
+        summary: `${disposition}: ${describeCanonicalAction(canonical)}${describedForOperator ? summarizeAuthorizationContext(describedForOperator) : ''}`,
         detail: {
           matched_rules: profileEvaluation.matched_rules,
           risk_score: decision.risk_score,
           workspace_relation: profileEvaluation.facts.workspace,
           destructive: profileEvaluation.facts.destructive,
           sensitive_path: profileEvaluation.facts.sensitive_path,
+          // The ledger is the operator's other surface onto a held action, so
+          // the resolved location belongs in it too, not only on the request.
+          ...(describedForOperator ?? {}),
         },
       });
 
@@ -599,12 +700,17 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         throw new RuntimeError('unknown_approval_request', `unknown approval request: ${input.approval_request_id}`);
       }
       const state = sessions.get(pending.sessionId);
-      const request = state?.pendingApprovals.get(input.approval_request_id)?.request;
-      if (!state || !request) {
+      const held = state?.pendingApprovals.get(input.approval_request_id);
+      const request = held?.request;
+      if (!state || !held || !request) {
         throw new RuntimeError('unknown_approval_request', `approval request is no longer pending: ${input.approval_request_id}`);
       }
 
       const grant = approvals.grant(request, input.approver, input.ttl_ms);
+      // Carry the proposal-time context onto the identifier the redemption will
+      // actually present. The operator decided about this context; the token
+      // now has a way back to it.
+      approvedContexts.set(grant.approval_id, held.context);
       recorder.recordEvent({
         type: 'approval.granted',
         agent_id: request.agent_id,
@@ -629,7 +735,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       const profileEvaluation = evaluateProfile(state.profile, canonical, state.session.workspace);
       const stillRequiresApproval = profileEvaluation.disposition === 'REQUIRE_APPROVAL';
 
-      const redemption = approvals.redeem(input.token, {
+      const redeemInput = {
         action_fingerprint: fingerprint,
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
@@ -637,26 +743,90 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         scenario_id: canonical.scenario_id,
         tenant_id: canonical.tenant_id,
         approval_was_required: stillRequiresApproval,
+      };
+
+      const record = (redemption: ApprovalRedemption): ApprovalRedemption => {
+        recorder.recordEvent({
+          type: redemption.redeemed ? 'approval.granted' : 'approval.denied',
+          agent_id: canonical.agent_id,
+          task_id: canonical.task_id,
+          session_id: canonical.session_id,
+          tenant_id: canonical.tenant_id,
+          action_fingerprint: fingerprint,
+          decision: redemption.redeemed ? 'ALLOW' : 'DENY',
+          summary: redemption.redeemed
+            ? `Approval redeemed for ${describeCanonicalAction(canonical)}`
+            : `Approval redemption rejected: ${redemption.failure}`,
+          detail: { approval_id: redemption.approval_id, failure: redemption.failure, reason: redemption.reason },
+        });
+        return redemption;
+      };
+
+      // SL-RC3-CRIT-001. Everything below happens before the token is consumed,
+      // so an approval refused here survives for a human to look at again.
+      //
+      // Token integrity first, without consuming, so a forged or expired token
+      // is still diagnosed as forged or expired rather than as a context
+      // mismatch — the precise boundary is what the ledger and the conformance
+      // suite read.
+      const validation = approvals.validate(input.token, redeemInput);
+      if (validation.failure) return record(validation);
+
+      // The operator approved a specific place on this host. Find what they
+      // were shown.
+      const approvalId = input.token.approval_id;
+      const approvedContext = approvedContexts.get(approvalId);
+      if (!approvedContext) {
+        return record({
+          protocol_version: PROTOCOL_VERSION,
+          redeemed: false,
+          approval_id: approvalId,
+          failure: 'execution_context_changed_at_redemption',
+          reason: 'no proposal-time execution context is on record for this approval, so what the operator approved cannot be confirmed',
+        });
+      }
+
+      // Resolve the same facts again, now. Any difference means the ground moved
+      // between the decision and the collection.
+      const currentContext: AuthorizationContext = {
         workspace_relation: profileEvaluation.facts.workspace,
         workspace_root: state.session.workspace ? resolveRealPath(state.session.workspace) : undefined,
         ...captureExecutionContext(canonical, state.session.workspace),
-      });
+      };
 
-      recorder.recordEvent({
-        type: redemption.redeemed ? 'approval.granted' : 'approval.denied',
-        agent_id: canonical.agent_id,
-        task_id: canonical.task_id,
-        session_id: canonical.session_id,
-        tenant_id: canonical.tenant_id,
-        action_fingerprint: fingerprint,
-        decision: redemption.redeemed ? 'ALLOW' : 'DENY',
-        summary: redemption.redeemed
-          ? `Approval redeemed for ${describeCanonicalAction(canonical)}`
-          : `Approval redemption rejected: ${redemption.failure}`,
-        detail: { approval_id: redemption.approval_id, failure: redemption.failure, reason: redemption.reason },
-      });
+      const comparison = compareAuthorizationContext(approvedContext, currentContext);
+      if (!comparison.matches) {
+        const redemption: ApprovalRedemption = {
+          protocol_version: PROTOCOL_VERSION,
+          redeemed: false,
+          approval_id: approvalId,
+          failure: 'execution_context_changed_at_redemption',
+          reason: `the execution context changed after this action was approved: ${comparison.changed.join(', ')}`,
+        };
+        recorder.recordEvent({
+          type: 'approval.denied',
+          agent_id: canonical.agent_id,
+          task_id: canonical.task_id,
+          session_id: canonical.session_id,
+          tenant_id: canonical.tenant_id,
+          action_fingerprint: fingerprint,
+          decision: 'DENY',
+          summary: `Approval redemption rejected: ${redemption.failure}`,
+          detail: {
+            approval_id: approvalId,
+            failure: redemption.failure,
+            reason: redemption.reason,
+            changed_fields: comparison.changed,
+            ...comparison.detail,
+          },
+        });
+        return redemption;
+      }
 
-      return redemption;
+      // Signed with the values the operator was shown, not with the values just
+      // re-resolved. They are equal, and using the approved ones means no gap
+      // between this comparison and the signature can matter.
+      return record(approvals.redeem(input.token, { ...redeemInput, ...approvedContext }));
     },
 
     async execute(credential, input): Promise<ExecutionResult> {

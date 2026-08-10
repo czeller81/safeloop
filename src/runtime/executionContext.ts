@@ -206,6 +206,74 @@ export interface AuthorizedExecutionContext {
   resolved_destination?: string;
 }
 
+/**
+ * Every host fact an authorization is bound to, in one object.
+ *
+ * SL-RC3-CRIT-001: these facts used to be resolved when an approval was
+ * *redeemed*, which is after the operator has already decided. The window
+ * between the grant and the redemption belongs to the attacker and lasts the
+ * full approval lifetime, so whatever was arranged during it simply became the
+ * signed authorization. Resolving them at proposal time and re-checking them at
+ * redemption turns that window into a detection surface instead: the
+ * authorization is what the operator saw, or it is refused.
+ *
+ * The workspace facts belong here rather than beside them because they are the
+ * same kind of fact -- resolved from mutable host state at authorization time --
+ * and an approval whose workspace root moved underneath it is no more valid
+ * than one whose target moved.
+ */
+export interface AuthorizationContext extends AuthorizedExecutionContext {
+  workspace_relation?: 'inside' | 'outside' | 'unknown';
+  workspace_root?: string;
+}
+
+/** Field-by-field comparison; absent and empty are the same absence. */
+const AUTHORIZATION_CONTEXT_FIELDS: readonly (keyof AuthorizationContext)[] = [
+  'workspace_relation',
+  'workspace_root',
+  'execution_cwd',
+  'repository_identity',
+  'head_ref',
+  'head_commit',
+  'resolved_target',
+  'resolved_destination',
+];
+
+export interface AuthorizationContextComparison {
+  matches: boolean;
+  /** Names of the fields that moved; empty when the contexts agree. */
+  changed: string[];
+  /** Approved-vs-current values for each changed field, for the ledger. */
+  detail: Record<string, unknown>;
+}
+
+/**
+ * Compare the context an authorization was granted against with the context
+ * that holds now.
+ *
+ * Equality across every field, not a subset: a fact that is captured for an
+ * action kind is a fact that action kind is authorized against, and a fact that
+ * is absent for that kind is absent from both sides.
+ */
+export function compareAuthorizationContext(
+  approved: AuthorizationContext,
+  current: AuthorizationContext,
+): AuthorizationContextComparison {
+  const changed: string[] = [];
+  const detail: Record<string, unknown> = {};
+
+  for (const field of AUTHORIZATION_CONTEXT_FIELDS) {
+    const before = approved[field] ?? '';
+    const after = current[field] ?? '';
+    if (before === after) continue;
+    changed.push(field);
+    detail[`approved_${field}`] = before || '(absent)';
+    detail[`redemption_${field}`] = after || '(absent)';
+  }
+
+  return { matches: changed.length === 0, changed, detail };
+}
+
 /** The action facts this module needs; a canonical action satisfies it. */
 export type ContextualAction = Pick<
   CanonicalAction,

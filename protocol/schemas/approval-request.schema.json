@@ -57,6 +57,22 @@
     "requested_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "resolved_target": {
+      "type": "string",
+      "description": "Absolute real path the action would act on, resolved at proposal time."
+    },
+    "resolved_cwd": {
+      "type": "string",
+      "description": "Absolute real path of the working directory, resolved at proposal time."
+    },
+    "repository_path": {
+      "type": "string",
+      "description": "Absolute path of the git repository this action would act on."
+    },
+    "head_ref": {
+      "type": "string",
+      "description": "Branch HEAD points at for git actions, or 'detached'."
     }
   }
 }

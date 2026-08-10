@@ -257,6 +257,11 @@ fingerprint, which must stay deterministic and reproducible off-host.
 | `resolved_target`, `resolved_destination` | filesystem | `verifyResolvedPath()` |
 | `head_ref`, `head_commit` | git, writes only | `verifyRepositoryIdentity()` |
 
+All of the above are resolved in `propose()` and re-verified in
+`redeemApproval()` before the approval token is consumed, so the facts a permit
+carries are the facts the operator decided about — not whatever held at the
+moment the agent came back to collect.
+
 The rule is **equality with what was authorized**, not membership of a
 workspace. RC3 did not turn SafeLoop into "shell always runs in the workspace"
 or "git always operates on the initial repository":
@@ -340,6 +345,47 @@ local refs (`fetch`, the `remote_*` family) are exempt, so a concurrent checkout
 does not turn a legitimate read into a refusal. The exemption is expressed as a
 list of what is *not* bound, so any operation added to the executor's template
 table later is bound by default.
+
+## The root cause — context was bound at the wrong moment
+
+The two fixes above were correct for the window they covered and still missed
+the class, because every fact they bind was being resolved inside
+`redeemApproval` — that is, *after* the operator had already decided. The window
+between the grant and the redemption belongs to the attacker and lasts the full
+approval lifetime (300s by default), so whatever was arranged inside it simply
+became the signed authorization, and every later check then correctly confirmed
+the attacker's choice. No race had to be won.
+
+Demonstrated: an approved outside-workspace report write delivered onto
+`~/.bashrc`, and an approved commit for repository A landing in repository B —
+the exact scenario RC3 says can never happen.
+
+Context is now resolved in `propose()`, at the moment the operator is asked, and
+stored with the pending approval. `redeemApproval` re-resolves and requires
+equality across every bound field — workspace relation and root, execution cwd,
+repository identity, HEAD ref and commit, resolved target and destination — and
+refuses with `execution_context_changed_at_redemption` on any difference. The
+permit is then signed with the *approved* values rather than the re-resolved
+ones, so no gap between the comparison and the signature can matter.
+
+Two properties are deliberate. The refusal happens **before** the token is
+consumed, so an approval refused this way survives for a human to look at again;
+a legitimate change can be re-approved rather than being silently spent on a
+location nobody chose. And token-level failures are diagnosed first, without
+consuming, so a forged or expired token is still reported as forged or expired
+rather than as a context mismatch.
+
+**The operator now approves a place, not a hash.** `ApprovalRequestRecord`
+carried no path, cwd, or repository at all, so there was no surface on which the
+substitution could ever have been noticed. It now carries `resolved_target`,
+`resolved_cwd`, `repository_path`, and `head_ref`, drawn from the same
+proposal-time capture the redemption is checked against — what is displayed is
+what is enforced. The ledger summary names both, so the swap is legible:
+
+```
+REQUIRE_APPROVAL: filesystem write /root/outbox/settings.json
+  [resolves to /root/deliverables/settings.json]
+```
 
 ## Residual limitations — stated precisely
 

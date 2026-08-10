@@ -48,6 +48,15 @@ export interface CreateApprovalRequestInput extends ApprovalIdentity {
   action_fingerprint: string;
   reason: string;
   risk_score?: number;
+  /**
+   * Where the action would land, resolved at proposal time, so the operator
+   * decides about a location rather than about a hash. Carried through
+   * unmodified — this record is what the decision is made against.
+   */
+  resolved_target?: string;
+  resolved_cwd?: string;
+  repository_path?: string;
+  head_ref?: string;
 }
 
 export interface RedeemApprovalInput extends ApprovalIdentity {
@@ -118,6 +127,12 @@ export function createApprovalRequest(input: CreateApprovalRequestInput): Approv
     reason: input.reason,
     risk_score: input.risk_score ?? 0,
     requested_at: new Date().toISOString(),
+    // Omitted rather than blank when they do not apply, so an operator surface
+    // can tell "no working directory" from "working directory unknown".
+    ...(input.resolved_target ? { resolved_target: input.resolved_target } : {}),
+    ...(input.resolved_cwd ? { resolved_cwd: input.resolved_cwd } : {}),
+    ...(input.repository_path ? { repository_path: input.repository_path } : {}),
+    ...(input.head_ref ? { head_ref: input.head_ref } : {}),
   };
 }
 

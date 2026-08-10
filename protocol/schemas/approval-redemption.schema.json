@@ -37,7 +37,8 @@
         "tenant_mismatch",
         "not_approval_required",
         "unknown_token",
-        "state_corrupted"
+        "state_corrupted",
+        "execution_context_changed_at_redemption"
       ]
     },
     "reason": {

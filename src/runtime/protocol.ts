@@ -189,6 +189,19 @@ export interface ApprovalRequestRecord {
   reason: string;
   risk_score: number;
   requested_at: string;
+  /**
+   * Where this action would actually land, resolved at proposal time.
+   *
+   * An operator shown only a fingerprint is approving a hash, not a location.
+   * These fields exist so the decision is about a place on the disk, and they
+   * are the same values the redemption is later checked against — what is
+   * displayed is what is enforced.
+   */
+  resolved_target?: string;
+  resolved_cwd?: string;
+  repository_path?: string;
+  /** Branch name for git actions, or `detached` when HEAD is not a branch. */
+  head_ref?: string;
 }
 
 export interface ApprovalGrant {
@@ -234,7 +247,13 @@ export type ApprovalRedemptionFailure =
   | 'tenant_mismatch'
   | 'not_approval_required'
   | 'unknown_token'
-  | 'state_corrupted';
+  | 'state_corrupted'
+  /**
+   * The host state the operator approved against has moved since they decided.
+   * The approval is left unconsumed, so a legitimate change can be re-approved
+   * rather than silently spent on a location nobody chose.
+   */
+  | 'execution_context_changed_at_redemption';
 
 export interface ApprovalRedemption {
   protocol_version: string;
