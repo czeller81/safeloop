@@ -135,14 +135,42 @@ const { task_id } = await session.startTask({ goal: 'run the tests' });
 const outcome = await session.execute({ kind: 'shell', argv: ['npm', 'test'] }, task_id);
 
 if (outcome.held) {
-  const grant = await client.grantApproval({
-    approval_request_id: outcome.decision.approval_request!.approval_request_id,
-    approver: 'operator',
-  });
-  await session.executeApproved(outcome.proposal, task_id, grant.token);
+  // The adapter does NOT approve. It surfaces the request and waits.
+  const request = outcome.decision.approval_request!;
+  console.log(`Held for approval: ${request.approval_request_id}`);
+  console.log(`  resolves to ${request.resolved_target ?? request.resolved_cwd}`);
+
+  // A human approves out of band — see "Approval is out of band" below.
+  const token = await waitForOperatorApproval(request.approval_request_id);
+  await session.executeApproved(outcome.proposal, task_id, token);
 }
 await session.finish();
 ```
+
+## Approval is out of band
+
+**An adapter must never call `grantApproval`.** Earlier versions of this
+document showed exactly that, and it was a vulnerability rather than a
+shortcut: an adapter holds the runtime credential in order to propose anything
+at all, so an adapter that also approves is an agent approving itself. The
+`approver` string is recorded, not verified, so the ledger would name whoever
+the agent claimed had decided.
+
+`/v1/approval/grant` therefore requires a **separate operator credential**,
+kept in its own `0600` file that the adapter has no reason to read. The runtime
+credential is refused there with `401`.
+
+Approval reaches your adapter through one of:
+
+| Channel | How the operator approves |
+| --- | --- |
+| CLI | `safeloop approve <approval_request_id> [--approver <name>]` |
+| Operator process | a service holding the operator credential, calling `/v1/approval/grant` |
+| Dashboard | the monitor surfaces held actions and their resolved locations |
+
+The adapter's job is to surface the held request — including the resolved
+target and working directory, so the human approves a place and not a hash —
+and then to poll or wait for the token. It never mints one.
 
 ## Declaring managed paths
 

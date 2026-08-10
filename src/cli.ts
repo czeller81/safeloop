@@ -24,6 +24,7 @@ import {
   isAgentLaunch,
   runAgentLaunch,
   runCertifyCommand,
+  runApproveCommand,
   runDaemonCommand,
   runProfilesCommand,
   runRuntimeInit,
@@ -553,6 +554,12 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'approve') {
+    const approveArgs = process.argv.slice(3);
+    process.exitCode = await runApproveCommand(approveArgs, runtimeCliOptions(approveArgs));
+    return;
+  }
+
   if (command === 'daemon') {
     const daemonArgs = process.argv.slice(3);
     process.exitCode = await runDaemonCommand(daemonArgs, runtimeCliOptions(daemonArgs));
@@ -618,6 +625,7 @@ async function main(): Promise<void> {
   console.log('  Runtime governance (v0.2):');
   console.log('  safeloop init --agent <coding|research|assistant|strict-local> [--workspace <path>]');
   console.log('  safeloop daemon <start|stop|status> [--port <port>] [--profile <profile>] [--foreground]');
+  console.log('  safeloop approve <approval_request_id> [--approver <name>]   (operator credential required)');
   console.log('  safeloop run --profile <profile> -- <agent command> [args...]');
   console.log('  safeloop status [--json] [--baseDir <path>]');
   console.log('  safeloop certify [--profile <profile>] [--adapter <name>] [--json] [--out <path>]');

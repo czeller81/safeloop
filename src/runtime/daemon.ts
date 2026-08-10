@@ -29,6 +29,8 @@ import {
   bearerFromHeaders,
   credentialsMatch,
   generateRuntimeCredential,
+  loadOperatorCredential,
+  operatorCredentialFilePath,
   removeConnectionFile,
   scrubCredentials,
   writeConnectionFile,
@@ -44,20 +46,44 @@ export interface DaemonConfig extends SafeloopRuntimeConfig {
   /** Disable the unix socket transport (used by tests and on Windows). */
   socket?: boolean;
   credential?: string;
+  /**
+   * The approver's bearer credential. Defaults to the persisted operator
+   * credential file, minting one on first start. Never equal to `credential`:
+   * see the SL-RC3-CRIT-002 note on RouteAuth.
+   */
+  operatorCredential?: string;
 }
 
 export interface RunningDaemon {
   runtime: SafeloopRuntime;
   connection: RuntimeConnectionFile;
+  /**
+   * Where the approver's credential is kept. The value is deliberately absent
+   * from `connection`, which is the file the agent reads.
+   */
+  operatorCredentialPath: string;
   transports: string[];
   stop(): Promise<void>;
 }
 
+/**
+ * Which bearer credential a route accepts.
+ *
+ *   none     — liveness only.
+ *   runtime  — the connection-file credential every governed agent holds.
+ *   operator — the human approver's credential, which an agent does not hold.
+ *
+ * SL-RC3-CRIT-002: `operator` is not a stronger form of `runtime`; it is a
+ * different secret. Accepting the runtime credential on an approval route
+ * would let the agent that proposed an action approve it, which is exactly the
+ * defect this level exists to close, so the two are never interchangeable.
+ */
+type RouteAuth = 'none' | 'runtime' | 'operator';
+
 interface Route {
   method: 'GET' | 'POST';
   path: string;
-  /** Whether the runtime bearer credential is required. */
-  authenticated: boolean;
+  auth: RouteAuth;
   handle(body: Record<string, unknown>, runtime: SafeloopRuntime): unknown | Promise<unknown>;
 }
 
@@ -80,73 +106,75 @@ function requireString(body: Record<string, unknown>, key: string): string {
 export function buildRoutes(): Route[] {
   return [
     {
-      method: 'GET', path: '/health', authenticated: false,
+      method: 'GET', path: '/health', auth: 'none',
       handle: (_body, runtime) => runtime.health(),
     },
     {
-      method: 'GET', path: '/v1/status', authenticated: true,
+      method: 'GET', path: '/v1/status', auth: 'runtime',
       handle: (_body, runtime) => runtime.status(),
     },
     {
-      method: 'POST', path: '/v1/session/start', authenticated: true,
+      method: 'POST', path: '/v1/session/start', auth: 'runtime',
       handle: (body, runtime) => runtime.startSession(body as never),
     },
     {
-      method: 'POST', path: '/v1/session/finish', authenticated: true,
+      method: 'POST', path: '/v1/session/finish', auth: 'runtime',
       handle: (body, runtime) => {
         runtime.finishSession(sessionCredential(body), requireString(body, 'session_id'));
         return { finished: true };
       },
     },
     {
-      method: 'POST', path: '/v1/task/start', authenticated: true,
+      method: 'POST', path: '/v1/task/start', auth: 'runtime',
       handle: (body, runtime) => runtime.startTask(sessionCredential(body), body as never),
     },
     {
-      method: 'POST', path: '/v1/task/finish', authenticated: true,
+      method: 'POST', path: '/v1/task/finish', auth: 'runtime',
       handle: (body, runtime) => {
         runtime.finishTask(sessionCredential(body), body as never);
         return { finished: true };
       },
     },
     {
-      method: 'POST', path: '/v1/action/propose', authenticated: true,
+      method: 'POST', path: '/v1/action/propose', auth: 'runtime',
       handle: (body, runtime) => runtime.propose(sessionCredential(body), body as never),
     },
     {
-      method: 'POST', path: '/v1/approval/grant', authenticated: true,
+      // The human decision point. Deliberately NOT reachable with the
+      // credential the proposing agent holds.
+      method: 'POST', path: '/v1/approval/grant', auth: 'operator',
       handle: (body, runtime) => runtime.grantApproval(body as never),
     },
     {
-      method: 'POST', path: '/v1/approval/redeem', authenticated: true,
+      method: 'POST', path: '/v1/approval/redeem', auth: 'runtime',
       handle: (body, runtime) => runtime.redeemApproval(sessionCredential(body), body as never),
     },
     {
-      method: 'POST', path: '/v1/action/execute', authenticated: true,
+      method: 'POST', path: '/v1/action/execute', auth: 'runtime',
       handle: (body, runtime) => runtime.execute(sessionCredential(body), body as never),
     },
     {
       // Reporting only. Enforcement stays with the adapter, which fails closed
       // independently of whether this call succeeds.
-      method: 'POST', path: '/v1/control/verify', authenticated: true,
+      method: 'POST', path: '/v1/control/verify', auth: 'runtime',
       handle: (body, runtime) => runtime.reportControlVerification(sessionCredential(body), body as never),
     },
     {
-      method: 'POST', path: '/v1/memory/propose', authenticated: true,
+      method: 'POST', path: '/v1/memory/propose', auth: 'runtime',
       handle: (body, runtime) => runtime.proposeMemory(sessionCredential(body), body as never),
     },
     {
       // Governance without storage: for adapters whose own memory engine owns
       // durable storage. Consumes the permit and returns the authorization.
-      method: 'POST', path: '/v1/memory/authorize', authenticated: true,
+      method: 'POST', path: '/v1/memory/authorize', auth: 'runtime',
       handle: (body, runtime) => runtime.authorizeMemoryPersistence(sessionCredential(body), body as never),
     },
     {
-      method: 'POST', path: '/v1/memory/persist', authenticated: true,
+      method: 'POST', path: '/v1/memory/persist', auth: 'runtime',
       handle: (body, runtime) => runtime.persistMemory(sessionCredential(body), body as never),
     },
     {
-      method: 'POST', path: '/v1/memory/active', authenticated: true,
+      method: 'POST', path: '/v1/memory/active', auth: 'runtime',
       handle: (body, runtime) => ({
         memories: runtime.activeMemories(sessionCredential(body), requireString(body, 'session_id')),
       }),
@@ -161,6 +189,7 @@ const ERROR_STATUS: Record<string, number> = {
   unknown_session: 404,
   unknown_task: 404,
   unknown_approval_request: 404,
+  approval_already_granted: 409,
   session_finished: 409,
   invalid_request: 400,
 };
@@ -212,6 +241,7 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<RunningDae
   const storageOptions: SafeloopStorageOptions = config.storageOptions ?? {};
   const runtime = createSafeloopRuntime(config);
   const credential = config.credential ?? generateRuntimeCredential();
+  const operatorCredential = config.operatorCredential ?? loadOperatorCredential(storageOptions);
   const routes = buildRoutes();
   const startedAt = new Date().toISOString();
 
@@ -226,10 +256,21 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<RunningDae
           return;
         }
 
-        if (route.authenticated && !credentialsMatch(credential, bearerFromHeaders(request.headers))) {
-          // Same response whether the credential is absent or wrong.
-          send(response, 401, { error: 'unauthenticated', message: 'a valid runtime credential is required' });
-          return;
+        if (route.auth !== 'none') {
+          // Each level checks exactly one secret. The runtime credential is not
+          // accepted on an operator route, so an agent that holds it cannot
+          // approve the actions it proposes.
+          const expected = route.auth === 'operator' ? operatorCredential : credential;
+          if (!credentialsMatch(expected, bearerFromHeaders(request.headers))) {
+            // Same response whether the credential is absent or merely wrong.
+            send(response, 401, {
+              error: 'unauthenticated',
+              message: route.auth === 'operator'
+                ? 'a valid operator credential is required; the runtime credential cannot approve actions'
+                : 'a valid runtime credential is required',
+            });
+            return;
+          }
         }
 
         const body = request.method === 'POST' ? await readBody(request) : {};
@@ -299,6 +340,7 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<RunningDae
   return {
     runtime,
     connection,
+    operatorCredentialPath: operatorCredentialFilePath(storageOptions),
     transports,
     async stop(): Promise<void> {
       const socketServer = (server as Server & { socketServer?: Server }).socketServer;

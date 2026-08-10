@@ -17,7 +17,7 @@
  * reports can be reached without the runtime having made it.
  */
 
-import { readConnectionFile, type RuntimeConnectionFile } from './runtimeAuth';
+import { readConnectionFile, readOperatorCredentialFile, type RuntimeConnectionFile } from './runtimeAuth';
 import type {
   ActionKind,
   ActionProposal,
@@ -42,6 +42,16 @@ import type { SafeloopStorageOptions } from '../localStorage';
 export interface SafeloopClientOptions {
   baseUrl?: string;
   credential?: string;
+  /**
+   * The approver's credential, required only by `grantApproval`.
+   *
+   * SL-RC3-CRIT-002: an agent adapter should NOT set this. Approving is a
+   * human act performed out of band — `safeloop approve`, the operator
+   * dashboard, or a separate process holding the operator credential file. A
+   * client that both proposes and approves is the vulnerability this option
+   * exists to make visible.
+   */
+  operatorCredential?: string;
   storageOptions?: SafeloopStorageOptions;
   fetchImpl?: typeof fetch;
 }
@@ -189,12 +199,17 @@ export function createSafeloopClient(options: SafeloopClientOptions = {}): Safel
   const { baseUrl, credential } = resolveConnection(options);
   const doFetch = options.fetchImpl ?? fetch;
 
-  async function request<T>(path: string, body?: Record<string, unknown>, method: 'GET' | 'POST' = 'POST'): Promise<T> {
+  async function request<T>(
+    path: string,
+    body?: Record<string, unknown>,
+    method: 'GET' | 'POST' = 'POST',
+    bearer: string = credential,
+  ): Promise<T> {
     const response = await doFetch(`${baseUrl}${path}`, {
       method,
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${credential}`,
+        authorization: `Bearer ${bearer}`,
       },
       body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
     });
@@ -214,7 +229,16 @@ export function createSafeloopClient(options: SafeloopClientOptions = {}): Safel
   const client: SafeloopClient = {
     health: () => request<RuntimeHealth>('/health', undefined, 'GET'),
     status: () => request<RuntimeStatus>('/v1/status', undefined, 'GET'),
-    grantApproval: (input) => request<ApprovalGrant>('/v1/approval/grant', input),
+    grantApproval: (input) => {
+      // Fail here rather than send the agent credential and collect a 401: the
+      // useful message is about who may approve, not about a rejected header.
+      const operator = options.operatorCredential ?? readOperatorCredentialFile(options.storageOptions)?.credential;
+      if (!operator) {
+        throw new SafeloopRequestError(401, 'unauthenticated',
+          'Granting an approval requires the operator credential. Approve out of band with `safeloop approve <approval_request_id>`, or pass operatorCredential explicitly. An agent adapter must not hold it.');
+      }
+      return request<ApprovalGrant>('/v1/approval/grant', input, 'POST', operator);
+    },
     redeemApproval: (input) => request<ApprovalRedemption>('/v1/approval/redeem', input as never),
     request,
 

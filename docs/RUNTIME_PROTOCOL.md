@@ -131,7 +131,7 @@ carrying identity additionally require a session credential in the body.
 | POST | `/v1/task/start` | begin a task |
 | POST | `/v1/task/finish` | end a task |
 | POST | `/v1/action/propose` | govern an action; returns a decision |
-| POST | `/v1/approval/grant` | human grants a held request |
+| POST | `/v1/approval/grant` | human grants a held request — **requires the operator credential, not the runtime credential** |
 | POST | `/v1/approval/redeem` | redeem a bound token for a permit |
 | POST | `/v1/action/execute` | execute under a permit |
 | POST | `/v1/memory/propose` | govern a memory candidate |

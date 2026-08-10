@@ -158,6 +158,9 @@ const SENSITIVE_FILE_PATTERNS: readonly RegExp[] = [
   /(^|\/)secrets?(\.json|\.yaml|\.yml)$/i,
   /(^|\/)runtime-secret\.key$/,
   /(^|\/)runtime-credential\.json$/,
+  // The approver's credential. A governed read of this file would hand an
+  // agent the ability to approve its own actions (SL-RC3-CRIT-002).
+  /(^|\/)operator-credential\.json$/,
 ];
 
 export function isSensitivePath(target: string | undefined, cwd?: string): boolean {

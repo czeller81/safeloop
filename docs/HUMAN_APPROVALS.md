@@ -2,6 +2,62 @@
 
 SafeLoop uses human approval to hold consequential actions before execution.
 
+## Who may approve — the trust boundary
+
+**The agent credential cannot grant approvals. Only the operator credential
+can.** These are two different secrets in two different files, and neither is a
+stronger form of the other:
+
+| Credential | Held by | File | Grants |
+| --- | --- | --- | --- |
+| runtime | the agent / adapter | `runtime-credential.json` | propose, redeem, execute — **not** approve |
+| operator | the human | `operator-credential.json` | approve — **and nothing else** |
+
+Until v0.2 RC3 both roles used one credential, so an agent could approve its own
+held actions: propose, grant, redeem, execute, with a free-text `approver`
+string recorded as though a person had decided. The `approver` field is a label
+for the ledger; it has never been an authorization, and it is not one now. What
+authorizes is possession of the operator credential.
+
+The operator credential is created on first daemon start, written `0600` to the
+runtime state directory, classified as a sensitive path so a governed
+`filesystem read` of it is refused, absent from the connection file the agent
+reads, and **persistent across restarts** — it is a standing human credential,
+not a per-process connection detail.
+
+Approve with:
+
+```
+safeloop approve <approval_request_id> [--approver <name>]
+```
+
+or from any process that holds the operator credential. See
+`docs/ADAPTER_SPEC.md` for why an adapter must never do this itself.
+
+### One decision, one execution
+
+A granted request cannot be granted again. A second `grantApproval` for the
+same `approval_request_id` fails with `approval_already_granted` (HTTP 409).
+Previously each grant minted an independently redeemable token, so one human
+decision could authorize an unbounded number of executions. If an action needs
+to run again, it is proposed again and decided again.
+
+### Migrating an existing deployment
+
+Deployments that used the single runtime credential for everything will see
+`401` on `/v1/approval/grant` after upgrading. This break is the fix; do not
+work around it by handing the operator credential to the agent.
+
+1. Start the daemon once. `operator-credential.json` is created automatically
+   and its path is printed by `safeloop daemon start --foreground`.
+2. Give that credential to whatever performs the human approval step — an
+   operator CLI session, a dashboard, or an approval service. Do **not** put it
+   in the agent's environment, image, or config.
+3. Remove any `grantApproval` call from your adapter and replace it with
+   waiting on the out-of-band channel.
+4. If you provision credentials yourself, pass `operatorCredential` to
+   `startDaemon`; it must not equal the runtime `credential`.
+
 Examples of approval-worthy actions:
 
 - commit and push

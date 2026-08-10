@@ -318,20 +318,22 @@ describe('shell: working directory moved between approval and redemption', () =>
     const link = join(root, 'cwdlink');
     symlinkSync(dirA, link);
 
+    // `shell.deploy` is the only shell rule in the coding profile that reaches
+    // REQUIRE_APPROVAL. An earlier version of this test used a bare `echo`,
+    // which auto-ALLOWs — so it took the no-approval branch and asserted
+    // nothing at all while reporting green. A test that cannot fail is worse
+    // than no test, because it is counted as coverage of this exact window.
     const action: ActionProposal = {
       action_kind: 'shell', operation: 'exec', cwd: link,
-      arguments: { command: 'echo landed > marker.txt', shell: true }, agent_id: 'attacker',
+      arguments: { command: 'terraform apply && echo landed > marker.txt', shell: true }, agent_id: 'attacker',
     };
     const decision = propose(action);
-    if (!decision.approval_request) {
-      // The profile auto-allows this shape; the window under test does not exist.
-      expect(decision.execution_permit).toBeDefined();
-      return;
-    }
+    expect(decision.disposition).toBe('REQUIRE_APPROVAL');
+    expect(decision.approval_request!.resolved_cwd).toBe(dirA);
+
     const grant = runtime.grantApproval({
-      approval_request_id: decision.approval_request.approval_request_id, approver: 'operator',
+      approval_request_id: decision.approval_request!.approval_request_id, approver: 'operator',
     });
-    expect(decision.approval_request.resolved_cwd).toBe(dirA);
 
     repoint(link, dirB);
     const redemption = redeem(grant.token, action);
@@ -341,6 +343,54 @@ describe('shell: working directory moved between approval and redemption', () =>
     expect(redemption.reason).toContain('execution_cwd');
     expect(existsSync(join(dirA, 'marker.txt'))).toBe(false);
     expect(existsSync(join(dirB, 'marker.txt'))).toBe(false);
+  });
+});
+
+// ------------------------------------------------- ONE GRANT PER REQUEST --
+
+describe('a request is granted once', () => {
+  it('O: a second grant for the same request is refused', () => {
+    const deliverables = join(root, 'deliverables');
+    mkdirSync(deliverables);
+    const action = writeAction(join(deliverables, 'a.txt'));
+    const decision = propose(action);
+    const requestId = decision.approval_request!.approval_request_id;
+
+    const first = runtime.grantApproval({ approval_request_id: requestId, approver: 'operator' });
+    expect(first.approval_id).toBeTruthy();
+
+    expect(() => runtime.grantApproval({ approval_request_id: requestId, approver: 'operator' }))
+      .toThrow(/already been granted/);
+  });
+
+  it('P: the single granted token still redeems and executes exactly once', async () => {
+    const deliverables = join(root, 'deliverables');
+    mkdirSync(deliverables);
+    const action = writeAction(join(deliverables, 'a.txt'), 'ok');
+    const { grant } = approveOnly(action);
+
+    const redemption = redeem(grant.token, action);
+    expect(redemption.redeemed).toBe(true);
+    const result = await execute(redemption.execution_permit, action);
+    expect(result.status).toBe('EXECUTED');
+    expect(readFileSync(join(deliverables, 'a.txt'), 'utf8')).toBe('ok');
+
+    // Second redemption of the same token is still refused.
+    expect(redeem(grant.token, action).failure).toBe('consumed');
+  });
+
+  it('Q: re-proposing after a grant yields a new request needing its own decision', () => {
+    const deliverables = join(root, 'deliverables');
+    mkdirSync(deliverables);
+    const action = writeAction(join(deliverables, 'a.txt'));
+
+    const firstRequest = propose(action).approval_request!.approval_request_id;
+    runtime.grantApproval({ approval_request_id: firstRequest, approver: 'operator' });
+
+    // A fresh proposal is a fresh request, and needs its own human decision.
+    const secondRequest = propose(action).approval_request!.approval_request_id;
+    expect(secondRequest).not.toBe(firstRequest);
+    expect(() => runtime.grantApproval({ approval_request_id: secondRequest, approver: 'operator' })).not.toThrow();
   });
 });
 

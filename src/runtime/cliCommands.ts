@@ -10,9 +10,15 @@
 import { spawn, spawnSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
+import { userInfo } from 'os';
 import { startDaemon, DEFAULT_DAEMON_PORT } from './daemon';
 import { createSafeloopClient } from './client';
-import { readConnectionFile, removeConnectionFile } from './runtimeAuth';
+import {
+  operatorCredentialFilePath,
+  readConnectionFile,
+  readOperatorCredentialFile,
+  removeConnectionFile,
+} from './runtimeAuth';
 import { applyLaunchEnvironment, listProfiles, loadProfile } from './profiles';
 import { runConformanceSuite, formatConformanceReport } from './conformance';
 import { sealLedger, verifyLedger } from '../ledgerIntegrity';
@@ -80,6 +86,9 @@ export async function runDaemonCommand(args: string[], options: CliOptions): Pro
       const daemon = await startDaemon({ storageOptions, port, defaultProfile: profile, workspace });
       console.log(`SafeLoop runtime ${RUNTIME_VERSION} listening on ${daemon.transports.join(', ')}`);
       console.log(`Protocol: ${PROTOCOL_VERSION}  Profile: ${profile}  Workspace: ${workspace}`);
+      // Named, never printed: an agent that can read this log must not thereby
+      // become able to approve its own actions.
+      console.log(`Operator credential: ${daemon.operatorCredentialPath} (approvals only; do not give this to an agent)`);
 
       const shutdown = async (): Promise<void> => {
         await daemon.stop();
@@ -155,6 +164,54 @@ export async function runDaemonCommand(args: string[], options: CliOptions): Pro
 
   console.error('Usage: safeloop daemon <start|stop|status> [--port <port>] [--profile <profile>] [--foreground]');
   return 1;
+}
+
+// --- safeloop approve -----------------------------------------------------
+
+/**
+ * Grant a held approval as the human operator.
+ *
+ * This exists so that "approve out of band" names a real thing. It reads the
+ * operator credential from its own 0600 file, which the agent has no reason to
+ * hold, and it is the only shipped path to `/v1/approval/grant`.
+ */
+export async function runApproveCommand(args: string[], options: CliOptions): Promise<number> {
+  const requestId = args.find((value) => !value.startsWith('--'));
+  if (!requestId) {
+    console.error('Usage: safeloop approve <approval_request_id> [--approver <name>]');
+    return 1;
+  }
+
+  const connection = readConnectionFile(options.storageOptions);
+  if (!connection) {
+    console.error('No SafeLoop runtime is running. Start one with: safeloop daemon start');
+    return 1;
+  }
+
+  const operator = readOperatorCredentialFile(options.storageOptions);
+  if (!operator) {
+    console.error(`No operator credential found at ${operatorCredentialFilePath(options.storageOptions)}.`);
+    console.error('It is created when the daemon first starts. Approvals cannot be granted without it.');
+    return 1;
+  }
+
+  const approver = flag(args, 'approver') ?? userInfo().username ?? 'operator';
+  const response = await fetch(`http://${connection.host}:${connection.port}/v1/approval/grant`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${operator.credential}` },
+    body: JSON.stringify({ approval_request_id: requestId, approver }),
+  });
+
+  const payload = await response.json().catch(() => ({})) as { approval_id?: string; error?: string; message?: string };
+  if (!response.ok) {
+    console.error(`Approval refused (${response.status} ${payload.error ?? 'error'}): ${payload.message ?? ''}`);
+    return 1;
+  }
+
+  console.log(`Approved ${requestId} as ${approver}.`);
+  console.log(`Approval id: ${payload.approval_id}`);
+  console.log('The agent may now redeem this approval once.');
+  return 0;
 }
 
 // --- safeloop status ------------------------------------------------------

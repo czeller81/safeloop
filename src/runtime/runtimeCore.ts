@@ -98,6 +98,13 @@ export interface SessionState {
      * the decision was made (SL-RC3-CRIT-001).
      */
     context: AuthorizationContext;
+    /**
+     * The approval minted for this request, once one has been. One human
+     * decision authorizes one execution, so a second grant is refused rather
+     * than quietly minting a second independently redeemable token
+     * (SL-RC3-HIGH-004).
+     */
+    granted_approval_id?: string;
   }>;
   parent_session_id?: string;
   finished_at?: string;
@@ -115,6 +122,7 @@ export type RuntimeErrorCode =
   | 'identity_substitution'
   | 'privilege_widening'
   | 'unknown_approval_request'
+  | 'approval_already_granted'
   | 'invalid_request';
 
 export class RuntimeError extends Error {
@@ -706,7 +714,19 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         throw new RuntimeError('unknown_approval_request', `approval request is no longer pending: ${input.approval_request_id}`);
       }
 
+      // SL-RC3-HIGH-004: the single-use claim is keyed by approval id, and every
+      // grant mints a new one, so N grants against one request used to yield N
+      // independently redeemable tokens from a single human decision. The
+      // request is the unit of consent; it is spent here.
+      if (held.granted_approval_id) {
+        throw new RuntimeError(
+          'approval_already_granted',
+          `approval request ${input.approval_request_id} has already been granted as ${held.granted_approval_id}; propose the action again to request a new decision`,
+        );
+      }
+
       const grant = approvals.grant(request, input.approver, input.ttl_ms);
+      held.granted_approval_id = grant.approval_id;
       // Carry the proposal-time context onto the identifier the redemption will
       // actually present. The operator decided about this context; the token
       // now has a way back to it.

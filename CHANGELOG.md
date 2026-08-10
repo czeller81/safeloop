@@ -7,6 +7,35 @@ All notable changes to this project will be documented in this file.
 Remediates the execution-context substitution family that RC2 identified and
 partly closed. RC1 and RC2 remain unchanged as historical audit evidence.
 
+### Security — BREAKING
+
+- **The agent can no longer approve its own actions.** `/v1/approval/grant` was
+  protected by the same daemon-wide credential as `/v1/action/propose`. Because
+  an agent must hold that credential to propose anything at all, it could grant
+  its own held actions and then redeem and execute them — proposed,
+  self-approved, executed, with a free-text `approver` string recorded as though
+  a person had decided. Every execution-context check downstream passed
+  honestly, because nothing had been substituted.
+
+  Approval routes now require a **separate operator credential**, kept in its own
+  `0600` `operator-credential.json`, created on first daemon start, persistent
+  across restarts, absent from the connection file the agent reads, and
+  classified as a sensitive path so a governed read of it is refused. The
+  runtime credential is refused on those routes with `401`.
+
+  **Migration:** deployments using one credential for everything will see `401`
+  on `/v1/approval/grant`. That break is the fix. Give the operator credential
+  to the human approval channel — `safeloop approve <approval_request_id>`, a
+  dashboard, or an approval service — and never to the agent. Adapters must
+  remove any `grantApproval` call; see `docs/HUMAN_APPROVALS.md`.
+
+- **One approval request now grants exactly one token.** Each `grantApproval`
+  minted a fresh `approval_id`, and the single-use claim was keyed on that id,
+  so N grants against one request produced N independently redeemable tokens
+  from a single human decision. A second grant for the same request now fails
+  with `approval_already_granted` (HTTP 409). To run an action again, propose it
+  again.
+
 ### Fixed
 
 - **Shell cwd substitution.** A command authorized to run in one directory ran
