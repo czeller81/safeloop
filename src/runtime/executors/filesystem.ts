@@ -21,6 +21,7 @@ import {
 import { createHash } from 'crypto';
 import { dirname, isAbsolute, resolve } from 'path';
 import { redactAndBound } from '../redaction';
+import { verifyExecutionCwd } from '../executionContext';
 import { resolveRealPath, verifyContainment, type ContainmentMode } from '../workspace';
 import {
   ExecutorArgumentError,
@@ -84,6 +85,16 @@ const NO_FOLLOW_FINAL: ReadonlySet<string> = new Set(['delete', 'move']);
  *
  * For `follow` mode the returned path is fully resolved, so the operation no
  * longer traverses the mutable component at all.
+ *
+ * SL-RC3-HIGH-001: containment alone is not sufficient, because a *relative*
+ * path means nothing until it is joined to a working directory, and that
+ * directory is mutable host state like any other. Two sibling directories share
+ * a workspace relation and a workspace root, so re-pointing the cwd symlink
+ * after authorization redirected a relative target into a sibling while every
+ * check above still passed. The permit has always signed `execution_cwd`; this
+ * executor simply never consulted it. It does now, on the same equality rule
+ * the shell and git executors use, and the *verified* directory becomes the
+ * resolution base so the join cannot traverse the mutable component either.
  */
 function guardPath(
   context: ExecutorContext,
@@ -92,7 +103,14 @@ function guardPath(
   role: 'target' | 'destination',
 ): string {
   const authorized = context.authorizedWorkspaceRelation ?? 'unknown';
-  const check = verifyContainment(rawPath, context.workspace, context.action.cwd || undefined, mode);
+
+  // Bind the resolution base before resolving anything against it. Throws (and
+  // so reaches no syscall) when the declared directory has moved or cannot be
+  // resolved. Returns undefined only when no cwd was declared, in which case
+  // there is no context to have been redirected and resolution falls back to
+  // the process directory exactly as before.
+  const verifiedCwd = verifyExecutionCwd(context.action.cwd || undefined, context.authorizedExecutionCwd);
+  const check = verifyContainment(rawPath, context.workspace, verifiedCwd, mode);
 
   // The workspace root must still be the same filesystem object it was when
   // the permit was issued. Replacing the workspace directory with a symlink

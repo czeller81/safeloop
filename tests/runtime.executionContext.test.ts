@@ -541,3 +541,194 @@ describe('http destination execution-context binding', () => {
     }
   });
 });
+
+// --- filesystem cwd binding (SL-RC3-HIGH-001) -------------------------------
+
+/**
+ * The hostile audit of RC3 found the execution-context defect surviving in the
+ * one executor assumed to be already covered. RC2 taught the filesystem
+ * executor to re-verify *containment*, which is a statement about where a path
+ * sits relative to the workspace. It never taught it to re-verify the working
+ * directory, which is what a relative path is resolved against.
+ *
+ * Two sibling directories share a workspace relation and a workspace root.
+ * So `target: 'report.txt'` with a swapped cwd symlink passed every RC2 check
+ * and landed the bytes in a directory nobody authorized — including in the
+ * outside-workspace case, where a human had explicitly approved the other path.
+ */
+describe('filesystem cwd execution-context binding', () => {
+  let approvedDir: string;
+  let attackerDir: string;
+  let cwdLink: string;
+
+  /** A write whose target is relative, so it is only meaningful against a cwd. */
+  function relativeWrite(cwd: string, target = 'report.txt'): ActionProposal {
+    return {
+      action_kind: 'filesystem', operation: 'create', target, cwd,
+      arguments: { content: 'AUTHORIZED-FOR-approved' }, agent_id: 'attacker',
+    };
+  }
+
+  beforeEach(() => {
+    approvedDir = join(workspace, 'approved');
+    attackerDir = join(workspace, 'attacker');
+    mkdirSync(approvedDir, { recursive: true });
+    mkdirSync(attackerDir, { recursive: true });
+    cwdLink = join(workspace, 'cwdlink');
+    symlinkSync(approvedDir, cwdLink);
+  });
+
+  it('A: refuses a relative target when the cwd is swapped to a sibling inside the workspace', async () => {
+    const action = relativeWrite(cwdLink);
+
+    const { permit } = authorize(action);
+    expect(permit?.execution_cwd).toBe(approvedDir);
+    expect(permit?.workspace_relation).toBe('inside');
+
+    repoint(cwdLink, attackerDir);
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('REJECTED');
+    expect(result.rejection_reason).toBe('cwd_context_changed');
+    // Both ends must be clean. A refusal that still wrote the file, in either
+    // directory, would be no defence at all.
+    expect(existsSync(join(attackerDir, 'report.txt'))).toBe(false);
+    expect(existsSync(join(approvedDir, 'report.txt'))).toBe(false);
+  });
+
+  it('B: refuses when a human-approved outside-workspace write is redirected to a sibling', async () => {
+    // The severe form: the operator saw and approved one path, and the bytes
+    // were delivered to another with the approval still reading as satisfied.
+    const approvedOutside = join(outsideDir, 'approved');
+    const attackerOutside = join(outsideDir, 'attacker');
+    mkdirSync(approvedOutside, { recursive: true });
+    mkdirSync(attackerOutside, { recursive: true });
+    const link = join(outsideDir, 'cwdlink');
+    symlinkSync(approvedOutside, link);
+
+    const action = relativeWrite(link);
+    const { decision, permit } = authorize(action);
+    expect(decision.disposition).toBe('REQUIRE_APPROVAL');
+    expect(permit?.execution_cwd).toBe(approvedOutside);
+
+    repoint(link, attackerOutside);
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('REJECTED');
+    expect(result.rejection_reason).toBe('cwd_context_changed');
+    expect(existsSync(join(attackerOutside, 'report.txt'))).toBe(false);
+    expect(existsSync(join(approvedOutside, 'report.txt'))).toBe(false);
+  });
+
+  it('C: refuses a relative delete redirected to a sibling', async () => {
+    // `delete` takes the no-follow path through guardPath, so it needs its own
+    // proof: the cwd is resolved before the final component is left literal.
+    writeFileSync(join(approvedDir, 'doomed.txt'), 'keep me', 'utf8');
+    writeFileSync(join(attackerDir, 'doomed.txt'), 'keep me too', 'utf8');
+    const action: ActionProposal = {
+      action_kind: 'filesystem', operation: 'delete', target: 'doomed.txt', cwd: cwdLink,
+      arguments: {}, agent_id: 'attacker',
+    };
+
+    const { permit } = authorize(action);
+    repoint(cwdLink, attackerDir);
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('REJECTED');
+    expect(existsSync(join(attackerDir, 'doomed.txt'))).toBe(true);
+    expect(existsSync(join(approvedDir, 'doomed.txt'))).toBe(true);
+  });
+
+  it('D: refuses when only the move destination is redirected', async () => {
+    // A safe source with a swapped destination escapes just as easily, and the
+    // destination is resolved against the same cwd.
+    writeFileSync(join(approvedDir, 'source.txt'), 'payload', 'utf8');
+    const action: ActionProposal = {
+      action_kind: 'filesystem', operation: 'move',
+      target: join(approvedDir, 'source.txt'), cwd: cwdLink,
+      arguments: { destination: 'moved.txt' }, agent_id: 'attacker',
+    };
+
+    const { permit } = authorize(action);
+    repoint(cwdLink, attackerDir);
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('REJECTED');
+    expect(existsSync(join(attackerDir, 'moved.txt'))).toBe(false);
+    expect(existsSync(join(approvedDir, 'moved.txt'))).toBe(false);
+    expect(existsSync(join(approvedDir, 'source.txt'))).toBe(true);
+  });
+
+  it('E: writes the relative target normally when the cwd is unchanged', async () => {
+    const action = relativeWrite(cwdLink);
+    const { permit } = authorize(action);
+
+    const result = await execute(permit, action);
+    expect(result.status).toBe('EXECUTED');
+    expect(readFileSync(join(approvedDir, 'report.txt'), 'utf8')).toBe('AUTHORIZED-FOR-approved');
+    expect(existsSync(join(attackerDir, 'report.txt'))).toBe(false);
+  });
+
+  it('F: leaves absolute targets resolving exactly as before', async () => {
+    // The fix binds the resolution base; it must not re-root an absolute path
+    // onto that base. The file belongs where the caller said, not under the cwd.
+    const action: ActionProposal = {
+      action_kind: 'filesystem', operation: 'create',
+      target: join(insideDir, 'absolute.txt'), cwd: cwdLink,
+      arguments: { content: 'absolute' }, agent_id: 'attacker',
+    };
+
+    const { permit } = authorize(action);
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('EXECUTED');
+    expect(readFileSync(join(insideDir, 'absolute.txt'), 'utf8')).toBe('absolute');
+    expect(existsSync(join(approvedDir, 'absolute.txt'))).toBe(false);
+  });
+
+  it('G: still works when no cwd is declared at all', async () => {
+    // No declared directory means no context to redirect. Resolution falls back
+    // to the process directory exactly as it did before the fix.
+    const action: ActionProposal = {
+      action_kind: 'filesystem', operation: 'create',
+      target: join(insideDir, 'nocwd.txt'),
+      arguments: { content: 'no cwd' }, agent_id: 'attacker',
+    };
+
+    const { permit } = authorize(action);
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('EXECUTED');
+    expect(readFileSync(join(insideDir, 'nocwd.txt'), 'utf8')).toBe('no cwd');
+  });
+
+  it('H: fails closed when the declared cwd disappears before execution', async () => {
+    const transient = join(workspace, 'transient');
+    mkdirSync(transient, { recursive: true });
+    const action = relativeWrite(transient);
+
+    const { permit } = authorize(action);
+    rmSync(transient, { recursive: true, force: true });
+    const result = await execute(permit, action);
+
+    expect(result.status).toBe('REJECTED');
+    expect(result.rejection_reason).toBe('execution_context_verification_failed');
+    expect(existsSync(join(transient, 'report.txt'))).toBe(false);
+  });
+
+  it('I: keeps the permit consumed after a context rejection', async () => {
+    // A rejected attempt must not hand the permit back for a retry once the
+    // symlink has been put back.
+    const action = relativeWrite(cwdLink);
+    const { permit } = authorize(action);
+
+    repoint(cwdLink, attackerDir);
+    expect((await execute(permit, action)).status).toBe('REJECTED');
+
+    repoint(cwdLink, approvedDir);
+    const retry = await execute(permit, action);
+    expect(retry.status).toBe('REJECTED');
+    expect(retry.rejection_reason).not.toBe('cwd_context_changed');
+    expect(existsSync(join(approvedDir, 'report.txt'))).toBe(false);
+  });
+});
