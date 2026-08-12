@@ -119,9 +119,17 @@ class SafeLoopRuntimeClient:
 
     base_url: str
     credential: str
+    operator_credential: str | None = None
     timeout: float = 30.0
 
-    def request(self, path: str, body: dict[str, Any] | None = None, method: str = "POST") -> dict[str, Any]:
+    def request(
+        self,
+        path: str,
+        body: dict[str, Any] | None = None,
+        method: str = "POST",
+        *,
+        credential: str | None = None,
+    ) -> dict[str, Any]:
         payload = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
         req = urllib_request.Request(
             f"{self.base_url}{path}",
@@ -129,7 +137,7 @@ class SafeLoopRuntimeClient:
             method=method,
             headers={
                 "content-type": "application/json",
-                "authorization": f"Bearer {self.credential}",
+                "authorization": f"Bearer {credential or self.credential}",
             },
         )
         try:
@@ -162,10 +170,16 @@ class SafeLoopRuntimeClient:
         return self.request("/v1/status", method="GET")
 
     def grant_approval(self, approval_request_id: str, approver: str, ttl_ms: int | None = None) -> dict[str, Any]:
+        if not self.operator_credential:
+            raise SafeLoopRuntimeError(
+                "an operator credential is required to grant approvals",
+                code="operator_credential_required",
+                status=0,
+            )
         body: dict[str, Any] = {"approval_request_id": approval_request_id, "approver": approver}
         if ttl_ms is not None:
             body["ttl_ms"] = ttl_ms
-        return self.request("/v1/approval/grant", body)
+        return self.request("/v1/approval/grant", body, credential=self.operator_credential)
 
     def start_session(
         self,
@@ -456,15 +470,22 @@ def connect(
     *,
     base_url: str | None = None,
     credential: str | None = None,
+    operator_credential: str | None = None,
     timeout: float = 30.0,
 ) -> SafeLoopRuntimeClient:
     """Connect to a running SafeLoop runtime, reading its connection file."""
     if base_url and credential:
-        return SafeLoopRuntimeClient(base_url=base_url, credential=credential, timeout=timeout)
+        return SafeLoopRuntimeClient(
+            base_url=base_url,
+            credential=credential,
+            operator_credential=operator_credential,
+            timeout=timeout,
+        )
     connection = _read_connection(base_dir)
     return SafeLoopRuntimeClient(
         base_url=base_url or f"http://{connection['host']}:{connection['port']}",
         credential=credential or connection["credential"],
+        operator_credential=operator_credential,
         timeout=timeout,
     )
 
@@ -477,13 +498,19 @@ def session(
     base_dir: str | os.PathLike[str] | None = None,
     base_url: str | None = None,
     credential: str | None = None,
+    operator_credential: str | None = None,
     **kwargs: Any,
 ) -> Iterator[RuntimeSession]:
     """Open a governed session and close it on exit.
 
     ``with safeloop.session(agent_id=..., tenant_id=...) as s: ...``
     """
-    client = connect(base_dir, base_url=base_url, credential=credential)
+    client = connect(
+        base_dir,
+        base_url=base_url,
+        credential=credential,
+        operator_credential=operator_credential,
+    )
     runtime_session = client.start_session(agent_id=agent_id, tenant_id=tenant_id, **kwargs)
     try:
         yield runtime_session

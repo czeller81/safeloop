@@ -179,7 +179,19 @@ def runtime(tmp_path):
         process.kill()
         pytest.fail("daemon did not write a connection file within 20s")
 
-    client = connect(base_dir)
+    operator_file = base_dir / ".safeloop" / "runtime" / "operator-credential.json"
+    deadline = time.time() + 20
+    while time.time() < deadline and not operator_file.exists():
+        if process.poll() is not None:
+            stderr = process.stderr.read().decode("utf-8", errors="replace") if process.stderr else ""
+            pytest.fail(f"daemon exited early: {stderr}")
+        time.sleep(0.05)
+    if not operator_file.exists():
+        process.kill()
+        pytest.fail("daemon did not write an operator credential file within 20s")
+
+    operator_credential = json.loads(operator_file.read_text(encoding="utf-8"))["credential"]
+    client = connect(base_dir, operator_credential=operator_credential)
     try:
         yield client, workspace, base_dir
     finally:

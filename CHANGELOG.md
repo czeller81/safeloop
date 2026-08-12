@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.2.0-rc3 - Execution-context binding (unreleased)
+## 0.2.0-rc3 - Execution-context binding (historical release candidate)
 
 Remediates the execution-context substitution family that RC2 identified and
 partly closed. RC1 and RC2 remain unchanged as historical audit evidence.
@@ -67,7 +67,7 @@ partly closed. RC1 and RC2 remain unchanged as historical audit evidence.
   returns the 3xx with the target reported. Deliberate: SafeLoop does not
   deliver to a destination it did not authorize.
 
-## 0.2.0-rc2 - Filesystem execution-time containment (unreleased)
+## 0.2.0-rc2 - Filesystem execution-time containment (historical release candidate)
 
 Remediates **SL-RC1-HIGH-001**, a HIGH-severity filesystem authorization bypass
 independently reproduced against the frozen RC1 (`e4d24ee`). RC1 remains
@@ -107,7 +107,9 @@ The same defect class exists in the `git` and `shell` executors via `cwd`
 symlink swap, and was reproduced. Both are out of scope for RC2 and are
 reported separately.
 
-## 0.2.0 - Local Runtime Governance (unreleased, pending human merge approval)
+## 0.2.0 - Local Runtime Governance (released 2026-08-10, tag v0.2.0)
+
+Tagged at `01d73bec3500901a1c1e203fb532f0511c9958a4`.
 
 SafeLoop becomes a local runtime governance layer for autonomous AI agents. The
 defining change: for managed paths, the thing that decides and the thing that
@@ -169,7 +171,7 @@ SafeLoop governs actions routed through SafeLoop-managed execution paths. It is
 not a kernel security module, EDR, antivirus, firewall, IAM system, universal
 syscall interceptor, arbitrary process container, or OS sandbox.
 
-## Current branch - unreleased
+## Current branch - historical pre-v0.2 work
 
 This branch consolidates SafeLoop as a local-first agent governance and accountability layer.
 
@@ -239,7 +241,7 @@ Safeloop v0.6.0 introduced the Agent Adapter Protocol and the current accountabi
 - Query reports now include safety-summary, release-readiness, governance-audit, and evidence-summary flows
 - The protocol remains local-first and explicit
 
-## v0.1.0 - Unreleased
+## v0.1.0 - Released 2026-06-13
 
 Initial public launch candidate for the local AI agent governance SDK.
 
