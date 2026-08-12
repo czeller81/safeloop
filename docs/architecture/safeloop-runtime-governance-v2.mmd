@@ -1,0 +1,121 @@
+flowchart TB
+  classDef actor fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px
+  classDef adapter fill:#111827,stroke:#22c55e,color:#dcfce7,stroke-width:1px
+  classDef runtime fill:#111827,stroke:#f59e0b,color:#fffbeb,stroke-width:2px
+  classDef path fill:#0b1220,stroke:#94a3b8,color:#e5e7eb,stroke-width:1px
+  classDef decision fill:#1f2937,stroke:#fb7185,color:#ffe4e6,stroke-width:1px
+  classDef evidence fill:#0f172a,stroke:#a78bfa,color:#ede9fe,stroke-width:1px
+  classDef inventory fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px
+
+  subgraph actors["AI agents and human operators"]
+    hermes["Hermes"]
+    malu["Malu"]
+    claude["Claude Code"]
+    codex["Codex"]
+    kiro["Kiro"]
+    replit["Replit Agents"]
+    custom["Custom agents"]
+    operator["Human operator"]
+  end
+
+  subgraph adapters["Adapter / SDK layer"]
+    sdk["SDK"]
+    cli["CLI"]
+    mcp["MCP integration"]
+    http["HTTP / local runtime API"]
+    stdio["stdio where applicable"]
+  end
+
+  subgraph runtime["SafeLoop runtime"]
+    identity["Identity / attribution"]
+    scenario["Scenario / task context"]
+    policy["Deterministic policy"]
+    risk["Risk evaluation"]
+    approval["Approval workflow"]
+    budgets["Budgets / breakers"]
+    memorygov["Memory governance"]
+    permit["Execution permit"]
+    provenance["Evidence / provenance"]
+  end
+
+  subgraph action["Governed action path"]
+    proposed["Proposed action"]
+    canon["Canonical representation"]
+    fingerprint["Action fingerprint"]
+    decision{"Governance decision"}
+    dispositions["ALLOW<br/>ALLOW_WITH_WARNING<br/>REQUIRE_APPROVAL<br/>PAUSE<br/>DENY<br/>STOP_AGENT"]
+    approveif["Approval if required"]
+    boundpermit["Bound execution permit"]
+    executor["SafeLoop managed executor"]
+    targets["Shell / filesystem / git / HTTP / MCP / configured managed target"]
+    sideeffect["Actual side effect"]
+    verify["Verification / evidence"]
+  end
+
+  subgraph memory["Governed memory path"]
+    candidate["Task outcome / candidate memory"]
+    memfingerprint["Candidate fingerprint"]
+    memdecision{"Memory governance"}
+    memdispositions["ALLOW<br/>ALLOW_WITH_TTL<br/>MERGE<br/>QUARANTINE<br/>REQUIRE_REVIEW<br/>REJECT"]
+    persistencepermit["Binding persistence authorization"]
+    localstore["Optional SafeLoop reference store"]
+    externalstore["External / native memory store"]
+  end
+
+  subgraph inventory["Execution path inventory"]
+    managed["MANAGED<br/>routed through SafeLoop"]
+    unmanaged["UNMANAGED<br/>outside certified boundary or non-consequential"]
+    disabled["DISABLED<br/>not reachable in profile"]
+  end
+
+  subgraph bottom["Evidence and observation"]
+    ledger["Tamper-evident / verifiable evidence ledger"]
+    dashboard["Runtime dashboard / monitoring"]
+    reports["Reports / audit evidence"]
+  end
+
+  lifecycle["THINK -> PROPOSE -> GOVERN -> APPROVE IF REQUIRED -> EXECUTE -> VERIFY -> PROVE -> LEARN -> GOVERN MEMORY -> REMEMBER"]
+
+  actors --> adapters --> runtime
+  operator --> approval
+
+  identity --> proposed
+  scenario --> proposed
+  policy --> decision
+  risk --> decision
+  budgets --> decision
+  approval --> approveif
+  permit --> boundpermit
+  provenance --> verify
+
+  proposed --> canon --> fingerprint --> decision
+  decision --> dispositions
+  decision --> approveif --> boundpermit --> executor --> targets --> sideeffect --> verify
+  decision --> boundpermit
+  decision --> verify
+
+  memorygov --> candidate
+  candidate --> memfingerprint --> memdecision
+  memdecision --> memdispositions
+  memdecision --> persistencepermit
+  persistencepermit --> localstore
+  persistencepermit --> externalstore
+
+  verify --> ledger
+  localstore --> ledger
+  externalstore --> ledger
+  ledger --> dashboard
+  ledger --> reports
+
+  inventory -. constrains .-> action
+  inventory -. constrains .-> memory
+  lifecycle -. describes .-> runtime
+
+  class hermes,malu,claude,codex,kiro,replit,custom,operator actor
+  class sdk,cli,mcp,http,stdio adapter
+  class identity,scenario,policy,risk,approval,budgets,memorygov,permit,provenance runtime
+  class proposed,canon,fingerprint,approveif,boundpermit,executor,targets,sideeffect,verify,candidate,memfingerprint,persistencepermit,localstore,externalstore path
+  class lifecycle path
+  class decision,memdecision,dispositions,memdispositions decision
+  class ledger,dashboard,reports evidence
+  class managed,unmanaged,disabled inventory

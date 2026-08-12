@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## Post-v0.2.0 - Public documentation modernization (unreleased)
+
+### Documentation
+
+- Modernized the README around SafeLoop's v0.2 runtime-governance positioning and routed-action boundary.
+- Added a source-controlled v2 architecture diagram for governed actions, memory persistence, execution path inventory, evidence, and dashboard observation.
+- Added a docs index that classifies current docs, developer references, user guides, historical records, and audit evidence.
+- Updated security and architecture docs to preserve Same-UID, userspace timing, external memory, dashboard observation, and Hermes certification boundaries.
+- Documented the npm `0.7.0` divergence as older June 2026 accountability/live-monitor SDK history, with forward-only synchronization recommended for future npm publication.
+
 ## 0.2.0-rc3 - Execution-context binding (historical release candidate)
 
 Remediates the execution-context substitution family that RC2 identified and

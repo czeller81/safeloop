@@ -1,7 +1,6 @@
 # Hermes Reference Adapter
 
-Hermes is the **first reference agent** used to prove the universal runtime
-architecture. Hermes is not the architecture, and SafeLoop must not depend on
+Hermes is the **first reference agent** used to prove the SafeLoop runtime-governance architecture within a documented routed-tool boundary. Hermes is not the architecture, and SafeLoop must not depend on
 it. Everything in `src/runtime/` is framework-neutral; everything
 Hermes-specific lives in the plugin.
 

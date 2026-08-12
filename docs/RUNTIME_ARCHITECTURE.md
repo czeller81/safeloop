@@ -41,6 +41,8 @@ Agent experience / candidate memory
   → SafeLoop memory governance   (fingerprint, deterministic checks)
   → binding memory decision      (persistence permit or nothing)
   → authorized durable persistence
+     → optional SafeLoop reference/local store
+     → external or native agent memory store
   → provenance record
 ```
 
@@ -68,7 +70,7 @@ src/runtime/
   runtimeAuth.ts            two-layer local credentials
   daemon.ts                 loopback HTTP + unix socket
   client.ts                 TypeScript SDK
-  conformance.ts            34-check certification suite
+  conformance.ts            profile conformance certification suite
   cliCommands.ts            daemon / run / status / certify / init
 profiles/*.profile.json     coding, research, assistant, strict-local
 python/safeloop_client/runtime.py   Python adapter SDK
