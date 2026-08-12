@@ -4,9 +4,9 @@ SafeLoop sits between an AI agent and the actions that can change local or exter
 
 Editable v2 diagram source: [architecture/safeloop-runtime-governance-v2.mmd](architecture/safeloop-runtime-governance-v2.mmd)
 
-Historical rendered image:
+Rendered v2 diagram:
 
-![SafeLoop runtime governance architecture](assets/runtime-governance-architecture.png)
+![SafeLoop runtime governance architecture](assets/safeloop-runtime-governance-v2.svg)
 
 ## Core Boundary
 

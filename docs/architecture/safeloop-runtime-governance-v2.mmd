@@ -27,6 +27,7 @@ flowchart TB
   end
 
   subgraph runtime["SafeLoop runtime"]
+    invariant["The side effect that actually occurs<br/>must be the side effect SafeLoop authorized"]
     identity["Identity / attribution"]
     scenario["Scenario / task context"]
     policy["Deterministic policy"]
@@ -69,6 +70,7 @@ flowchart TB
   end
 
   subgraph bottom["Evidence and observation"]
+    truth["Enforcement decides / blocks<br/>Evidence records<br/>Dashboard observes"]
     ledger["Tamper-evident / verifiable evidence ledger"]
     dashboard["Runtime dashboard / monitoring"]
     reports["Reports / audit evidence"]
@@ -79,6 +81,8 @@ flowchart TB
   actors --> adapters --> runtime
   operator --> approval
 
+  invariant --> policy
+  invariant --> permit
   identity --> proposed
   scenario --> proposed
   policy --> decision
@@ -101,6 +105,7 @@ flowchart TB
   persistencepermit --> localstore
   persistencepermit --> externalstore
 
+  truth --> ledger
   verify --> ledger
   localstore --> ledger
   externalstore --> ledger
@@ -113,9 +118,9 @@ flowchart TB
 
   class hermes,malu,claude,codex,kiro,replit,custom,operator actor
   class sdk,cli,mcp,http,stdio adapter
-  class identity,scenario,policy,risk,approval,budgets,memorygov,permit,provenance runtime
+  class invariant,identity,scenario,policy,risk,approval,budgets,memorygov,permit,provenance runtime
   class proposed,canon,fingerprint,approveif,boundpermit,executor,targets,sideeffect,verify,candidate,memfingerprint,persistencepermit,localstore,externalstore path
   class lifecycle path
   class decision,memdecision,dispositions,memdispositions decision
-  class ledger,dashboard,reports evidence
+  class truth,ledger,dashboard,reports evidence
   class managed,unmanaged,disabled inventory

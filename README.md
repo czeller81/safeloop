@@ -31,9 +31,9 @@ That means the approval, execution permit, managed executor, and evidence record
 
 Editable v2 source: [docs/architecture/safeloop-runtime-governance-v2.mmd](docs/architecture/safeloop-runtime-governance-v2.mmd)
 
-Historical rendered image:
+Rendered v2 diagram:
 
-![SafeLoop runtime governance architecture](docs/assets/runtime-governance-architecture.png)
+![SafeLoop runtime governance architecture](docs/assets/safeloop-runtime-governance-v2.svg)
 
 ```text
 Agent
