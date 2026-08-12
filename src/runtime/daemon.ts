@@ -37,6 +37,7 @@ import {
   type RuntimeConnectionFile,
 } from './runtimeAuth';
 import type { SafeloopStorageOptions } from '../localStorage';
+import { buildSessionWorkGraph } from './sessionWorkGraph';
 
 export const DEFAULT_DAEMON_PORT = 3787;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -103,7 +104,7 @@ function requireString(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
-export function buildRoutes(): Route[] {
+export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[] {
   return [
     {
       method: 'GET', path: '/health', auth: 'none',
@@ -116,6 +117,10 @@ export function buildRoutes(): Route[] {
     {
       method: 'POST', path: '/v1/session/start', auth: 'runtime',
       handle: (body, runtime) => runtime.startSession(body as never),
+    },
+    {
+      method: 'POST', path: '/v1/session/timeline', auth: 'runtime',
+      handle: (body) => buildSessionWorkGraph(requireString(body, 'session_id'), storageOptions),
     },
     {
       method: 'POST', path: '/v1/session/finish', auth: 'runtime',
@@ -270,7 +275,7 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<RunningDae
   }
 
   const runtime = createSafeloopRuntime(config);
-  const routes = buildRoutes();
+  const routes = buildRoutes(storageOptions);
   const startedAt = new Date().toISOString();
 
   const server: Server = createServer((request, response) => {

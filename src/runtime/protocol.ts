@@ -160,6 +160,8 @@ export interface ActionFingerprint {
 export interface GovernanceDecision {
   protocol_version: string;
   decision_id: string;
+  /** Stable identifier for the proposal this decision evaluated. */
+  proposal_id?: string;
   disposition: RuntimeDispositionCode;
   allowed: boolean;
   requires_approval: boolean;
@@ -524,6 +526,150 @@ export interface RuntimeEvent {
   action_fingerprint?: string;
   decision?: string;
   detail?: Record<string, unknown>;
+}
+
+// --- Causal work events ---------------------------------------------------
+
+export const RUNTIME_WORK_EVENT_SCHEMA_VERSION = 1;
+
+export type RuntimeWorkEventType =
+  | 'session.started'
+  | 'session.completed'
+  | 'task.started'
+  | 'task.completed'
+  | 'task.failed'
+  | 'proposal.recorded'
+  | 'decision.recorded'
+  | 'approval.requested'
+  | 'approval.granted'
+  | 'approval.denied'
+  | 'approval.redeemed'
+  | 'permit.issued'
+  | 'permit.consumed'
+  | 'execution.started'
+  | 'execution.completed'
+  | 'execution.rejected'
+  | 'verification.recorded'
+  | 'evidence.recorded'
+  | 'artifact.recorded'
+  | 'memory.candidate.recorded'
+  | 'memory.decision.recorded'
+  | 'memory.persisted'
+  | 'memory.rejected';
+
+export interface RuntimeWorkEvent {
+  protocol_version: string;
+  event_schema_version: 1;
+  id: string;
+  type: RuntimeWorkEventType;
+  timestamp: string;
+  session_id: string;
+  task_id?: string;
+  agent_id?: string;
+  tenant_id?: string;
+  parent_event_id?: string;
+  causes?: string[];
+  proposal_id?: string;
+  decision_id?: string;
+  approval_request_id?: string;
+  approval_id?: string;
+  permit_id?: string;
+  execution_id?: string;
+  verification_id?: string;
+  evidence_ids?: string[];
+  artifact_ids?: string[];
+  memory_candidate_id?: string;
+  memory_decision_id?: string;
+  memory_persistence_id?: string;
+  action_fingerprint?: string;
+  summary?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface ProposalRecord {
+  protocol_version: string;
+  proposal_id: string;
+  session_id: string;
+  task_id: string;
+  agent_id: string;
+  tenant_id: string;
+  action_fingerprint: string;
+  action_kind: ActionKind;
+  operation: string;
+  tool: string;
+  target: string;
+  resource: string;
+  method: string;
+  cwd: string;
+  summary: string;
+  recorded_at: string;
+}
+
+export interface DecisionRecord {
+  protocol_version: string;
+  decision_id: string;
+  proposal_id: string;
+  session_id: string;
+  task_id: string;
+  agent_id: string;
+  tenant_id: string;
+  action_fingerprint: string;
+  disposition: RuntimeDispositionCode;
+  profile?: string;
+  risk_score: number;
+  triggered_policies: string[];
+  explanation: string;
+  requires_approval: boolean;
+  recorded_at: string;
+}
+
+export interface ExecutionRecord {
+  protocol_version: string;
+  execution_id: string;
+  permit_id: string;
+  session_id: string;
+  task_id: string;
+  agent_id: string;
+  tenant_id: string;
+  action_fingerprint: string;
+  action_kind: ActionKind;
+  executor: ActionKind;
+  status: ExecutionStatus;
+  rejection_reason?: ExecutionRejectionReason;
+  started_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+  evidence_ids: string[];
+  artifact_ids: string[];
+}
+
+export interface VerificationRecord {
+  protocol_version: string;
+  verification_id: string;
+  execution_id: string;
+  session_id: string;
+  task_id: string;
+  agent_id: string;
+  tenant_id: string;
+  verification_type: 'executor_result_recorded' | 'side_effect_refused';
+  status: 'RECORDED' | 'REFUSED';
+  evidence_ids: string[];
+  summary: string;
+  recorded_at: string;
+}
+
+export interface MemoryPersistenceRecord {
+  protocol_version: string;
+  memory_persistence_id: string;
+  memory_id: string;
+  memory_decision_id?: string;
+  session_id: string;
+  task_id: string;
+  agent_id: string;
+  tenant_id: string;
+  status: 'ACTIVE' | 'QUARANTINED' | 'REVIEW_REQUIRED' | 'REJECTED' | 'EXTERNAL_AUTHORIZED' | 'FAILED';
+  activated: boolean;
+  recorded_at: string;
 }
 
 // --- Managed paths, health, conformance ----------------------------------

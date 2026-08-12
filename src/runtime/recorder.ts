@@ -7,7 +7,8 @@
 import { randomBytes } from 'crypto';
 import { appendEvent } from '../eventStream';
 import { createLocalEvidenceRegistry, type EvidenceRegistry } from '../evidenceRegistry';
-import { PROTOCOL_VERSION, type ArtifactRecord } from './protocol';
+import { PROTOCOL_VERSION, type ArtifactRecord, type RuntimeWorkEvent } from './protocol';
+import { createRuntimeWorkEvent } from './workEvents';
 import { readJsonFile, resolveSafeloopPath, writeJsonFile } from '../localStorage';
 import type { SafeloopStorageOptions } from '../localStorage';
 import type { ExecutionRecorder } from './managedExecutor';
@@ -79,6 +80,7 @@ export function createRuntimeRecorder(options: SafeloopStorageOptions = {}): Run
     },
 
     recordEvent(input): void {
+      const workEvent = input.workEvent ? createRuntimeWorkEvent(input.workEvent) : undefined;
       appendEvent({
         id: `runtime-${Date.now()}-${randomBytes(6).toString('hex')}`,
         type: input.type,
@@ -93,6 +95,7 @@ export function createRuntimeRecorder(options: SafeloopStorageOptions = {}): Run
           actionFingerprint: input.action_fingerprint,
           decision: input.decision,
           ...(input.detail ?? {}),
+          ...(workEvent ? { workEvent } : {}),
         },
       }, options);
     },

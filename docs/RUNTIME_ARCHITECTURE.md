@@ -66,6 +66,8 @@ src/runtime/
   memoryGateway.ts          candidate fingerprints + persistence permits
   memoryStore.ts            reference governed store + provenance
   recorder.ts               bridge to evidence registry and ledger
+  workEvents.ts             schema-versioned causal work-event envelope
+  sessionWorkGraph.ts       read-only per-session graph projection
   runtimeCore.ts            sessions, identity, tasks, decisions
   runtimeAuth.ts            two-layer local credentials
   daemon.ts                 loopback HTTP + unix socket
@@ -156,6 +158,24 @@ seconds.
 Runtime state has cleanup semantics: claim records carry expiry and `prune()`
 drops them, except corrupt records, which are retained because deleting them
 would convert a corruption into a replay opportunity.
+
+
+## Work graph observability
+
+The runtime records a causally linkable `metadata.workEvent` alongside legacy
+ledger events. This adds proposal, decision, approval, permit, execution,
+verification, evidence, artifact, and memory references without changing the
+legacy event stream contract.
+
+`buildSessionWorkGraph(session_id)` is a read-only projector over those records.
+It joins runtime work events with evidence, artifact, and governed memory records
+so a session can be inspected as a timeline or as causal edges. The CLI surface is
+`safeloop session inspect <session_id> [--json]`; the daemon surface is
+`POST /v1/session/timeline`.
+
+The work graph is observability, not enforcement. Denials, approvals, permit
+signatures, one-time redemption, budget checks, circuit breakers, and executor
+admission remain the enforcement path.
 
 ## Boundary
 

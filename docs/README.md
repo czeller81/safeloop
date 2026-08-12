@@ -25,7 +25,7 @@ SafeLoop documentation is split between current user guidance, developer referen
 | [assets/safeloop-runtime-governance-architecture.png](assets/safeloop-runtime-governance-architecture.png) | CURRENT | Canonical GitHub-ready PNG render of the v2 architecture diagram. |
 | [LANGUAGE_NEUTRAL_PROTOCOL.md](LANGUAGE_NEUTRAL_PROTOCOL.md) | DEVELOPER_REFERENCE | Protocol and SDK language-neutrality. |
 | [RUNTIME_PROTOCOL.md](RUNTIME_PROTOCOL.md) | DEVELOPER_REFERENCE | Runtime API/protocol details. |
-| [EVENT_MODEL.md](EVENT_MODEL.md) | DEVELOPER_REFERENCE | Runtime event and ledger event shape. |
+| [EVENT_MODEL.md](EVENT_MODEL.md) | DEVELOPER_REFERENCE | Runtime event, work-event, ledger, and session graph shape. |
 
 ## Runtime Controls
 

@@ -1291,6 +1291,23 @@ export type {
   ReadinessRiskInput,
 } from './readinessScore';
 
+export {
+  extractRuntimeWorkEvent,
+  buildSessionWorkGraph,
+} from './runtime/sessionWorkGraph';
+export {
+  createRuntimeWorkEvent,
+  redactWorkEventData,
+} from './runtime/workEvents';
+export type {
+  RuntimeWorkEventInput,
+} from './runtime/workEvents';
+export type {
+  SessionWorkGraph,
+  SessionWorkGraphEdge,
+  SessionWorkGraphTask,
+} from './runtime/sessionWorkGraph';
+
 function extractTokenCost(value: unknown): number {
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;

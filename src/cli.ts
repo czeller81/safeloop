@@ -12,6 +12,7 @@ import {
   runMcpDoctor,
 } from './mcpDiagnostics';
 import { startMonitorServer } from './monitor';
+import { buildSessionWorkGraph, type SessionWorkGraph } from './runtime/sessionWorkGraph';
 import {
   compileSafeloopPolicyMarkdown,
   initializeSafeloopPolicyConfig,
@@ -285,6 +286,80 @@ function runGuardedCommand(args: string[]): void {
     process.exitCode = 20;
   } else {
     process.exitCode = result.exitCode ?? 0;
+  }
+}
+
+
+function nonFlagArgs(args: string[]): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value.startsWith('--')) {
+      if (!value.includes('=') && index + 1 < args.length && !args[index + 1].startsWith('--')) {
+        index += 1;
+      }
+      continue;
+    }
+    values.push(value);
+  }
+  return values;
+}
+
+function printSessionGraph(graph: SessionWorkGraph): void {
+  console.log(`Session ${graph.session_id}`);
+  console.log(`Work events: ${graph.diagnostics.work_event_count}`);
+  console.log(`Legacy events: ${graph.diagnostics.legacy_event_count}`);
+  console.log(`Causal edges: ${graph.edges.length}`);
+  if (graph.diagnostics.missing_causal_metadata_count > 0) {
+    console.log(`Missing causal metadata: ${graph.diagnostics.missing_causal_metadata_count}`);
+  }
+  console.log('');
+
+  if (graph.tasks.length === 0) {
+    console.log('Tasks: none');
+  } else {
+    console.log('Tasks:');
+    for (const task of graph.tasks) {
+      console.log(`  ${task.task_id}`);
+      for (const event of task.events) {
+        const refs = [
+          event.proposal_id,
+          event.decision_id,
+          event.approval_request_id,
+          event.approval_id,
+          event.permit_id,
+          event.execution_id,
+          event.memory_candidate_id,
+        ].filter(Boolean).join(' ');
+        console.log(`    - ${event.type}${refs ? ` ${refs}` : ''}`);
+      }
+    }
+  }
+
+  if (graph.evidence.length || graph.artifacts.length || graph.memories.length) {
+    console.log('');
+    console.log(`Evidence: ${graph.evidence.length}`);
+    console.log(`Artifacts: ${graph.artifacts.length}`);
+    console.log(`Memories: ${graph.memories.length}`);
+  }
+}
+
+function runSession(args: string[]): void {
+  const action = args[0];
+  if (action !== 'inspect') {
+    throw new Error('Usage: safeloop session inspect <session_id> [--json] [--baseDir <path>]');
+  }
+  const positionals = nonFlagArgs(args.slice(1));
+  const sessionId = positionals[0];
+  if (!sessionId) {
+    throw new Error('Missing session_id. Usage: safeloop session inspect <session_id> [--json] [--baseDir <path>]');
+  }
+  const baseDir = resolveCliBaseDir(args);
+  const graph = buildSessionWorkGraph(sessionId, { baseDir });
+  if (parseJsonFlag(args)) {
+    printJson(graph);
+  } else {
+    printSessionGraph(graph);
   }
 }
 
@@ -584,6 +659,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'session') {
+    runSession(process.argv.slice(3));
+    return;
+  }
+
   if (command === 'ledger') {
     runLedger(process.argv.slice(3));
     return;
@@ -628,6 +708,7 @@ async function main(): Promise<void> {
   console.log('  safeloop approve <approval_request_id> [--approver <name>]   (operator credential required)');
   console.log('  safeloop run --profile <profile> -- <agent command> [args...]');
   console.log('  safeloop status [--json] [--baseDir <path>]');
+  console.log('  safeloop session inspect <session_id> [--json] [--baseDir <path>]');
   console.log('  safeloop certify [--profile <profile>] [--adapter <name>] [--json] [--out <path>]');
   console.log('  safeloop profiles [--profile <profile>] [--json]');
   console.log('');

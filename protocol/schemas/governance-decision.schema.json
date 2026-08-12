@@ -77,6 +77,10 @@
     },
     "approval_request": {
       "$ref": "https://safeloop.dev/protocol/safeloop.runtime.v1/approval-request.schema.json"
+    },
+    "proposal_id": {
+      "type": "string",
+      "minLength": 1
     }
   }
 }

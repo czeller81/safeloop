@@ -33,6 +33,7 @@ import {
   type ExecutionPermit,
   type ExecutionRejectionReason,
   type ExecutionResult,
+  type RuntimeWorkEvent,
 } from './protocol';
 
 export interface BreakerGate {
@@ -69,6 +70,7 @@ export interface ExecutionRecorder {
     decision?: string;
     summary: string;
     detail?: Record<string, unknown>;
+    workEvent?: Omit<RuntimeWorkEvent, 'protocol_version' | 'event_schema_version' | 'id' | 'timestamp'> & { id?: string; timestamp?: string };
   }): void;
 }
 
@@ -98,6 +100,10 @@ export interface ManagedExecutor {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
 
+function newExecutionId(): string {
+  return `execution-${Date.now()}-${randomUUID().slice(0, 8)}`;
+}
+
 function rejection(
   reason: ExecutionRejectionReason,
   detail: string,
@@ -106,7 +112,7 @@ function rejection(
 ): ExecutionResult {
   return {
     protocol_version: PROTOCOL_VERSION,
-    execution_id: `execution-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    execution_id: newExecutionId(),
     permit_id: permitId,
     action_fingerprint: fingerprint,
     status: 'REJECTED',
@@ -172,6 +178,28 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         return rejection(permitCheck.reason ?? 'missing_permit', permitCheck.detail ?? 'permit rejected', permitId, fingerprint);
       }
 
+      config.recorder.recordEvent({
+        type: 'tool.executed',
+        agent_id: canonical.agent_id,
+        task_id: canonical.task_id,
+        session_id: canonical.session_id,
+        tenant_id: canonical.tenant_id,
+        action_fingerprint: fingerprint,
+        decision: input.permit?.disposition,
+        summary: `Execution permit consumed: ${permitId}`,
+        detail: { permit_id: permitId },
+        workEvent: {
+          type: 'permit.consumed',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          permit_id: permitId,
+          action_fingerprint: fingerprint,
+          summary: `Execution permit consumed: ${permitId}`,
+        },
+      });
+
       // 5. Circuit breaker admission.
       if (config.breaker?.isOpen()) {
         const reason = config.breaker.reason() ?? 'circuit breaker is open';
@@ -225,8 +253,32 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
       // The permit is spent; from here the side effect is authorized to happen
       // exactly once, and every outcome becomes evidence.
       config.budget?.recordAction();
+      const executionId = newExecutionId();
       const startedAt = new Date().toISOString();
       const startedMs = Date.now();
+      config.recorder.recordEvent({
+        type: 'tool.executed',
+        agent_id: canonical.agent_id,
+        task_id: canonical.task_id,
+        session_id: canonical.session_id,
+        tenant_id: canonical.tenant_id,
+        action_fingerprint: fingerprint,
+        decision: input.permit?.disposition,
+        summary: `Managed ${canonical.action_kind} ${canonical.operation}: started`,
+        detail: { permit_id: permitId, execution_id: executionId, executor: canonical.action_kind },
+        workEvent: {
+          type: 'execution.started',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          permit_id: permitId,
+          execution_id: executionId,
+          action_fingerprint: fingerprint,
+          summary: `Managed ${canonical.action_kind} ${canonical.operation}: started`,
+          data: { executor: canonical.action_kind, action_kind: canonical.action_kind },
+        },
+      });
 
       let outcome: ExecutorOutcome;
       try {
@@ -285,7 +337,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         });
         return {
           protocol_version: PROTOCOL_VERSION,
-          execution_id: `execution-${Date.now()}-${randomUUID().slice(0, 8)}`,
+          execution_id: executionId,
           permit_id: permitId,
           action_fingerprint: fingerprint,
           status: 'FAILED',
@@ -321,6 +373,57 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         tenant_id: canonical.tenant_id,
       });
 
+      const verificationId = `verification-${Date.now()}-${randomUUID().slice(0, 8)}`;
+      for (const artifactId of artifactIds) {
+        config.recorder.recordEvent({
+          type: 'artifact.changed',
+          agent_id: canonical.agent_id,
+          task_id: canonical.task_id,
+          session_id: canonical.session_id,
+          tenant_id: canonical.tenant_id,
+          action_fingerprint: fingerprint,
+          decision: input.permit?.disposition,
+          summary: `Artifact recorded for execution ${executionId}`,
+          detail: { artifact_id: artifactId, execution_id: executionId, permit_id: permitId },
+          workEvent: {
+            type: 'artifact.recorded',
+            session_id: canonical.session_id,
+            task_id: canonical.task_id,
+            agent_id: canonical.agent_id,
+            tenant_id: canonical.tenant_id,
+            parent_event_id: executionId,
+            permit_id: permitId,
+            execution_id: executionId,
+            artifact_ids: [artifactId],
+            action_fingerprint: fingerprint,
+            summary: `Artifact recorded for execution ${executionId}`,
+          },
+        });
+      }
+      config.recorder.recordEvent({
+        type: 'tool.executed',
+        agent_id: canonical.agent_id,
+        task_id: canonical.task_id,
+        session_id: canonical.session_id,
+        tenant_id: canonical.tenant_id,
+        action_fingerprint: fingerprint,
+        decision: input.permit?.disposition,
+        summary: `Evidence recorded for execution ${executionId}`,
+        detail: { evidence_id: evidenceId, execution_id: executionId, permit_id: permitId },
+        workEvent: {
+          type: 'evidence.recorded',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          parent_event_id: executionId,
+          permit_id: permitId,
+          execution_id: executionId,
+          evidence_ids: [evidenceId],
+          action_fingerprint: fingerprint,
+          summary: `Evidence recorded for execution ${executionId}`,
+        },
+      });
       config.recorder.recordEvent({
         type: outcome.status === 'EXECUTED' ? 'tool.executed' : 'tool.failed',
         agent_id: canonical.agent_id,
@@ -334,14 +437,57 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           ...outcome.detail,
           exit_code: outcome.exit_code,
           permit_id: permitId,
+          execution_id: executionId,
           approval_id: input.permit?.approval_id,
           duration_ms: durationMs,
+        },
+        workEvent: {
+          type: outcome.status === 'EXECUTED' ? 'execution.completed' : 'execution.rejected',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          parent_event_id: permitId,
+          permit_id: permitId,
+          execution_id: executionId,
+          evidence_ids: [evidenceId],
+          artifact_ids: artifactIds,
+          action_fingerprint: fingerprint,
+          summary: `Managed ${canonical.action_kind} ${canonical.operation}: ${outcome.status}`,
+          data: { status: outcome.status, exit_code: outcome.exit_code, duration_ms: durationMs, executor: canonical.action_kind },
+        },
+      });
+
+      config.recorder.recordEvent({
+        type: 'tool.executed',
+        agent_id: canonical.agent_id,
+        task_id: canonical.task_id,
+        session_id: canonical.session_id,
+        tenant_id: canonical.tenant_id,
+        action_fingerprint: fingerprint,
+        decision: outcome.status === 'EXECUTED' ? 'ALLOW' : 'DENY',
+        summary: `Executor result recorded for ${executionId}`,
+        detail: { verification_id: verificationId, execution_id: executionId, evidence_ids: [evidenceId] },
+        workEvent: {
+          type: 'verification.recorded',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          parent_event_id: executionId,
+          permit_id: permitId,
+          execution_id: executionId,
+          verification_id: verificationId,
+          evidence_ids: [evidenceId],
+          action_fingerprint: fingerprint,
+          summary: `Executor result recorded for ${executionId}`,
+          data: { verification_type: 'executor_result_recorded', status: outcome.status },
         },
       });
 
       return {
         protocol_version: PROTOCOL_VERSION,
-        execution_id: `execution-${Date.now()}-${randomUUID().slice(0, 8)}`,
+        execution_id: executionId,
         permit_id: permitId,
         action_fingerprint: fingerprint,
         status: outcome.status,

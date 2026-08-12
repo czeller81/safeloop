@@ -234,6 +234,43 @@ describe('SDK over the daemon', () => {
   });
 });
 
+
+  it('serves a read-only session timeline graph', async () => {
+    const session = await client.startSession({
+      agent: { agent_id: 'timeline-agent' }, tenant_id: 'tenant-timeline', workspace, profile: 'coding',
+    });
+    const { task_id } = await session.startTask({ goal: 'timeline route' });
+    const write = await session.execute(
+      { kind: 'filesystem', operation: 'create', path: join(workspace, 'timeline.txt'), content: 'timeline' },
+      task_id,
+    );
+    expect(write.result?.status).toBe('EXECUTED');
+
+    const response = await fetch(`http://127.0.0.1:${daemon.connection.port}/v1/session/timeline`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${daemon.connection.credential}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ session_id: session.session.session_id }),
+    });
+    expect(response.status).toBe(200);
+    const graph = await response.json() as { session_id: string; events: Array<{ type: string }>; diagnostics: { work_event_count: number } };
+    expect(graph.session_id).toBe(session.session.session_id);
+    expect(graph.diagnostics.work_event_count).toBeGreaterThanOrEqual(8);
+    expect(graph.events.map((event) => event.type)).toEqual(expect.arrayContaining([
+      'session.started',
+      'task.started',
+      'proposal.recorded',
+      'decision.recorded',
+      'permit.issued',
+      'execution.started',
+      'execution.completed',
+      'artifact.recorded',
+      'evidence.recorded',
+    ]));
+  });
+
 describe('runtime unavailability', () => {
   it('reports a clear error when no runtime is running', async () => {
     const empty = mkdtempSync(join(tmpdir(), 'safeloop-v02-noruntime-'));

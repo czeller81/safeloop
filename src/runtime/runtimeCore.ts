@@ -507,6 +507,14 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           parent_session_id: input.parent_session_id,
           runtime_version: RUNTIME_VERSION,
         },
+        workEvent: {
+          type: 'session.started',
+          session_id: sessionId,
+          agent_id: session.agent.agent_id,
+          tenant_id: session.tenant_id,
+          summary: `Session started for ${session.agent.agent_name ?? session.agent.agent_id} under profile ${profile.id}`,
+          data: { profile: profile.id, workspace: session.workspace, scenario_id: session.scenario_id, parent_session_id: input.parent_session_id },
+        },
       });
 
       for (const declaration of profile.runtime_controls ?? []) {
@@ -554,6 +562,15 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         session_id: state.session.session_id,
         tenant_id: state.session.tenant_id,
         summary: `Task started: ${task.goal ?? task.task_id}`,
+        workEvent: {
+          type: 'task.started',
+          session_id: state.session.session_id,
+          task_id: task.task_id,
+          agent_id: state.session.agent.agent_id,
+          tenant_id: state.session.tenant_id,
+          summary: `Task started: ${task.goal ?? task.task_id}`,
+          data: { goal: task.goal },
+        },
       });
       return task;
     },
@@ -567,6 +584,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       const bound = bindIdentity(state, input.task_id, input.action);
       const canonical = canonicalizeAction(bound);
       const fingerprint = fingerprintAction(canonical).fingerprint;
+      const proposalId = newId('proposal');
 
       // Deterministic profile rules first.
       const profileEvaluation = evaluateProfile(state.profile, canonical, state.session.workspace);
@@ -611,6 +629,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       const decision: GovernanceDecision = {
         protocol_version: PROTOCOL_VERSION,
         decision_id: newId('decision'),
+        proposal_id: proposalId,
         disposition,
         allowed: disposition === 'ALLOW' || disposition === 'ALLOW_WITH_WARNING',
         requires_approval: disposition === 'REQUIRE_APPROVAL',
@@ -679,6 +698,78 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       }
 
       recorder.recordEvent({
+        type: 'tool.requested',
+        agent_id: canonical.agent_id,
+        task_id: canonical.task_id,
+        session_id: canonical.session_id,
+        tenant_id: canonical.tenant_id,
+        action_fingerprint: fingerprint,
+        summary: `Proposal recorded: ${describeCanonicalAction(canonical)}`,
+        detail: { proposal_id: proposalId, action_kind: canonical.action_kind, operation: canonical.operation, tool: canonical.tool, target: canonical.target, resource: canonical.resource, method: canonical.method, cwd: canonical.cwd },
+        workEvent: {
+          type: 'proposal.recorded',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          proposal_id: proposalId,
+          action_fingerprint: fingerprint,
+          summary: `Proposal recorded: ${describeCanonicalAction(canonical)}`,
+          data: { action_kind: canonical.action_kind, operation: canonical.operation, tool: canonical.tool, target: canonical.target, resource: canonical.resource, method: canonical.method, cwd: canonical.cwd },
+        },
+      });
+      recorder.recordEvent({
+        type: 'decision.recorded',
+        agent_id: canonical.agent_id,
+        task_id: canonical.task_id,
+        session_id: canonical.session_id,
+        tenant_id: canonical.tenant_id,
+        action_fingerprint: fingerprint,
+        decision: disposition,
+        summary: `Decision recorded: ${disposition}`,
+        detail: { proposal_id: proposalId, decision_id: decision.decision_id, matched_rules: profileEvaluation.matched_rules, risk_score: decision.risk_score, explanation: decision.explanation, requires_approval: decision.requires_approval, profile: state.profile.id },
+        workEvent: {
+          type: 'decision.recorded',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          parent_event_id: proposalId,
+          proposal_id: proposalId,
+          decision_id: decision.decision_id,
+          action_fingerprint: fingerprint,
+          summary: `Decision recorded: ${disposition}`,
+          data: { disposition, matched_rules: profileEvaluation.matched_rules, risk_score: decision.risk_score, explanation: decision.explanation, requires_approval: decision.requires_approval, profile: state.profile.id },
+        },
+      });
+      if (decision.execution_permit) {
+        recorder.recordEvent({
+          type: 'tool.allowed',
+          agent_id: canonical.agent_id,
+          task_id: canonical.task_id,
+          session_id: canonical.session_id,
+          tenant_id: canonical.tenant_id,
+          action_fingerprint: fingerprint,
+          decision: disposition,
+          summary: `Execution permit issued: ${decision.execution_permit.permit_id}`,
+          detail: { proposal_id: proposalId, decision_id: decision.decision_id, permit_id: decision.execution_permit.permit_id },
+          workEvent: {
+            type: 'permit.issued',
+            session_id: canonical.session_id,
+            task_id: canonical.task_id,
+            agent_id: canonical.agent_id,
+            tenant_id: canonical.tenant_id,
+            parent_event_id: decision.decision_id,
+            proposal_id: proposalId,
+            decision_id: decision.decision_id,
+            permit_id: decision.execution_permit.permit_id,
+            action_fingerprint: fingerprint,
+            summary: `Execution permit issued: ${decision.execution_permit.permit_id}`,
+          },
+        });
+      }
+
+      recorder.recordEvent({
         type: decision.allowed ? 'tool.allowed' : decision.requires_approval ? 'approval.requested' : 'tool.denied',
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
@@ -688,6 +779,10 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         decision: disposition,
         summary: `${disposition}: ${describeCanonicalAction(canonical)}${describedForOperator ? summarizeAuthorizationContext(describedForOperator) : ''}`,
         detail: {
+          proposal_id: proposalId,
+          decision_id: decision.decision_id,
+          approval_request_id: decision.approval_request?.approval_request_id,
+          permit_id: decision.execution_permit?.permit_id,
           matched_rules: profileEvaluation.matched_rules,
           risk_score: decision.risk_score,
           workspace_relation: profileEvaluation.facts.workspace,
@@ -696,6 +791,21 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           // The ledger is the operator's other surface onto a held action, so
           // the resolved location belongs in it too, not only on the request.
           ...(describedForOperator ?? {}),
+        },
+        workEvent: {
+          type: decision.requires_approval ? 'approval.requested' : 'decision.recorded',
+          session_id: canonical.session_id,
+          task_id: canonical.task_id,
+          agent_id: canonical.agent_id,
+          tenant_id: canonical.tenant_id,
+          parent_event_id: decision.decision_id,
+          proposal_id: proposalId,
+          decision_id: decision.decision_id,
+          approval_request_id: decision.approval_request?.approval_request_id,
+          permit_id: decision.execution_permit?.permit_id,
+          action_fingerprint: fingerprint,
+          summary: `${disposition}: ${describeCanonicalAction(canonical)}${describedForOperator ? summarizeAuthorizationContext(describedForOperator) : ''}`,
+          data: { disposition, resolved_context: describedForOperator },
         },
       });
 
@@ -741,6 +851,19 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         decision: 'REQUIRE_APPROVAL',
         summary: `Approval granted by ${input.approver}`,
         detail: { approval_id: grant.approval_id, approval_request_id: request.approval_request_id },
+        workEvent: {
+          type: 'approval.granted',
+          session_id: request.session_id,
+          task_id: request.task_id,
+          agent_id: request.agent_id,
+          tenant_id: request.tenant_id,
+          causes: [request.approval_request_id],
+          approval_request_id: request.approval_request_id,
+          approval_id: grant.approval_id,
+          action_fingerprint: request.action_fingerprint,
+          summary: `Approval granted by ${input.approver}`,
+          data: { approver: input.approver },
+        },
       });
       return grant;
     },
@@ -777,8 +900,48 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           summary: redemption.redeemed
             ? `Approval redeemed for ${describeCanonicalAction(canonical)}`
             : `Approval redemption rejected: ${redemption.failure}`,
-          detail: { approval_id: redemption.approval_id, failure: redemption.failure, reason: redemption.reason },
+          detail: { approval_id: redemption.approval_id, permit_id: redemption.execution_permit?.permit_id, failure: redemption.failure, reason: redemption.reason },
+          workEvent: {
+            type: redemption.redeemed ? 'approval.redeemed' : 'approval.denied',
+            session_id: canonical.session_id,
+            task_id: canonical.task_id,
+            agent_id: canonical.agent_id,
+            tenant_id: canonical.tenant_id,
+            causes: [redemption.approval_id],
+            approval_id: redemption.approval_id,
+            permit_id: redemption.execution_permit?.permit_id,
+            action_fingerprint: fingerprint,
+            summary: redemption.redeemed
+              ? `Approval redeemed for ${describeCanonicalAction(canonical)}`
+              : `Approval redemption rejected: ${redemption.failure}`,
+            data: { failure: redemption.failure, reason: redemption.reason },
+          },
         });
+        if (redemption.redeemed && redemption.execution_permit) {
+          recorder.recordEvent({
+            type: 'tool.allowed',
+            agent_id: canonical.agent_id,
+            task_id: canonical.task_id,
+            session_id: canonical.session_id,
+            tenant_id: canonical.tenant_id,
+            action_fingerprint: fingerprint,
+            decision: 'ALLOW',
+            summary: `Execution permit issued: ${redemption.execution_permit.permit_id}`,
+            detail: { approval_id: redemption.approval_id, permit_id: redemption.execution_permit.permit_id },
+            workEvent: {
+              type: 'permit.issued',
+              session_id: canonical.session_id,
+              task_id: canonical.task_id,
+              agent_id: canonical.agent_id,
+              tenant_id: canonical.tenant_id,
+              parent_event_id: redemption.approval_id,
+              approval_id: redemption.approval_id,
+              permit_id: redemption.execution_permit.permit_id,
+              action_fingerprint: fingerprint,
+              summary: `Execution permit issued: ${redemption.execution_permit.permit_id}`,
+            },
+          });
+        }
         return redemption;
       };
 
@@ -871,10 +1034,57 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         session_id: state.session.session_id,
         tenant_id: state.session.tenant_id,
       };
-      return memoryGateway.propose(candidate, {
+      recorder.recordEvent({
+        type: 'memory.write.requested',
+        agent_id: candidate.agent_id ?? state.session.agent.agent_id,
+        task_id: candidate.task_id,
+        session_id: candidate.session_id,
+        tenant_id: candidate.tenant_id,
+        summary: `Memory candidate recorded: ${candidate.memory_id}`,
+        detail: { memory_candidate_id: candidate.memory_id, memory_type: candidate.memory_type, confidence: candidate.confidence },
+        workEvent: {
+          type: 'memory.candidate.recorded',
+          session_id: candidate.session_id ?? state.session.session_id,
+          task_id: candidate.task_id,
+          agent_id: candidate.agent_id,
+          tenant_id: candidate.tenant_id,
+          memory_candidate_id: candidate.memory_id,
+          evidence_ids: candidate.evidence,
+          artifact_ids: candidate.source_artifacts,
+          summary: `Memory candidate recorded: ${candidate.memory_id}`,
+          data: { memory_type: candidate.memory_type, confidence: candidate.confidence, provenance: candidate.provenance, reuse_conditions: candidate.reuse_conditions, do_not_generalize: candidate.do_not_generalize },
+        },
+      });
+      const decision = memoryGateway.propose(candidate, {
         scenario: { scenarioId: state.session.scenario_id ?? state.profile.id, memoryWritePolicy: state.profile.memory_write_policy },
         minimumConfidence: state.profile.minimum_memory_confidence,
       });
+      recorder.recordEvent({
+        type: decision.allowed ? 'memory.write.allowed' : 'memory.write.rejected',
+        agent_id: candidate.agent_id ?? state.session.agent.agent_id,
+        task_id: candidate.task_id,
+        session_id: candidate.session_id,
+        tenant_id: candidate.tenant_id,
+        decision: decision.decision,
+        summary: `Memory decision recorded: ${decision.decision}`,
+        detail: { memory_candidate_id: candidate.memory_id, memory_decision_id: decision.memory_decision_id, permit_id: decision.persistence_permit?.permit_id, reasons: decision.reasons },
+        workEvent: {
+          type: 'memory.decision.recorded',
+          session_id: candidate.session_id ?? state.session.session_id,
+          task_id: candidate.task_id,
+          agent_id: candidate.agent_id,
+          tenant_id: candidate.tenant_id,
+          parent_event_id: candidate.memory_id,
+          memory_candidate_id: candidate.memory_id,
+          memory_decision_id: decision.memory_decision_id,
+          memory_persistence_id: decision.persistence_permit?.permit_id,
+          evidence_ids: candidate.evidence,
+          artifact_ids: candidate.source_artifacts,
+          summary: `Memory decision recorded: ${decision.decision}`,
+          data: { decision: decision.decision, allowed: decision.allowed, reasons: decision.reasons },
+        },
+      });
+      return decision;
     },
 
     /**
@@ -894,13 +1104,65 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
      */
     authorizeMemoryPersistence(credential, input): MemoryPersistenceAuthorization {
       const state = authenticate(credential, input.session_id);
-      return memoryGateway.authorizePersistence(input.permit, bindCandidate(state, input.candidate, input.permit));
+      const candidate = bindCandidate(state, input.candidate, input.permit);
+      const result = memoryGateway.authorizePersistence(input.permit, candidate);
+      recorder.recordEvent({
+        type: result.authorized ? 'memory.write.allowed' : 'memory.write.rejected',
+        agent_id: candidate.agent_id ?? state.session.agent.agent_id,
+        task_id: candidate.task_id,
+        session_id: candidate.session_id,
+        tenant_id: candidate.tenant_id,
+        decision: result.decision ?? result.failure,
+        summary: result.authorized ? `External memory persistence authorized: ${candidate.memory_id}` : `External memory persistence rejected: ${result.failure}`,
+        detail: { memory_candidate_id: candidate.memory_id, memory_persistence_id: input.permit?.permit_id, failure: result.failure, reason: result.reason },
+        workEvent: {
+          type: result.authorized ? 'memory.persisted' : 'memory.rejected',
+          session_id: candidate.session_id ?? state.session.session_id,
+          task_id: candidate.task_id,
+          agent_id: candidate.agent_id,
+          tenant_id: candidate.tenant_id,
+          memory_candidate_id: candidate.memory_id,
+          memory_decision_id: input.permit?.memory_decision_id,
+          memory_persistence_id: input.permit?.permit_id,
+          evidence_ids: candidate.evidence,
+          artifact_ids: candidate.source_artifacts,
+          summary: result.authorized ? `External memory persistence authorized: ${candidate.memory_id}` : `External memory persistence rejected: ${result.failure}`,
+          data: { authorized: result.authorized, decision: result.decision, failure: result.failure, reason: result.reason, storage: 'external' },
+        },
+      });
+      return result;
     },
 
     persistMemory(credential, input): MemoryWriteResult {
       const state = authenticate(credential, input.session_id);
       const permit = input.permit ?? input.decision.persistence_permit;
-      return memoryStore.persist(bindCandidate(state, input.candidate, permit), input.decision, permit);
+      const candidate = bindCandidate(state, input.candidate, permit);
+      const result = memoryStore.persist(candidate, input.decision, permit);
+      recorder.recordEvent({
+        type: result.activated ? 'memory.write.allowed' : 'memory.write.rejected',
+        agent_id: candidate.agent_id ?? state.session.agent.agent_id,
+        task_id: candidate.task_id,
+        session_id: candidate.session_id,
+        tenant_id: candidate.tenant_id,
+        decision: result.status,
+        summary: result.activated ? `Memory persisted: ${candidate.memory_id}` : `Memory not persisted as active: ${result.status}`,
+        detail: { memory_candidate_id: candidate.memory_id, memory_decision_id: input.decision.memory_decision_id, memory_persistence_id: permit?.permit_id, status: result.status, failure: result.failure, reason: result.reason },
+        workEvent: {
+          type: result.activated ? 'memory.persisted' : 'memory.rejected',
+          session_id: candidate.session_id ?? state.session.session_id,
+          task_id: candidate.task_id,
+          agent_id: candidate.agent_id,
+          tenant_id: candidate.tenant_id,
+          memory_candidate_id: candidate.memory_id,
+          memory_decision_id: input.decision.memory_decision_id,
+          memory_persistence_id: permit?.permit_id,
+          evidence_ids: candidate.evidence,
+          artifact_ids: candidate.source_artifacts,
+          summary: result.activated ? `Memory persisted: ${candidate.memory_id}` : `Memory not persisted as active: ${result.status}`,
+          data: { activated: result.activated, status: result.status, failure: result.failure, reason: result.reason, storage: 'reference' },
+        },
+      });
+      return result;
     },
 
     reportControlVerification(credential, input): RuntimeControlStatus {
@@ -979,6 +1241,15 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         session_id: state.session.session_id,
         tenant_id: state.session.tenant_id,
         summary: `Task completed: ${task.goal ?? task.task_id}`,
+        workEvent: {
+          type: 'task.completed',
+          session_id: state.session.session_id,
+          task_id: task.task_id,
+          agent_id: state.session.agent.agent_id,
+          tenant_id: state.session.tenant_id,
+          summary: `Task completed: ${task.goal ?? task.task_id}`,
+          data: { goal: task.goal },
+        },
       });
     },
 
@@ -993,6 +1264,14 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         tenant_id: state.session.tenant_id,
         summary: `Session finished for ${state.session.agent.agent_id}`,
         detail: { budget_usage: state.budget.usage(), breaker_state: state.breaker.status().state },
+        workEvent: {
+          type: 'session.completed',
+          session_id: sessionId,
+          agent_id: state.session.agent.agent_id,
+          tenant_id: state.session.tenant_id,
+          summary: `Session finished for ${state.session.agent.agent_id}`,
+          data: { budget_usage: state.budget.usage(), breaker_state: state.breaker.status().state },
+        },
       });
     },
 

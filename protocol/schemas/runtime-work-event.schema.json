@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safeloop.dev/protocol/safeloop.runtime.v1/runtime-work-event.schema.json",
+  "title": "RuntimeWorkEvent",
+  "description": "Versioned causal work-event projection for reconstructing governed SafeLoop sessions.",
+  "protocolVersion": "safeloop.runtime.v1",
+  "type": "object",
+  "required": ["protocol_version", "event_schema_version", "id", "type", "timestamp", "session_id"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "string", "const": "safeloop.runtime.v1" },
+    "event_schema_version": { "type": "integer", "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "type": {
+      "type": "string",
+      "enum": [
+        "session.started", "session.completed", "task.started", "task.completed", "task.failed",
+        "proposal.recorded", "decision.recorded", "approval.requested", "approval.granted",
+        "approval.denied", "approval.redeemed", "permit.issued", "permit.consumed",
+        "execution.started", "execution.completed", "execution.rejected", "verification.recorded",
+        "evidence.recorded", "artifact.recorded", "memory.candidate.recorded",
+        "memory.decision.recorded", "memory.persisted", "memory.rejected"
+      ]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "tenant_id": { "type": "string" },
+    "parent_event_id": { "type": "string" },
+    "causes": { "type": "array", "items": { "type": "string" } },
+    "proposal_id": { "type": "string" },
+    "decision_id": { "type": "string" },
+    "approval_request_id": { "type": "string" },
+    "approval_id": { "type": "string" },
+    "permit_id": { "type": "string" },
+    "execution_id": { "type": "string" },
+    "verification_id": { "type": "string" },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "artifact_ids": { "type": "array", "items": { "type": "string" } },
+    "memory_candidate_id": { "type": "string" },
+    "memory_decision_id": { "type": "string" },
+    "memory_persistence_id": { "type": "string" },
+    "action_fingerprint": { "type": "string" },
+    "summary": { "type": "string" },
+    "data": { "type": "object" }
+  }
+}
