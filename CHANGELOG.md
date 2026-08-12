@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Modernized the README around SafeLoop's v0.2 runtime-governance positioning and routed-action boundary.
 - Added a source-controlled v2 architecture diagram for governed actions, memory persistence, execution path inventory, evidence, and dashboard observation.
-- Rendered the v2 architecture diagram to GitHub-ready SVG and PNG assets and updated public references away from the obsolete architecture PNG.
+- Replaced the generated architecture graph assets with the approved GitHub-ready PNG and updated public references away from obsolete architecture images.
 - Added a docs index that classifies current docs, developer references, user guides, historical records, and audit evidence.
 - Updated security and architecture docs to preserve Same-UID, userspace timing, external memory, dashboard observation, and Hermes certification boundaries.
 - Documented the npm `0.7.0` divergence as older June 2026 accountability/live-monitor SDK history, with forward-only synchronization recommended for future npm publication.

@@ -33,7 +33,7 @@ Editable v2 source: [docs/architecture/safeloop-runtime-governance-v2.mmd](docs/
 
 Rendered v2 diagram:
 
-![SafeLoop runtime governance architecture](docs/assets/safeloop-runtime-governance-v2.svg)
+![SafeLoop runtime governance architecture](docs/assets/safeloop-runtime-governance-architecture.png)
 
 ```text
 Agent

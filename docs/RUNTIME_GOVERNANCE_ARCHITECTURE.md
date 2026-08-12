@@ -8,7 +8,7 @@ Editable v2 diagram source: [architecture/safeloop-runtime-governance-v2.mmd](ar
 
 Rendered v2 diagram:
 
-![SafeLoop runtime governance architecture](assets/safeloop-runtime-governance-v2.svg)
+![SafeLoop runtime governance architecture](assets/safeloop-runtime-governance-architecture.png)
 
 ## Architecture V2 Summary
 
