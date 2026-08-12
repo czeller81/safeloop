@@ -71,7 +71,8 @@ export interface ExecutionRecorder {
     summary: string;
     detail?: Record<string, unknown>;
     workEvent?: Omit<RuntimeWorkEvent, 'protocol_version' | 'event_schema_version' | 'id' | 'timestamp'> & { id?: string; timestamp?: string };
-  }): void;
+  }): RuntimeWorkEvent | undefined;
+  findWorkEventIdByDomainId?(sessionId: string, domainId: string | undefined): string | undefined;
 }
 
 export interface ManagedExecutorConfig {
@@ -178,7 +179,8 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         return rejection(permitCheck.reason ?? 'missing_permit', permitCheck.detail ?? 'permit rejected', permitId, fingerprint);
       }
 
-      config.recorder.recordEvent({
+      const permitIssuedEventId = config.recorder.findWorkEventIdByDomainId?.(canonical.session_id, permitId);
+      const permitConsumedEvent = config.recorder.recordEvent({
         type: 'tool.executed',
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
@@ -194,6 +196,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           task_id: canonical.task_id,
           agent_id: canonical.agent_id,
           tenant_id: canonical.tenant_id,
+          parent_event_id: permitIssuedEventId,
           permit_id: permitId,
           action_fingerprint: fingerprint,
           summary: `Execution permit consumed: ${permitId}`,
@@ -213,6 +216,18 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           decision: 'PAUSE',
           summary: `Managed execution blocked by circuit breaker: ${reason}`,
           detail: { breaker_state: config.breaker.state(), reason },
+          workEvent: {
+            type: 'execution.rejected',
+            session_id: canonical.session_id,
+            task_id: canonical.task_id,
+            agent_id: canonical.agent_id,
+            tenant_id: canonical.tenant_id,
+            parent_event_id: permitConsumedEvent?.id,
+            permit_id: permitId,
+            action_fingerprint: fingerprint,
+            summary: `Managed execution blocked by circuit breaker: ${reason}`,
+            data: { status: 'BLOCKED_BY_BREAKER', breaker_state: config.breaker.state(), reason },
+          },
         });
         return {
           ...rejection('breaker_open', reason, permitId, fingerprint),
@@ -233,6 +248,18 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           decision: 'PAUSE',
           summary: `Managed execution blocked by budget: ${budgetVerdict.reason}`,
           detail: { exhausted: budgetVerdict.exhausted, usage: budgetVerdict.usage },
+          workEvent: {
+            type: 'execution.rejected',
+            session_id: canonical.session_id,
+            task_id: canonical.task_id,
+            agent_id: canonical.agent_id,
+            tenant_id: canonical.tenant_id,
+            parent_event_id: permitConsumedEvent?.id,
+            permit_id: permitId,
+            action_fingerprint: fingerprint,
+            summary: `Managed execution blocked by budget: ${budgetVerdict.reason}`,
+            data: { status: 'BLOCKED_BY_BUDGET', exhausted: budgetVerdict.exhausted, usage: budgetVerdict.usage },
+          },
         });
         return {
           ...rejection('budget_exhausted', budgetVerdict.reason ?? 'budget exhausted', permitId, fingerprint),
@@ -256,7 +283,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
       const executionId = newExecutionId();
       const startedAt = new Date().toISOString();
       const startedMs = Date.now();
-      config.recorder.recordEvent({
+      const executionStartedEvent = config.recorder.recordEvent({
         type: 'tool.executed',
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
@@ -272,6 +299,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           task_id: canonical.task_id,
           agent_id: canonical.agent_id,
           tenant_id: canonical.tenant_id,
+          parent_event_id: permitConsumedEvent?.id,
           permit_id: permitId,
           execution_id: executionId,
           action_fingerprint: fingerprint,
@@ -391,7 +419,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
             task_id: canonical.task_id,
             agent_id: canonical.agent_id,
             tenant_id: canonical.tenant_id,
-            parent_event_id: executionId,
+            parent_event_id: executionStartedEvent?.id,
             permit_id: permitId,
             execution_id: executionId,
             artifact_ids: [artifactId],
@@ -416,7 +444,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           task_id: canonical.task_id,
           agent_id: canonical.agent_id,
           tenant_id: canonical.tenant_id,
-          parent_event_id: executionId,
+          parent_event_id: executionStartedEvent?.id,
           permit_id: permitId,
           execution_id: executionId,
           evidence_ids: [evidenceId],
@@ -447,7 +475,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           task_id: canonical.task_id,
           agent_id: canonical.agent_id,
           tenant_id: canonical.tenant_id,
-          parent_event_id: permitId,
+          parent_event_id: executionStartedEvent?.id,
           permit_id: permitId,
           execution_id: executionId,
           evidence_ids: [evidenceId],
@@ -474,7 +502,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           task_id: canonical.task_id,
           agent_id: canonical.agent_id,
           tenant_id: canonical.tenant_id,
-          parent_event_id: executionId,
+          parent_event_id: executionStartedEvent?.id,
           permit_id: permitId,
           execution_id: executionId,
           verification_id: verificationId,

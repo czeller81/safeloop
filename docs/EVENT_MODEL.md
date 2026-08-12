@@ -62,7 +62,7 @@ Each work event carries:
 - `protocol_version` and `event_schema_version` (`1` for this schema)
 - stable event identity: `id`, `type`, `timestamp`, `session_id`
 - optional work identity: `task_id`, `agent_id`, `tenant_id`
-- causal references: `parent_event_id` and `causes`
+- causal references: `parent_event_id` and `causes`, which refer only to `RuntimeWorkEvent.id` values
 - lifecycle references: proposal, decision, approval request, approval, permit,
   execution, verification, evidence, artifact, and memory IDs
 - redacted `summary` and `data`
@@ -96,7 +96,35 @@ references.
 Inspection surfaces are read-only:
 
 - CLI: `safeloop session inspect <session_id> [--json] [--baseDir <path>]`
-- Daemon: `POST /v1/session/timeline` with `{ "session_id": "..." }`
+- Daemon: `POST /v1/session/timeline` with `{ "session_id": "...", "credential": "...", "limit": 250, "cursor": "..." }`
+
+
+Timeline daemon reads are session-scoped. The caller must hold the runtime
+credential and must also provide the session credential for the requested
+`session_id`. A runtime credential alone is not timeline authority, and a
+credential for one session cannot inspect another session, including across
+tenants.
+
+Daemon timeline responses are paginated. The default limit is 250 work events
+and the hard maximum is 1000. `cursor` is the last work-event ID returned by the
+previous page. Responses include `page.has_more`, `page.next_cursor`,
+`page.total_count`, and `page.returned_count`. Raw legacy events are excluded by
+default; callers may request `include_legacy_events: true`, and embedded
+`metadata.workEvent` payloads are stripped from those legacy records to avoid
+returning the same work event twice.
+
+Graph edge semantics are strict: `parent_event_id` and internal `causes` point to
+work-event IDs, not proposal IDs, approval IDs, permit IDs, execution IDs, or
+memory IDs. Domain object IDs remain available in their dedicated fields. Clean
+new sessions should report `dangling_internal_edge_count: 0`; historical or
+external references are reported separately rather than silently dropped.
+
+`permit.consumed` means the one-time permit was successfully redeemed by the
+managed executor. It does not mean execution began and does not prove a side
+effect occurred. Consumers must look for `execution.started`,
+`execution.completed`, and verification/evidence events to prove execution. A
+breaker or budget block may occur after a permit is consumed and before any side
+effect starts.
 
 The projector does not infer missing causality as success. It reports diagnostics
 such as legacy event count, work event count, and work events missing causal

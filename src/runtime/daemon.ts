@@ -37,7 +37,7 @@ import {
   type RuntimeConnectionFile,
 } from './runtimeAuth';
 import type { SafeloopStorageOptions } from '../localStorage';
-import { buildSessionWorkGraph } from './sessionWorkGraph';
+import { buildSessionTimelinePage } from './sessionWorkGraph';
 
 export const DEFAULT_DAEMON_PORT = 3787;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -104,6 +104,39 @@ function requireString(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
+function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
+  const value = body[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new RuntimeError('invalid_request', `"${key}" must be boolean`);
+  return value;
+}
+
+function optionalInteger(body: Record<string, unknown>, key: string): number | undefined {
+  const value = body[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new RuntimeError('invalid_request', `"${key}" must be an integer`);
+  }
+  return value;
+}
+
+function optionalString(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !value) throw new RuntimeError('invalid_request', `"${key}" must be a non-empty string`);
+  return value;
+}
+
+function requireTimelineSessionRead(body: Record<string, unknown>, runtime: SafeloopRuntime): string {
+  const sessionId = requireString(body, 'session_id');
+  const credential = sessionCredential(body);
+  const owned = runtime.sessions().some((state) => state.session.session_id === sessionId && credentialsMatch(state.credential, credential));
+  if (!owned) {
+    throw new RuntimeError('unauthenticated', 'a valid session credential is required');
+  }
+  return sessionId;
+}
+
 export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[] {
   return [
     {
@@ -120,7 +153,21 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
     },
     {
       method: 'POST', path: '/v1/session/timeline', auth: 'runtime',
-      handle: (body) => buildSessionWorkGraph(requireString(body, 'session_id'), storageOptions),
+      handle: (body, runtime) => {
+        const sessionId = requireTimelineSessionRead(body, runtime);
+        try {
+          return buildSessionTimelinePage(sessionId, storageOptions, {
+            limit: optionalInteger(body, 'limit'),
+            cursor: optionalString(body, 'cursor'),
+            includeLegacyEvents: optionalBoolean(body, 'include_legacy_events') ?? false,
+          });
+        } catch (error) {
+          if (error instanceof Error && (error.message === 'invalid_cursor' || error.message === 'invalid_limit')) {
+            throw new RuntimeError('invalid_request', error.message);
+          }
+          throw error;
+        }
+      },
     },
     {
       method: 'POST', path: '/v1/session/finish', auth: 'runtime',

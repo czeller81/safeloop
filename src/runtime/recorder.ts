@@ -26,6 +26,29 @@ export interface RuntimeRecorder extends ExecutionRecorder {
 export function createRuntimeRecorder(options: SafeloopStorageOptions = {}): RuntimeRecorder {
   const registry = createLocalEvidenceRegistry(options);
   const artifactPath = resolveSafeloopPath('runtime-artifacts.json', options);
+  const domainIndex = new Map<string, string>();
+
+  function indexKey(sessionId: string, domainId: string): string {
+    return `${sessionId}:${domainId}`;
+  }
+
+  function indexWorkEvent(workEvent: RuntimeWorkEvent): void {
+    const ids = [
+      workEvent.proposal_id,
+      workEvent.decision_id,
+      workEvent.approval_request_id,
+      workEvent.approval_id,
+      workEvent.permit_id,
+      workEvent.execution_id,
+      workEvent.verification_id,
+      workEvent.memory_candidate_id,
+      workEvent.memory_decision_id,
+      workEvent.memory_persistence_id,
+      ...(workEvent.evidence_ids ?? []),
+      ...(workEvent.artifact_ids ?? []),
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+    for (const id of ids) domainIndex.set(indexKey(workEvent.session_id, id), workEvent.id);
+  }
 
   function readArtifacts(): ArtifactFile {
     const parsed = readJsonFile<ArtifactFile>(artifactPath, { version: 1, records: [] });
@@ -79,8 +102,9 @@ export function createRuntimeRecorder(options: SafeloopStorageOptions = {}): Run
       return record.artifact_id;
     },
 
-    recordEvent(input): void {
+    recordEvent(input): RuntimeWorkEvent | undefined {
       const workEvent = input.workEvent ? createRuntimeWorkEvent(input.workEvent) : undefined;
+      if (workEvent) indexWorkEvent(workEvent);
       appendEvent({
         id: `runtime-${Date.now()}-${randomBytes(6).toString('hex')}`,
         type: input.type,
@@ -98,6 +122,11 @@ export function createRuntimeRecorder(options: SafeloopStorageOptions = {}): Run
           ...(workEvent ? { workEvent } : {}),
         },
       }, options);
+      return workEvent;
+    },
+
+    findWorkEventIdByDomainId(sessionId, domainId): string | undefined {
+      return domainId ? domainIndex.get(indexKey(sessionId, domainId)) : undefined;
     },
 
     artifacts(): ArtifactRecord[] {

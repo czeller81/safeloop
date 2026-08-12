@@ -697,7 +697,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         });
       }
 
-      recorder.recordEvent({
+      const proposalEvent = recorder.recordEvent({
         type: 'tool.requested',
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
@@ -718,7 +718,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           data: { action_kind: canonical.action_kind, operation: canonical.operation, tool: canonical.tool, target: canonical.target, resource: canonical.resource, method: canonical.method, cwd: canonical.cwd },
         },
       });
-      recorder.recordEvent({
+      const decisionEvent = recorder.recordEvent({
         type: 'decision.recorded',
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
@@ -734,7 +734,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           task_id: canonical.task_id,
           agent_id: canonical.agent_id,
           tenant_id: canonical.tenant_id,
-          parent_event_id: proposalId,
+          parent_event_id: proposalEvent?.id,
           proposal_id: proposalId,
           decision_id: decision.decision_id,
           action_fingerprint: fingerprint,
@@ -759,7 +759,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
             task_id: canonical.task_id,
             agent_id: canonical.agent_id,
             tenant_id: canonical.tenant_id,
-            parent_event_id: decision.decision_id,
+            parent_event_id: decisionEvent?.id,
             proposal_id: proposalId,
             decision_id: decision.decision_id,
             permit_id: decision.execution_permit.permit_id,
@@ -792,21 +792,22 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           // the resolved location belongs in it too, not only on the request.
           ...(describedForOperator ?? {}),
         },
-        workEvent: {
-          type: decision.requires_approval ? 'approval.requested' : 'decision.recorded',
-          session_id: canonical.session_id,
-          task_id: canonical.task_id,
-          agent_id: canonical.agent_id,
-          tenant_id: canonical.tenant_id,
-          parent_event_id: decision.decision_id,
-          proposal_id: proposalId,
-          decision_id: decision.decision_id,
-          approval_request_id: decision.approval_request?.approval_request_id,
-          permit_id: decision.execution_permit?.permit_id,
-          action_fingerprint: fingerprint,
-          summary: `${disposition}: ${describeCanonicalAction(canonical)}${describedForOperator ? summarizeAuthorizationContext(describedForOperator) : ''}`,
-          data: { disposition, resolved_context: describedForOperator },
-        },
+        ...(decision.requires_approval ? {
+          workEvent: {
+            type: 'approval.requested' as const,
+            session_id: canonical.session_id,
+            task_id: canonical.task_id,
+            agent_id: canonical.agent_id,
+            tenant_id: canonical.tenant_id,
+            parent_event_id: decisionEvent?.id,
+            proposal_id: proposalId,
+            decision_id: decision.decision_id,
+            approval_request_id: decision.approval_request?.approval_request_id,
+            action_fingerprint: fingerprint,
+            summary: `${disposition}: ${describeCanonicalAction(canonical)}${describedForOperator ? summarizeAuthorizationContext(describedForOperator) : ''}`,
+            data: { disposition, resolved_context: describedForOperator },
+          },
+        } : {}),
       });
 
       return decision;
@@ -841,7 +842,8 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       // actually present. The operator decided about this context; the token
       // now has a way back to it.
       approvedContexts.set(grant.approval_id, held.context);
-      recorder.recordEvent({
+      const approvalRequestEventId = recorder.findWorkEventIdByDomainId?.(request.session_id, request.approval_request_id);
+      const approvalGrantEvent = recorder.recordEvent({
         type: 'approval.granted',
         agent_id: request.agent_id,
         task_id: request.task_id,
@@ -857,7 +859,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           task_id: request.task_id,
           agent_id: request.agent_id,
           tenant_id: request.tenant_id,
-          causes: [request.approval_request_id],
+          parent_event_id: approvalRequestEventId,
           approval_request_id: request.approval_request_id,
           approval_id: grant.approval_id,
           action_fingerprint: request.action_fingerprint,
@@ -865,6 +867,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           data: { approver: input.approver },
         },
       });
+      void approvalGrantEvent;
       return grant;
     },
 
@@ -889,7 +892,8 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       };
 
       const record = (redemption: ApprovalRedemption): ApprovalRedemption => {
-        recorder.recordEvent({
+        const approvalEventId = recorder.findWorkEventIdByDomainId?.(canonical.session_id, redemption.approval_id);
+        const redemptionEvent = recorder.recordEvent({
           type: redemption.redeemed ? 'approval.granted' : 'approval.denied',
           agent_id: canonical.agent_id,
           task_id: canonical.task_id,
@@ -907,7 +911,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
             task_id: canonical.task_id,
             agent_id: canonical.agent_id,
             tenant_id: canonical.tenant_id,
-            causes: [redemption.approval_id],
+            parent_event_id: approvalEventId,
             approval_id: redemption.approval_id,
             permit_id: redemption.execution_permit?.permit_id,
             action_fingerprint: fingerprint,
@@ -934,7 +938,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
               task_id: canonical.task_id,
               agent_id: canonical.agent_id,
               tenant_id: canonical.tenant_id,
-              parent_event_id: redemption.approval_id,
+              parent_event_id: redemptionEvent?.id,
               approval_id: redemption.approval_id,
               permit_id: redemption.execution_permit.permit_id,
               action_fingerprint: fingerprint,
@@ -1034,7 +1038,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         session_id: state.session.session_id,
         tenant_id: state.session.tenant_id,
       };
-      recorder.recordEvent({
+      const memoryCandidateEvent = recorder.recordEvent({
         type: 'memory.write.requested',
         agent_id: candidate.agent_id ?? state.session.agent.agent_id,
         task_id: candidate.task_id,
@@ -1048,6 +1052,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           task_id: candidate.task_id,
           agent_id: candidate.agent_id,
           tenant_id: candidate.tenant_id,
+          parent_event_id: recorder.findWorkEventIdByDomainId?.(candidate.session_id ?? state.session.session_id, candidate.evidence?.[0] ?? candidate.source_artifacts?.[0]),
           memory_candidate_id: candidate.memory_id,
           evidence_ids: candidate.evidence,
           artifact_ids: candidate.source_artifacts,
@@ -1059,7 +1064,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         scenario: { scenarioId: state.session.scenario_id ?? state.profile.id, memoryWritePolicy: state.profile.memory_write_policy },
         minimumConfidence: state.profile.minimum_memory_confidence,
       });
-      recorder.recordEvent({
+      const memoryDecisionEvent = recorder.recordEvent({
         type: decision.allowed ? 'memory.write.allowed' : 'memory.write.rejected',
         agent_id: candidate.agent_id ?? state.session.agent.agent_id,
         task_id: candidate.task_id,
@@ -1074,7 +1079,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           task_id: candidate.task_id,
           agent_id: candidate.agent_id,
           tenant_id: candidate.tenant_id,
-          parent_event_id: candidate.memory_id,
+          parent_event_id: memoryCandidateEvent?.id,
           memory_candidate_id: candidate.memory_id,
           memory_decision_id: decision.memory_decision_id,
           memory_persistence_id: decision.persistence_permit?.permit_id,
@@ -1121,6 +1126,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           task_id: candidate.task_id,
           agent_id: candidate.agent_id,
           tenant_id: candidate.tenant_id,
+          parent_event_id: recorder.findWorkEventIdByDomainId?.(candidate.session_id ?? state.session.session_id, input.permit?.memory_decision_id),
           memory_candidate_id: candidate.memory_id,
           memory_decision_id: input.permit?.memory_decision_id,
           memory_persistence_id: input.permit?.permit_id,
@@ -1153,6 +1159,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           task_id: candidate.task_id,
           agent_id: candidate.agent_id,
           tenant_id: candidate.tenant_id,
+          parent_event_id: recorder.findWorkEventIdByDomainId?.(candidate.session_id ?? state.session.session_id, input.decision.memory_decision_id),
           memory_candidate_id: candidate.memory_id,
           memory_decision_id: input.decision.memory_decision_id,
           memory_persistence_id: permit?.permit_id,

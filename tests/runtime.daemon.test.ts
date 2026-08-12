@@ -1,10 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { appendEvent } from '../src/eventStream';
 import { startDaemon, type RunningDaemon } from '../src/runtime/daemon';
 import { createSafeloopClient, SafeloopRequestError, type SafeloopClient } from '../src/runtime/client';
 import { connectionFilePath, readConnectionFile } from '../src/runtime/runtimeAuth';
 import { validateProtocol } from '../src/runtime/schemaValidator';
+import { createRuntimeWorkEvent } from '../src/runtime/workEvents';
 
 let baseDir: string;
 let workspace: string;
@@ -252,7 +254,7 @@ describe('SDK over the daemon', () => {
         authorization: `Bearer ${daemon.connection.credential}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ session_id: session.session.session_id }),
+      body: JSON.stringify({ session_id: session.session.session_id, credential: session.credential }),
     });
     expect(response.status).toBe(200);
     const graph = await response.json() as { session_id: string; events: Array<{ type: string }>; diagnostics: { work_event_count: number } };
@@ -269,6 +271,123 @@ describe('SDK over the daemon', () => {
       'artifact.recorded',
       'evidence.recorded',
     ]));
+  });
+
+
+  it('requires the requested session credential for timeline reads', async () => {
+    const victim = await client.startSession({
+      agent: { agent_id: 'victim-agent' }, tenant_id: 'tenant-victim', workspace, profile: 'coding',
+    });
+    const attacker = await client.startSession({
+      agent: { agent_id: 'attacker-agent' }, tenant_id: 'tenant-attacker', workspace, profile: 'coding',
+    });
+    const { task_id } = await victim.startTask({ goal: 'victim timeline goal' });
+    await victim.execute(
+      { kind: 'filesystem', operation: 'create', path: join(workspace, 'victim.txt'), content: 'victim secret path content' },
+      task_id,
+    );
+
+    const postTimeline = (body: unknown, runtimeCredential = daemon.connection.credential) => fetch(`http://127.0.0.1:${daemon.connection.port}/v1/session/timeline`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${runtimeCredential}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const own = await postTimeline({ session_id: victim.session.session_id, credential: victim.credential });
+    expect(own.status).toBe(200);
+    expect((await own.json()).session_id).toBe(victim.session.session_id);
+
+    const rejectedBodies = [
+      await postTimeline({ session_id: victim.session.session_id, credential: attacker.credential }),
+      await postTimeline({ session_id: attacker.session.session_id, credential: victim.credential }),
+      await postTimeline({ session_id: victim.session.session_id }),
+      await postTimeline({ session_id: victim.session.session_id, credential: 'not-a-session-credential' }),
+      await postTimeline({ session_id: victim.session.session_id, credential: victim.credential }, 'wrong-runtime'),
+      await postTimeline({ session_id: 'unknown-session', credential: attacker.credential }),
+    ];
+
+    for (const response of rejectedBodies) {
+      expect([401, 403]).toContain(response.status);
+      const payload = await response.json() as Record<string, unknown>;
+      expect(payload.events).toBeUndefined();
+      expect(payload.legacy_events).toBeUndefined();
+      expect(payload.memories).toBeUndefined();
+      expect(payload.evidence).toBeUndefined();
+      expect(payload.artifacts).toBeUndefined();
+      expect(JSON.stringify(payload)).not.toContain('victim timeline goal');
+      expect(JSON.stringify(payload)).not.toContain('tenant-victim');
+    }
+  });
+
+  it('paginates timelines deterministically and excludes legacy events by default', async () => {
+    const session = await client.startSession({
+      agent: { agent_id: 'paged-agent' }, tenant_id: 'tenant-paged', workspace, profile: 'coding',
+    });
+    await session.startTask({ goal: 'paged timeline' });
+    for (let index = 0; index < 1105; index += 1) {
+      const workEvent = createRuntimeWorkEvent({
+        type: 'task.started',
+        id: `work-page-${String(index).padStart(4, '0')}`,
+        timestamp: new Date(1_800_000_000_000 + index).toISOString(),
+        session_id: session.session.session_id,
+        task_id: `task-page-${index}`,
+        agent_id: 'paged-agent',
+        tenant_id: 'tenant-paged',
+      });
+      appendEvent({
+        id: `legacy-page-${index}`,
+        type: 'task.started',
+        agentId: 'paged-agent',
+        sessionId: session.session.session_id,
+        summary: `paged ${index}`,
+        timestamp: workEvent.timestamp,
+        metadata: { workEvent },
+      }, { baseDir });
+    }
+
+    const postTimeline = (body: Record<string, unknown>) => fetch(`http://127.0.0.1:${daemon.connection.port}/v1/session/timeline`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${daemon.connection.credential}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ credential: session.credential, session_id: session.session.session_id, ...body }),
+    });
+
+    const first = await postTimeline({ limit: 500 });
+    expect(first.status).toBe(200);
+    const firstPage = await first.json() as { events: Array<{ id: string }>; legacy_events?: unknown[]; page: { has_more: boolean; next_cursor: string; returned_count: number; limit: number } };
+    expect(firstPage.events).toHaveLength(500);
+    expect(firstPage.legacy_events).toBeUndefined();
+    expect(firstPage.page).toMatchObject({ has_more: true, returned_count: 500, limit: 500 });
+
+    const second = await postTimeline({ limit: 500, cursor: firstPage.page.next_cursor });
+    expect(second.status).toBe(200);
+    const secondPage = await second.json() as { events: Array<{ id: string }>; page: { has_more: boolean; next_cursor?: string } };
+    expect(secondPage.events).toHaveLength(500);
+    expect(new Set([...firstPage.events, ...secondPage.events].map((event) => event.id)).size).toBe(1000);
+    expect(secondPage.events[0].id).not.toBe(firstPage.events[firstPage.events.length - 1].id);
+
+    const clamped = await postTimeline({ limit: 5000 });
+    expect(clamped.status).toBe(200);
+    const clampedPage = await clamped.json() as { events: unknown[]; page: { limit: number; max_limit: number } };
+    expect(clampedPage.page.limit).toBe(1000);
+    expect(clampedPage.page.max_limit).toBe(1000);
+    expect(clampedPage.events).toHaveLength(1000);
+
+    for (const bad of [{ limit: 0 }, { limit: -1 }, { cursor: 'missing-cursor' }]) {
+      const response = await postTimeline(bad);
+      expect(response.status).toBe(400);
+    }
+
+    const withLegacy = await postTimeline({ limit: 10, include_legacy_events: true });
+    expect(withLegacy.status).toBe(200);
+    const legacyPage = await withLegacy.json() as { legacy_events: Array<{ metadata?: Record<string, unknown> }> };
+    expect(legacyPage.legacy_events).toHaveLength(10);
+    expect(legacyPage.legacy_events.every((event) => !event.metadata || !('workEvent' in event.metadata))).toBe(true);
   });
 
 describe('runtime unavailability', () => {

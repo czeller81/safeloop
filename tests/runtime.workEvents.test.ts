@@ -195,6 +195,32 @@ describe('runtime work events and session graph projection', () => {
     expect(graph.evidence.length).toBeGreaterThanOrEqual(1);
     expect(graph.artifacts.length).toBeGreaterThanOrEqual(1);
     expect(graph.memories).toHaveLength(1);
+    expect(graph.diagnostics.dangling_internal_edge_count).toBe(0);
+    const eventIds = new Set(graph.events.map((event) => event.id));
+    for (const edge of graph.edges.filter((entry) => entry.scope === 'internal')) {
+      expect(eventIds.has(edge.from)).toBe(true);
+      expect(eventIds.has(edge.to)).toBe(true);
+      expect(edge.from).not.toMatch(/^(proposal|decision|approval|permit|execution|memory)-/);
+    }
+    const proposal = graph.events.find((event) => event.type === 'proposal.recorded' && event.proposal_id === held.proposal_id);
+    const decisionEvent = graph.events.find((event) => event.type === 'decision.recorded' && event.decision_id === held.decision_id);
+    const approvalRequest = graph.events.find((event) => event.type === 'approval.requested' && event.approval_request_id === held.approval_request!.approval_request_id);
+    const approvalGrant = graph.events.find((event) => event.type === 'approval.granted' && event.approval_id === grant.approval_id);
+    const permitIssued = graph.events.find((event) => event.type === 'permit.issued' && event.permit_id === redemption.execution_permit!.permit_id);
+    const permitConsumed = graph.events.find((event) => event.type === 'permit.consumed' && event.permit_id === redemption.execution_permit!.permit_id);
+    const executionStarted = graph.events.find((event) => event.type === 'execution.started' && event.execution_id === approvedResult.execution_id);
+    const verification = graph.events.find((event) => event.type === 'verification.recorded' && event.execution_id === approvedResult.execution_id);
+    const memoryCandidate = graph.events.find((event) => event.type === 'memory.candidate.recorded' && event.memory_candidate_id === candidate.memory_id);
+    expect(decisionEvent?.parent_event_id).toBe(proposal?.id);
+    expect(approvalRequest?.parent_event_id).toBe(decisionEvent?.id);
+    expect(approvalGrant?.parent_event_id).toBe(approvalRequest?.id);
+    expect(permitIssued?.parent_event_id).toBeDefined();
+    expect(permitConsumed?.parent_event_id).toBe(permitIssued?.id);
+    expect(executionStarted?.parent_event_id).toBe(permitConsumed?.id);
+    expect(verification?.parent_event_id).toBe(executionStarted?.id);
+    expect(memoryCandidate?.parent_event_id).toBeDefined();
+    expect(eventIds.has(memoryCandidate!.parent_event_id!)).toBe(true);
+    expect(graph.edges.some((edge) => edge.from === executionStarted?.id && edge.to === memoryCandidate?.parent_event_id)).toBe(true);
     expect(graph.edges.some((edge) => edge.type === 'references_evidence')).toBe(true);
     expect(graph.edges.some((edge) => edge.type === 'references_artifact')).toBe(true);
     expect(graph.edges.some((edge) => edge.to === candidate.memory_id)).toBe(true);

@@ -173,6 +173,18 @@ so a session can be inspected as a timeline or as causal edges. The CLI surface 
 `safeloop session inspect <session_id> [--json]`; the daemon surface is
 `POST /v1/session/timeline`.
 
+
+
+Session timeline access is not granted by the runtime credential alone. The
+read-side daemon route requires the requested session's own session credential
+before graph projection, so a caller cannot enumerate another session or tenant
+by guessing `session_id` values. The route returns bounded pages by default and
+omits raw legacy events unless explicitly requested.
+
+Internal graph edges are event-to-event edges. Domain identifiers such as
+proposal, approval, permit, execution, evidence, artifact, and memory IDs remain
+separate fields and are not used as `parent_event_id` values.
+
 The work graph is observability, not enforcement. Denials, approvals, permit
 signatures, one-time redemption, budget checks, circuit breakers, and executor
 admission remain the enforcement path.
