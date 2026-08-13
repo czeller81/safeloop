@@ -13,6 +13,7 @@
 
 import { createHash } from 'crypto';
 import { redactAndBound, redactSecrets } from '../redaction';
+import { attachExecutionProof, sha256Text } from '../executionProof';
 import {
   ExecutorArgumentError,
   optionalString,
@@ -107,6 +108,7 @@ export function createHttpExecutor(options: HttpExecutorOptions = {}): ManagedEx
       }
 
       const descriptor = describeHttpRequest(url, method, body, credentialRef);
+      const startedAt = Date.now();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), context.timeoutMs);
 
@@ -127,35 +129,77 @@ export function createHttpExecutor(options: HttpExecutorOptions = {}): ManagedEx
           method, headers, body, signal: controller.signal, redirect: 'manual',
         });
         const text = await response.text();
+        const durationMs = Date.now() - startedAt;
 
         const isRedirect = response.status >= 300 && response.status < 400;
         const location = response.headers?.location ?? response.headers?.Location;
+        let redirectTarget: Record<string, unknown> | undefined;
+        let safeRedirectLocation: string | undefined;
+        if (location) {
+          try {
+            const parsed = new URL(location, url);
+            redirectTarget = { scheme: parsed.protocol.replace(':', ''), host: parsed.hostname, port: parsed.port || (parsed.protocol === 'https:' ? '443' : '80'), path: parsed.pathname };
+            safeRedirectLocation = parsed.protocol + '//' + parsed.host + parsed.pathname;
+          } catch {
+            redirectTarget = { parseable: false };
+          }
+        }
+        const responseBytes = Buffer.byteLength(text);
+        const responseHash = sha256Text(text);
+        const status = response.status >= 200 && response.status < 400 ? 'EXECUTED' : 'FAILED';
+        const detail = {
+          ...descriptor,
+          response_status: response.status,
+          response_status_text: response.statusText,
+          response_body_hash: responseHash,
+          response_body_bytes: responseBytes,
+          response_content_type: response.headers?.['content-type'] ?? response.headers?.['Content-Type'],
+          duration_ms: durationMs,
+          ...(isRedirect
+            ? {
+              redirect_not_followed: true,
+              redirect_location: safeRedirectLocation ?? null,
+              redirect_location_present: Boolean(location),
+              redirect_target: redirectTarget,
+              fresh_authorization_required: true,
+              redirect_note:
+                'SafeLoop authorized this destination only. Propose the redirect target as a new action to have it governed.',
+            }
+            : {}),
+        };
 
         return {
-          status: response.status >= 200 && response.status < 400 ? 'EXECUTED' : 'FAILED',
+          status,
           exit_code: response.status,
           stdout: redactAndBound(text, context.maxOutputBytes),
-          detail: {
-            ...descriptor,
-            response_status: response.status,
-            response_status_text: response.statusText,
-            ...(isRedirect
-              ? {
-                redirect_not_followed: true,
-                redirect_location: location ?? null,
-                redirect_note:
-                  'SafeLoop authorized this destination only. Propose the redirect target as a new action to have it governed.',
-              }
-              : {}),
-          },
+          detail: attachExecutionProof(detail, {
+            executor: 'http',
+            operation: action.operation,
+            before: { authorized_destination: descriptor },
+            after: isRedirect ? { redirect_not_followed: true, redirect_target: redirectTarget } : { transaction_completed: true },
+            result: { status, response_status: response.status, response_body_hash: responseHash, response_body_bytes: responseBytes, duration_ms: durationMs },
+            verification_status: status === 'EXECUTED' ? 'VERIFIED' : 'FAILED',
+            verification_summary: isRedirect ? 'HTTP redirect observed and not followed; fresh authorization required for redirect target' : 'HTTP request/response transaction observed',
+            verification_scope: 'HTTP proof covers the governed transaction, not the remote system business outcome.',
+          }),
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const aborted = /abort/i.test(message);
+        const durationMs = Date.now() - startedAt;
+        const status = aborted ? 'TIMED_OUT' : 'FAILED';
         return {
-          status: aborted ? 'TIMED_OUT' : 'FAILED',
+          status,
           stderr: redactSecrets(message),
-          detail: { ...descriptor, error: redactSecrets(message) },
+          detail: attachExecutionProof({ ...descriptor, error: redactSecrets(message), duration_ms: durationMs }, {
+            executor: 'http',
+            operation: action.operation,
+            before: { authorized_destination: descriptor },
+            result: { status, error: redactSecrets(message), duration_ms: durationMs },
+            verification_status: 'FAILED',
+            verification_summary: 'HTTP transaction did not complete',
+            verification_scope: 'HTTP proof covers the governed transaction, not the remote system business outcome.',
+          }),
         };
       } finally {
         clearTimeout(timer);

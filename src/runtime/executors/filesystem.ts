@@ -18,9 +18,9 @@ import {
   statSync,
   writeFileSync,
 } from 'fs';
-import { createHash } from 'crypto';
 import { dirname, isAbsolute, resolve } from 'path';
 import { redactAndBound } from '../redaction';
+import { attachExecutionProof, filesystemDeltaSummary, observeFileState, type ExecutionProofRecord } from '../executionProof';
 import { verifyExecutionCwd, verifyResolvedPath } from '../executionContext';
 import {
   containmentModeForOperation,
@@ -56,12 +56,27 @@ const OPERATIONS: ReadonlySet<string> = new Set<FilesystemOperation>([
 ]);
 
 function hashFile(path: string): string | undefined {
-  try {
-    if (!existsSync(path) || !statSync(path).isFile()) return undefined;
-    return `sha256:${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
-  } catch {
-    return undefined;
-  }
+  return observeFileState(path).sha256;
+}
+
+function proof(
+  operation: FilesystemOperation,
+  before: unknown,
+  after: unknown,
+  result: Record<string, unknown>,
+  status: 'VERIFIED' | 'PARTIALLY_VERIFIED' | 'NOT_VERIFIABLE' | 'FAILED',
+  summary: string,
+): ExecutionProofRecord {
+  return {
+    executor: 'filesystem',
+    operation,
+    before,
+    after,
+    result,
+    verification_status: status,
+    verification_summary: summary,
+    verification_scope: 'Direct filesystem state observed by SafeLoop at the resolved target path; file contents are not stored.',
+  };
 }
 
 function absolute(path: string, cwd: string): string {
@@ -183,7 +198,8 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
       const requested = action.target || requireString(action.arguments, 'path');
       // Verified here, immediately before any syscall — not at proposal time.
       const path = guardPath(context, requested, containmentModeForOperation(operation), 'target');
-      const before = hashFile(path);
+      const beforeState = observeFileState(path);
+      const before = beforeState.sha256;
       const artifacts: ExecutorArtifact[] = [];
 
       const record = (operationName: string, targetPath: string): void => {
@@ -200,7 +216,10 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           return {
             status: 'EXECUTED',
             stdout: redactAndBound(content, context.maxOutputBytes),
-            detail: { path, operation, bytes: Buffer.byteLength(content), content_hash: before },
+            detail: attachExecutionProof(
+              { path, operation, bytes: Buffer.byteLength(content), content_hash: before },
+              proof(operation, beforeState, observeFileState(path), { bytes_read: Buffer.byteLength(content) }, 'VERIFIED', 'read target metadata and content hash observed'),
+            ),
           };
         }
 
@@ -212,7 +231,10 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           return {
             status: 'EXECUTED',
             stdout: entries.join('\n'),
-            detail: { path, operation, entry_count: entries.length },
+            detail: attachExecutionProof(
+              { path, operation, entry_count: entries.length },
+              proof(operation, beforeState, observeFileState(path), { entry_count: entries.length }, 'VERIFIED', 'directory listing metadata observed'),
+            ),
           };
         }
 
@@ -223,7 +245,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           const stats = statSync(path);
           return {
             status: 'EXECUTED',
-            detail: {
+            detail: attachExecutionProof({
               path,
               operation,
               is_file: stats.isFile(),
@@ -231,7 +253,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
               size: stats.size,
               modified_at: stats.mtime.toISOString(),
               content_hash: before,
-            },
+            }, proof(operation, beforeState, observeFileState(path), { stat_observed: true }, 'VERIFIED', 'stat metadata observed')),
           };
         }
 
@@ -248,10 +270,14 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           }
           mkdirSync(dirname(path), { recursive: true });
           writeFileSync(path, content, 'utf8');
+          const afterState = observeFileState(path);
           record(operation, path);
           return {
             status: 'EXECUTED',
-            detail: { path, operation, bytes: Buffer.byteLength(content), content_hash_before: before, content_hash_after: hashFile(path) },
+            detail: attachExecutionProof(
+              { path, operation, bytes: Buffer.byteLength(content), content_hash_before: before, content_hash_after: afterState.sha256 },
+              proof(operation, beforeState, afterState, { bytes_written: Buffer.byteLength(content), summary: filesystemDeltaSummary(beforeState, afterState) }, 'VERIFIED', 'post-write hash observed'),
+            ),
             artifacts,
           };
         }
@@ -260,18 +286,27 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           const content = optionalString(action.arguments, 'content') ?? '';
           mkdirSync(dirname(path), { recursive: true });
           appendFileSync(path, content, 'utf8');
+          const afterState = observeFileState(path);
           record(operation, path);
           return {
             status: 'EXECUTED',
-            detail: { path, operation, bytes: Buffer.byteLength(content), content_hash_before: before, content_hash_after: hashFile(path) },
+            detail: attachExecutionProof(
+              { path, operation, bytes: Buffer.byteLength(content), content_hash_before: before, content_hash_after: afterState.sha256 },
+              proof(operation, beforeState, afterState, { bytes_written: Buffer.byteLength(content), summary: filesystemDeltaSummary(beforeState, afterState) }, 'VERIFIED', 'post-append hash observed'),
+            ),
             artifacts,
           };
         }
 
         case 'mkdir': {
           mkdirSync(path, { recursive: true });
+          const afterState = observeFileState(path);
           artifacts.push({ path, content_hash: 'sha256:directory', operation });
-          return { status: 'EXECUTED', detail: { path, operation }, artifacts };
+          return {
+            status: 'EXECUTED',
+            detail: attachExecutionProof({ path, operation }, proof(operation, beforeState, afterState, { directory_created: afterState.exists }, 'VERIFIED', 'directory existence observed')),
+            artifacts,
+          };
         }
 
         case 'move': {
@@ -286,12 +321,18 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
             return { status: 'FAILED', stderr: `path does not exist: ${path}`, detail: { path, operation } };
           }
           mkdirSync(dirname(destination), { recursive: true });
+          const destinationBefore = observeFileState(destination);
           renameSync(path, destination);
+          const sourceAfter = observeFileState(path);
+          const destinationAfter = observeFileState(destination);
           artifacts.push({ path, content_hash: 'sha256:absent', operation: 'move_from' });
           record('move_to', destination);
           return {
             status: 'EXECUTED',
-            detail: { path, destination, operation, content_hash_before: before },
+            detail: attachExecutionProof(
+              { path, destination, operation, content_hash_before: before, content_hash_after: destinationAfter.sha256 },
+              proof(operation, { source: beforeState, destination: destinationBefore }, { source: sourceAfter, destination: destinationAfter }, { moved: sourceAfter.exists === false && destinationAfter.exists === true }, 'VERIFIED', 'source absence and destination state observed after move'),
+            ),
             artifacts,
           };
         }
@@ -302,10 +343,14 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           }
           const wasDirectory = statSync(path).isDirectory();
           rmSync(path, { recursive: wasDirectory, force: false });
+          const afterState = observeFileState(path);
           artifacts.push({ path, content_hash: before ?? 'sha256:directory', operation: 'delete' });
           return {
             status: 'EXECUTED',
-            detail: { path, operation, was_directory: wasDirectory, content_hash_before: before },
+            detail: attachExecutionProof(
+              { path, operation, was_directory: wasDirectory, content_hash_before: before },
+              proof(operation, beforeState, afterState, { deleted: afterState.exists === false }, 'VERIFIED', 'post-delete absence observed'),
+            ),
             artifacts,
           };
         }

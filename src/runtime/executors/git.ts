@@ -13,8 +13,9 @@
  * spent on a force push.
  */
 
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { redactAndBound } from '../redaction';
+import { attachExecutionProof, sha256Json } from '../executionProof';
 import { verifyExecutionCwd, verifyRepositoryIdentity } from '../executionContext';
 import {
   ExecutorArgumentError,
@@ -100,6 +101,46 @@ export function buildGitArgv(operation: string, args: Record<string, unknown>): 
   return TEMPLATES[operation](args);
 }
 
+function gitText(cwd: string, args: string[]): string | undefined {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function gitLines(cwd: string, args: string[], limit = 100): string[] {
+  const text = gitText(cwd, args);
+  return text ? text.split('\n').filter(Boolean).slice(0, limit) : [];
+}
+
+function gitSnapshot(cwd: string): Record<string, unknown> {
+  const branch = gitText(cwd, ['branch', '--show-current']);
+  const head = gitText(cwd, ['rev-parse', '--verify', 'HEAD']);
+  const status = gitLines(cwd, ['status', '--porcelain=v1'], 200);
+  return {
+    repository_identity: gitText(cwd, ['rev-parse', '--path-format=absolute', '--git-dir']),
+    branch: branch || 'detached-or-unborn',
+    head: head || undefined,
+    changed_file_count: status.length,
+    changed_files: status.map((line) => ({ status: line.slice(0, 2).trim(), path: line.slice(3) })),
+  };
+}
+
+function commitSummary(cwd: string, beforeHead: unknown, afterHead: unknown): Record<string, unknown> {
+  if (!afterHead || beforeHead === afterHead) return { commit_created: false };
+  const names = gitLines(cwd, ['show', '--name-status', '--format=', String(afterHead)], 200);
+  return {
+    commit_created: true,
+    resulting_commit: afterHead,
+    changed_file_count: names.length,
+    changed_files: names.map((line) => {
+      const [status, ...rest] = line.split(/\s+/);
+      return { status, path: rest.join(' ') };
+    }),
+    diff_stat: gitText(cwd, ['show', '--shortstat', '--format=', String(afterHead)]),
+  };
+}
 export function createGitExecutor(): ManagedExecutorPlugin {
   return {
     kind: 'git',
@@ -126,6 +167,7 @@ export function createGitExecutor(): ManagedExecutorPlugin {
         head_commit: context.authorizedHeadCommit,
       });
 
+      const beforeState = gitSnapshot(cwd);
       const startedAt = Date.now();
 
       return new Promise<ExecutorOutcome>((resolvePromise) => {
@@ -166,20 +208,47 @@ export function createGitExecutor(): ManagedExecutorPlugin {
           if (stderr.length < context.maxOutputBytes * 2) stderr += String(chunk);
         });
 
-        const detail = { git_operation: action.operation, argv: ['git', ...argv], cwd };
+        const detail = { git_operation: action.operation, argv: ['git', ...argv], argv_fingerprint: sha256Json(['git', ...argv]), cwd };
 
         child.on('error', (error) => {
-          finish({ status: 'FAILED', stderr: context.redact(error.message), detail: { ...detail, spawn_error: error.message } });
+          const durationMs = Date.now() - startedAt;
+          finish({
+            status: 'FAILED',
+            stderr: context.redact(error.message),
+            detail: attachExecutionProof({ ...detail, spawn_error: error.message }, {
+              executor: 'git',
+              operation: action.operation,
+              before: beforeState,
+              after: gitSnapshot(cwd),
+              result: { status: 'FAILED', error: error.message, duration_ms: durationMs },
+              verification_status: 'FAILED',
+              verification_summary: 'git process failed before completing',
+              verification_scope: 'Git proof covers repository state observed before and after the governed git invocation.',
+            }),
+          });
         });
 
         child.on('close', (code, signal) => {
           const durationMs = Date.now() - startedAt;
+          const afterState = gitSnapshot(cwd);
+          const commit = action.operation === 'commit' ? commitSummary(cwd, beforeState.head, afterState.head) : {};
+          const result = { status: timedOut ? 'TIMED_OUT' : code === 0 ? 'EXECUTED' : 'FAILED', exit_code: typeof code === 'number' ? code : undefined, signal, duration_ms: durationMs, ...commit };
+          const verified = code === 0 && !timedOut && beforeState.repository_identity === afterState.repository_identity;
           if (timedOut) {
             finish({
               status: 'TIMED_OUT',
               stdout: redactAndBound(stdout, context.maxOutputBytes),
               stderr: redactAndBound(stderr, context.maxOutputBytes),
-              detail: { ...detail, duration_ms: durationMs },
+              detail: attachExecutionProof({ ...detail, duration_ms: durationMs }, {
+                executor: 'git',
+                operation: action.operation,
+                before: beforeState,
+                after: afterState,
+                result,
+                verification_status: 'FAILED',
+                verification_summary: 'git process timed out; post-state was observed but operation is not verified successful',
+                verification_scope: 'Git proof covers repository state observed before and after the governed git invocation.',
+              }),
             });
             return;
           }
@@ -188,7 +257,16 @@ export function createGitExecutor(): ManagedExecutorPlugin {
             exit_code: typeof code === 'number' ? code : undefined,
             stdout: redactAndBound(stdout, context.maxOutputBytes),
             stderr: redactAndBound(stderr, context.maxOutputBytes),
-            detail: { ...detail, duration_ms: durationMs, signal },
+            detail: attachExecutionProof({ ...detail, duration_ms: durationMs, signal, ...commit }, {
+              executor: 'git',
+              operation: action.operation,
+              before: beforeState,
+              after: afterState,
+              result,
+              verification_status: verified ? 'VERIFIED' : 'FAILED',
+              verification_summary: verified ? 'repository identity and resulting git state observed' : 'git operation failed or repository identity changed',
+              verification_scope: 'Git proof covers repository state observed before and after the governed git invocation; full diff bodies are not captured.',
+            }),
           });
         });
       });

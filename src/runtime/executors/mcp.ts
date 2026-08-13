@@ -15,6 +15,7 @@
 
 import { createHash } from 'crypto';
 import { redactAndBound } from '../redaction';
+import { attachExecutionProof, sha256Text } from '../executionProof';
 import {
   ExecutorArgumentError,
   requireString,
@@ -37,6 +38,19 @@ export interface McpDownstreamResponse {
 
 export type McpInvoker = (call: McpDownstreamCall) => Promise<McpDownstreamResponse>;
 
+const SENSITIVE_RESULT_KEYS = /(secret|token|password|passwd|credential|authorization|api[_-]?key|private[_-]?key)/i;
+
+function redactStructured(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactStructured);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = SENSITIVE_RESULT_KEYS.test(key) ? '[REDACTED]' : redactStructured(nested);
+    }
+    return out;
+  }
+  return value;
+}
 export interface McpExecutorOptions {
   /**
    * How SafeLoop reaches downstream MCP servers. Injectable so conformance runs
@@ -69,7 +83,14 @@ export function createMcpExecutor(options: McpExecutorOptions = {}): ManagedExec
         return {
           status: 'FAILED',
           stderr: 'no downstream MCP transport is configured; this path is UNMANAGED and cannot be executed',
-          detail: { mcp_managed: false },
+          detail: attachExecutionProof({ mcp_managed: false }, {
+            executor: 'mcp',
+            operation: action.operation,
+            result: { success: false, managed: false },
+            verification_status: 'NOT_VERIFIABLE',
+            verification_summary: 'no downstream MCP transport configured',
+            verification_scope: 'MCP proof requires a managed downstream transport.',
+          }),
         };
       }
 
@@ -80,24 +101,45 @@ export function createMcpExecutor(options: McpExecutorOptions = {}): ManagedExec
       const descriptor = {
         mcp_server: server,
         mcp_tool: tool,
+        transport: 'in_process_invoker',
         arguments_hash: `sha256:${createHash('sha256').update(JSON.stringify(callArguments ?? {})).digest('hex')}`,
         mcp_managed: true,
       };
 
       try {
         const response = await options.invoke({ server, tool, arguments: callArguments ?? {} });
-        const text = typeof response.content === 'string' ? response.content : JSON.stringify(response.content ?? null);
+        const text = typeof response.content === 'string' ? context.redact(response.content) : JSON.stringify(redactStructured(response.content ?? null));
+        const durationMs = Date.now() - startedAt;
+        const redactedText = context.redact(text);
+        const resultHash = sha256Text(redactedText);
         return {
           status: response.ok ? 'EXECUTED' : 'FAILED',
-          stdout: redactAndBound(text, context.maxOutputBytes),
-          stderr: response.error,
-          detail: { ...descriptor, duration_ms: Date.now() - startedAt },
+          stdout: redactAndBound(redactedText, context.maxOutputBytes),
+          stderr: response.error ? context.redact(response.error) : undefined,
+          detail: attachExecutionProof({ ...descriptor, result_hash: resultHash, result_bytes: Buffer.byteLength(redactedText), duration_ms: durationMs }, {
+            executor: 'mcp',
+            operation: action.operation,
+            before: { server, tool, arguments_hash: descriptor.arguments_hash, transport: descriptor.transport },
+            result: { success: response.ok, result_hash: resultHash, result_bytes: Buffer.byteLength(redactedText), duration_ms: durationMs },
+            verification_status: response.ok ? 'PARTIALLY_VERIFIED' : 'FAILED',
+            verification_summary: 'MCP tool-call result observed; downstream side effects are not inferred',
+            verification_scope: 'MCP proof covers the governed downstream tool call unless downstream evidence is explicitly linked.',
+          }),
         };
       } catch (error) {
+        const durationMs = Date.now() - startedAt;
         return {
           status: 'FAILED',
           stderr: error instanceof Error ? error.message : String(error),
-          detail: { ...descriptor, duration_ms: Date.now() - startedAt },
+          detail: attachExecutionProof({ ...descriptor, duration_ms: durationMs }, {
+            executor: 'mcp',
+            operation: action.operation,
+            before: { server, tool, arguments_hash: descriptor.arguments_hash, transport: descriptor.transport },
+            result: { success: false, error: error instanceof Error ? error.message : String(error), duration_ms: durationMs },
+            verification_status: 'FAILED',
+            verification_summary: 'MCP tool call failed',
+            verification_scope: 'MCP proof covers the governed downstream tool call unless downstream evidence is explicitly linked.',
+          }),
         };
       }
     },

@@ -21,6 +21,7 @@
 import { randomUUID } from 'crypto';
 import { canonicalizeAction, fingerprintAction } from './canonicalAction';
 import { redactSecrets } from './redaction';
+import { attachExecutionProof, extractExecutionProof, proofEvidenceContent, type ExecutionProofRecord } from './executionProof';
 import { assertProtocol } from './schemaValidator';
 import { ExecutorArgumentError, WorkspaceContainmentError, type ExecutorOutcome, type ManagedExecutorPlugin } from './executors/types';
 import { ExecutionContextError } from './executionContext';
@@ -48,6 +49,7 @@ export interface ExecutionRecorder {
     kind: string;
     description: string;
     content_hash?: string;
+    content?: string;
     agent_id: string;
     task_id: string;
     tenant_id: string;
@@ -392,14 +394,34 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           tenant_id: canonical.tenant_id,
         }));
 
+      const rawProof = extractExecutionProof(outcome.detail);
+      const executionProof: ExecutionProofRecord = {
+        ...(rawProof ?? {
+          executor: canonical.action_kind,
+          operation: canonical.operation,
+          result: { status: outcome.status, exit_code: outcome.exit_code },
+          verification_status: outcome.status === 'EXECUTED' ? 'PARTIALLY_VERIFIED' : 'FAILED',
+          verification_summary: 'executor result observed without executor-specific proof payload',
+          verification_scope: 'Generic managed executor result proof.',
+        }),
+        execution_id: executionId,
+        permit_id: permitId,
+        action_fingerprint: fingerprint,
+        started_at: startedAt,
+        completed_at: completedAt,
+        artifact_ids: artifactIds,
+      };
+
       const evidenceId = config.recorder.recordEvidence({
         kind: `execution.${canonical.action_kind}`,
-        description: `${canonical.action_kind} ${canonical.operation} → ${outcome.status}`,
-        content_hash: fingerprint,
+        description: `${canonical.action_kind} ${canonical.operation} -> ${outcome.status}; ${executionProof.verification_status}: ${executionProof.verification_summary}`,
+        content: proofEvidenceContent(executionProof),
         agent_id: canonical.agent_id,
         task_id: canonical.task_id,
         tenant_id: canonical.tenant_id,
       });
+      executionProof.evidence_ids = [evidenceId];
+      const detailWithProof = attachExecutionProof(outcome.detail, executionProof);
 
       const verificationId = `verification-${Date.now()}-${randomUUID().slice(0, 8)}`;
       for (const artifactId of artifactIds) {
@@ -462,7 +484,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         decision: input.permit?.disposition,
         summary: `Managed ${canonical.action_kind} ${canonical.operation}: ${outcome.status}`,
         detail: {
-          ...outcome.detail,
+          ...detailWithProof,
           exit_code: outcome.exit_code,
           permit_id: permitId,
           execution_id: executionId,
@@ -482,7 +504,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           artifact_ids: artifactIds,
           action_fingerprint: fingerprint,
           summary: `Managed ${canonical.action_kind} ${canonical.operation}: ${outcome.status}`,
-          data: { status: outcome.status, exit_code: outcome.exit_code, duration_ms: durationMs, executor: canonical.action_kind },
+          data: { status: outcome.status, exit_code: outcome.exit_code, duration_ms: durationMs, executor: canonical.action_kind, execution_proof: executionProof },
         },
       });
 
@@ -495,7 +517,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         action_fingerprint: fingerprint,
         decision: outcome.status === 'EXECUTED' ? 'ALLOW' : 'DENY',
         summary: `Executor result recorded for ${executionId}`,
-        detail: { verification_id: verificationId, execution_id: executionId, evidence_ids: [evidenceId] },
+        detail: { verification_id: verificationId, execution_id: executionId, evidence_ids: [evidenceId], verification_status: executionProof.verification_status, verification_summary: executionProof.verification_summary },
         workEvent: {
           type: 'verification.recorded',
           session_id: canonical.session_id,
@@ -509,7 +531,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
           evidence_ids: [evidenceId],
           action_fingerprint: fingerprint,
           summary: `Executor result recorded for ${executionId}`,
-          data: { verification_type: 'executor_result_recorded', status: outcome.status },
+          data: { verification_type: 'executor_side_effect_proof', status: executionProof.verification_status, execution_proof: executionProof },
         },
       });
 
@@ -527,7 +549,7 @@ export function createManagedExecutor(config: ManagedExecutorConfig): ManagedExe
         duration_ms: durationMs,
         evidence_ids: [evidenceId],
         artifact_ids: artifactIds,
-        detail: outcome.detail,
+        detail: detailWithProof,
       };
     },
   };

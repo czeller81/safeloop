@@ -14,7 +14,9 @@
  */
 
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import { describeEnvironment, redactAndBound } from '../redaction';
+import { attachExecutionProof, sha256Json, type ExecutionProofRecord } from '../executionProof';
 import { verifyExecutionCwd } from '../executionContext';
 import {
   ExecutorArgumentError,
@@ -84,6 +86,10 @@ export function createShellExecutor(options: ShellExecutorOptions = {}): Managed
       return new Promise<ExecutorOutcome>((resolvePromise) => {
         let stdout = '';
         let stderr = '';
+        let stdoutBytes = 0;
+        let stderrBytes = 0;
+        const stdoutHash = createHash('sha256');
+        const stderrHash = createHash('sha256');
         let timedOut = false;
         let settled = false;
 
@@ -107,25 +113,55 @@ export function createShellExecutor(options: ShellExecutorOptions = {}): Managed
         };
 
         child.stdout?.on('data', (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+          stdoutBytes += buffer.length;
+          stdoutHash.update(buffer);
           if (stdout.length < context.maxOutputBytes * 2) stdout += String(chunk);
         });
         child.stderr?.on('data', (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+          stderrBytes += buffer.length;
+          stderrHash.update(buffer);
           if (stderr.length < context.maxOutputBytes * 2) stderr += String(chunk);
         });
 
         const detail = {
           executable: file,
           argv,
+          argv_fingerprint: sha256Json([file, ...argv]),
           shell_interpretation: useShell,
           cwd,
           environment: describeEnvironment(env as Record<string, string>).slice(0, 64),
         };
 
+        const proof = (status: 'EXECUTED' | 'FAILED' | 'TIMED_OUT', durationMs: number, code?: number | null, signal?: NodeJS.Signals | null): ExecutionProofRecord => ({
+          executor: 'shell',
+          operation: action.operation,
+          before: { cwd, executable: file, argv_fingerprint: sha256Json([file, ...argv]), shell_interpretation: useShell },
+          after: undefined,
+          result: {
+            status,
+            exit_code: typeof code === 'number' ? code : undefined,
+            signal: signal ?? undefined,
+            duration_ms: durationMs,
+            stdout_digest: 'sha256:' + stdoutHash.copy().digest('hex'),
+            stderr_digest: 'sha256:' + stderrHash.copy().digest('hex'),
+            stdout_bytes: stdoutBytes,
+            stderr_bytes: stderrBytes,
+            stdout_truncated: stdoutBytes > context.maxOutputBytes,
+            stderr_truncated: stderrBytes > context.maxOutputBytes,
+          },
+          verification_status: status === 'EXECUTED' ? 'PARTIALLY_VERIFIED' : 'FAILED',
+          verification_summary: 'process invocation, execution context, exit result, and output digests observed; arbitrary process side effects are not exhaustively verified',
+          verification_scope: 'Shell proof covers the governed process invocation/result only, plus explicitly recorded managed artifacts.',
+        });
+
         child.on('error', (error) => {
+          const durationMs = Date.now() - startedAt;
           finish({
             status: 'FAILED',
             stderr: context.redact(String(error.message)),
-            detail: { ...detail, spawn_error: error.message },
+            detail: attachExecutionProof({ ...detail, spawn_error: error.message }, proof('FAILED', durationMs)),
           });
         });
 
@@ -136,7 +172,7 @@ export function createShellExecutor(options: ShellExecutorOptions = {}): Managed
               status: 'TIMED_OUT',
               stdout: redactAndBound(stdout, context.maxOutputBytes),
               stderr: redactAndBound(stderr, context.maxOutputBytes),
-              detail: { ...detail, duration_ms: durationMs, timeout_ms: context.timeoutMs },
+              detail: attachExecutionProof({ ...detail, duration_ms: durationMs, timeout_ms: context.timeoutMs }, proof('TIMED_OUT', durationMs, code, signal)),
             });
             return;
           }
@@ -145,7 +181,7 @@ export function createShellExecutor(options: ShellExecutorOptions = {}): Managed
             exit_code: typeof code === 'number' ? code : undefined,
             stdout: redactAndBound(stdout, context.maxOutputBytes),
             stderr: redactAndBound(stderr, context.maxOutputBytes),
-            detail: { ...detail, duration_ms: durationMs, signal },
+            detail: attachExecutionProof({ ...detail, duration_ms: durationMs, signal }, proof(code === 0 ? 'EXECUTED' : 'FAILED', durationMs, code, signal)),
           });
         });
       });

@@ -62,7 +62,7 @@ export function createRuntimeRecorder(options: SafeloopStorageOptions = {}): Run
       const record = registry.register({
         // The action fingerprint, not the file body: evidence proves what ran,
         // it is not a copy of what the action touched.
-        content: input.content_hash ?? input.description,
+        content: input.content ?? input.content_hash ?? input.description,
         evidenceId,
         provenance: {
           evidenceId,
