@@ -226,4 +226,37 @@ describe('runtime work events and session graph projection', () => {
     expect(graph.edges.some((edge) => edge.to === candidate.memory_id)).toBe(true);
     expect(graph.events.every((event) => validateProtocol('runtime-work-event', event).valid)).toBe(true);
   });
+
+  it('counts genuinely unresolved legacy references without fabricating graph edges', () => {
+    appendEvent({
+      id: 'legacy-root',
+      type: 'task.started',
+      agentId: 'legacy-agent',
+      sessionId: handle.session.session_id,
+      summary: 'legacy root without work metadata',
+    }, { baseDir });
+    appendEvent({
+      id: 'legacy-child-resolved',
+      type: 'tool.executed',
+      agentId: 'legacy-agent',
+      sessionId: handle.session.session_id,
+      summary: 'legacy child with resolvable legacy parent',
+      metadata: { parent_event_id: 'legacy-root' },
+    }, { baseDir });
+    appendEvent({
+      id: 'legacy-child-unresolved',
+      type: 'tool.executed',
+      agentId: 'legacy-agent',
+      sessionId: handle.session.session_id,
+      summary: 'legacy child with missing parent',
+      metadata: { parent_event_id: 'missing-legacy-parent', causes: ['also-missing'] },
+    }, { baseDir });
+
+    const graph = buildSessionWorkGraph(handle.session.session_id, { baseDir });
+
+    expect(graph.diagnostics.legacy_unresolved_count).toBe(2);
+    expect(graph.diagnostics.dangling_internal_edge_count).toBe(0);
+    expect(graph.edges.some((edge) => edge.from === 'missing-legacy-parent' || edge.from === 'also-missing')).toBe(false);
+  });
+
 });

@@ -12,7 +12,7 @@ export interface SessionWorkGraphEdge {
   from: string;
   to: string;
   type: 'parent' | 'cause' | 'references_evidence' | 'references_artifact' | 'references_memory';
-  scope: 'internal' | 'external' | 'legacy_unresolved';
+  scope: 'internal' | 'external';
 }
 
 export interface SessionWorkGraphTask {
@@ -75,6 +75,42 @@ export function extractRuntimeWorkEvent(event: SafeloopStreamEvent): RuntimeWork
   return isRuntimeWorkEvent(workEvent) ? workEvent : null;
 }
 
+function legacyReferenceIds(event: SafeloopStreamEvent): string[] {
+  const meta = metadata(event);
+  const values = [
+    meta.parent_event_id,
+    meta.parentEventId,
+    meta.parent_id,
+    meta.parentId,
+    meta.cause,
+    meta.cause_id,
+    meta.causeId,
+    meta.causes,
+  ];
+  const refs: string[] = [];
+  for (const value of values) {
+    if (typeof value === 'string' && value) refs.push(value);
+    else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string' && item) refs.push(item);
+      }
+    }
+  }
+  return refs;
+}
+
+function countUnresolvedLegacyReferences(legacyEvents: SafeloopStreamEvent[], workEventIds: Set<string>): number {
+  const legacyEventIds = new Set(legacyEvents.map((event) => event.id));
+  let count = 0;
+  for (const event of legacyEvents) {
+    if (extractRuntimeWorkEvent(event)) continue;
+    for (const referenceId of legacyReferenceIds(event)) {
+      if (!legacyEventIds.has(referenceId) && !workEventIds.has(referenceId)) count += 1;
+    }
+  }
+  return count;
+}
+
 function readArtifacts(options: SafeloopStorageOptions): ArtifactRecord[] {
   return readJsonFile<ArtifactFile>(resolveSafeloopPath('runtime-artifacts.json', options), { version: 1, records: [] }).records ?? [];
 }
@@ -98,6 +134,7 @@ export function buildSessionWorkGraph(sessionId: string, options: SafeloopStorag
   }).sort(byTime);
 
   const eventIds = new Set(events.map((event) => event.id));
+  const legacyUnresolvedCount = countUnresolvedLegacyReferences(legacyEvents, eventIds);
   const edges: SessionWorkGraphEdge[] = [];
   let missingCausalMetadata = 0;
   for (const event of events) {
@@ -142,7 +179,7 @@ export function buildSessionWorkGraph(sessionId: string, options: SafeloopStorag
       node_count: events.length,
       edge_count: edges.length,
       dangling_internal_edge_count: danglingInternalEdges.length,
-      legacy_unresolved_count: 0,
+      legacy_unresolved_count: legacyUnresolvedCount,
     },
   };
 }
