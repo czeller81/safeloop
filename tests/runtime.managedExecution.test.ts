@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createSafeloopRuntime, RuntimeError, type SafeloopRuntime, type SessionHandle } from '../src/runtime/runtimeCore';
+import { buildSessionWorkGraph } from '../src/runtime/sessionWorkGraph';
 import { validateProtocol } from '../src/runtime/schemaValidator';
 import type { ActionProposal } from '../src/runtime/protocol';
 
@@ -88,6 +89,14 @@ describe('managed filesystem', () => {
     expect(result?.status).toBe('EXECUTED');
     expect(readFileSync(join(workspace, 'notes.txt'), 'utf8')).toBe('hello governed world');
     expect(result?.artifact_ids.length).toBe(1);
+    expect(result?.detail?.execution_proof).toMatchObject({ executor: 'filesystem', operation: 'create', verification_status: 'VERIFIED' });
+    expect(result?.detail?.execution_proof).not.toHaveProperty('content');
+    const proof = result?.detail?.execution_proof as Record<string, unknown>;
+    expect((proof.before as Record<string, unknown>).exists).toBe(false);
+    expect((proof.after as Record<string, unknown>).exists).toBe(true);
+    expect((proof.after as Record<string, unknown>).sha256).toMatch(/^sha256:/);
+    const graph = buildSessionWorkGraph(handle.session.session_id, { baseDir });
+    expect(graph.execution_proofs.some((entry) => entry.execution_id === result?.execution_id)).toBe(true);
     expect(validateProtocol('execution-result', result).valid).toBe(true);
   });
 
@@ -180,6 +189,11 @@ describe('managed shell', () => {
       agent_id: 'agent-a',
     });
     expect(result?.detail?.shell_interpretation).toBe(false);
+    expect(result?.detail?.execution_proof).toMatchObject({ executor: 'shell', verification_status: 'PARTIALLY_VERIFIED' });
+    const proof = result?.detail?.execution_proof as Record<string, unknown>;
+    const proofResult = proof.result as Record<string, unknown>;
+    expect(proofResult.stdout_digest).toMatch(/^sha256:/);
+    expect(proofResult.stdout_bytes).toBeGreaterThan(0);
   });
 
   it('does not interpret metacharacters in structured argv', async () => {
@@ -450,6 +464,10 @@ describe('managed git', () => {
     const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit: redemption.execution_permit, action: commit });
 
     expect(result.status).toBe('EXECUTED');
+    expect(result.detail?.execution_proof).toMatchObject({ executor: 'git', operation: 'commit', verification_status: 'VERIFIED' });
+    const gitProof = result.detail?.execution_proof as Record<string, unknown>;
+    expect((gitProof.result as Record<string, unknown>).commit_created).toBe(true);
+    expect((gitProof.after as Record<string, unknown>).repository_identity).toBe((gitProof.before as Record<string, unknown>).repository_identity);
     const log = execFileSync('git', ['log', '--oneline'], { cwd: repo, encoding: 'utf8' });
     expect(log).toContain('governed commit');
     expect(log.trim().split('\n')).toHaveLength(1);
@@ -638,5 +656,70 @@ describe('governance bypass attempts', () => {
     expect(decision.execution_permit?.tenant_id).toBe('tenant-a');
     expect(decision.execution_permit?.agent_id).toBe('agent-a');
     expect(decision.execution_permit?.task_id).toBe(taskId);
+  });
+});
+
+describe('Phase 2 executor proof enrichment', () => {
+  it('records HTTP transaction proof without raw credentials and preserves redirect refusal', async () => {
+    const fetchImpl = async () => ({
+      status: 307,
+      statusText: 'Temporary Redirect',
+      headers: { Location: 'https://redirect.example/next', 'content-type': 'text/plain' },
+      text: async () => 'redirect body',
+    });
+    runtime = createSafeloopRuntime({ storageOptions: { baseDir }, defaultProfile: 'coding', workspace, fetchImpl });
+    handle = runtime.startSession({ agent: { agent_id: 'agent-a' }, tenant_id: 'tenant-a', workspace });
+    taskId = runtime.startTask(handle.credential, { session_id: handle.session.session_id }).task_id;
+
+    const action: ActionProposal = {
+      action_kind: 'http', operation: 'read', method: 'GET', resource: 'https://api.example/items?page=1',
+      arguments: {}, agent_id: 'agent-a',
+    };
+    const decision = runtime.propose(handle.credential, { session_id: handle.session.session_id, task_id: taskId, action });
+    const permit = runtime.permits().issue({
+      action_fingerprint: decision.action_fingerprint,
+      agent_id: 'agent-a',
+      task_id: taskId,
+      session_id: handle.session.session_id,
+      scenario_id: 'coding',
+      tenant_id: 'tenant-a',
+      disposition: 'ALLOW_WITH_WARNING',
+    });
+    const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit, action });
+    expect(result?.status).toBe('EXECUTED');
+    expect(result?.detail?.redirect_not_followed).toBe(true);
+    expect(result?.detail?.redirect_location).toBe('https://redirect.example/next');
+    expect(result?.detail?.query_fingerprint).toMatch(/^sha256:/);
+    expect(JSON.stringify(result?.detail)).not.toContain('page=1');
+    expect(result?.detail?.execution_proof).toMatchObject({ executor: 'http', verification_status: 'VERIFIED' });
+    expect((result?.detail?.execution_proof as Record<string, unknown>).result).toMatchObject({ response_status: 307 });
+  });
+
+  it('records MCP call proof without claiming downstream side-effect proof', async () => {
+    runtime = createSafeloopRuntime({
+      storageOptions: { baseDir }, defaultProfile: 'coding', workspace,
+      mcpInvoke: async () => ({ ok: true, content: { updated: true, token: 'should-redact' } }),
+    });
+    handle = runtime.startSession({ agent: { agent_id: 'agent-a' }, tenant_id: 'tenant-a', workspace });
+    taskId = runtime.startTask(handle.credential, { session_id: handle.session.session_id }).task_id;
+
+    const { result } = await proposeAndExecute({
+      action_kind: 'mcp', operation: 'call', target: 'server.tool', tool: 'server.tool', arguments: { id: 1 }, agent_id: 'agent-a',
+    });
+    expect(result?.status).toBe('EXECUTED');
+    expect(result?.detail?.result_hash).toMatch(/^sha256:/);
+    expect(result?.stdout).not.toContain('should-redact');
+    expect(result?.detail?.execution_proof).toMatchObject({ executor: 'mcp', verification_status: 'PARTIALLY_VERIFIED' });
+    expect((result?.detail?.execution_proof as Record<string, unknown>).verification_scope).toContain('tool call');
+  });
+
+  it('caps large-file hashes truthfully instead of claiming full verification', async () => {
+    const large = join(workspace, 'large.bin');
+    writeFileSync(large, Buffer.alloc(65 * 1024 * 1024, 7));
+    const { result } = await proposeAndExecute({ action_kind: 'filesystem', operation: 'append', target: large, arguments: { content: 'x' }, agent_id: 'agent-a' });
+    const proof = result?.detail?.execution_proof as Record<string, unknown>;
+    expect((proof.before as Record<string, unknown>).hash_capped).toBe(true);
+    expect((proof.after as Record<string, unknown>).hash_capped).toBe(true);
+    expect((proof.after as Record<string, unknown>).sha256).toBeUndefined();
   });
 });
