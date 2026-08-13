@@ -133,3 +133,11 @@ metadata.
 ## Compatibility
 
 Use `normalizeRuntimeEvent()` to read old ledger records as runtime governance events. Use `recordRuntimeGovernanceEvent()` to write normalized runtime events through the existing JSONL ledger without changing the top-level ledger schema.
+
+## Phase 2 execution proof records
+
+Managed executor outcomes may include `detail.execution_proof`, a normalized metadata-first record that links the authorized action to the observed execution result. The managed executor copies that proof into `execution.completed` and `verification.recorded` work-event data, hashes the proof payload into the existing evidence registry, and links the resulting `evidence_ids` and `artifact_ids` back into the session work graph.
+
+The proof record is additive. Older sessions that do not contain `execution_proof` still reconstruct normally. `buildSessionWorkGraph(session_id)` exposes available proof records as `execution_proofs` without changing causal edge semantics.
+
+Default proof records do not store file bodies, raw HTTP request or response bodies, full stdout/stderr, credentials, authorization headers, environment values, or hidden model reasoning. They prefer resolved context, hashes, sizes, status codes, byte counts, bounded/redacted snippets where already supported, and explicit verification status.

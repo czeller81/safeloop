@@ -202,3 +202,17 @@ processes require external controls: OS permissions, containers, network policy,
 IAM, endpoint protection, secrets management.
 
 See `docs/THREAT_MODEL.md` and `docs/MANAGED_EXECUTION.md`.
+
+## Executor side-effect proof
+
+Phase 2 keeps enforcement and evidence responsibilities separate. Policy decides whether an action may run, permit redemption binds the exact authorized action, the executor performs the already-authorized operation, and evidence records what SafeLoop directly observed. Evidence code does not issue approvals, issue permits, redeem permits, or change disposition.
+
+Executor verification is executor-specific:
+
+- Filesystem: before/after existence, object type, size, and streaming SHA-256 for files under the evidence hash cap. Large files are marked capped rather than falsely reported as fully hashed.
+- Git: repository identity, branch and HEAD before/after, changed-file metadata, and commit summary where applicable. Full diff bodies are not captured by default.
+- Shell: executable, argv fingerprint, cwd, exit result, duration, output byte counts, and output digests. This is process invocation/result proof, not universal side-effect tracing for arbitrary processes.
+- HTTP: authorized destination metadata, request/query/body hashes and sizes where available, response status, response digest/size, duration, and redirect-not-followed proof. This is transaction proof, not proof of the remote business outcome.
+- MCP: downstream server/tool identity, argument fingerprint, result fingerprint, success/failure, duration, and transport classification. This is MCP call proof unless a downstream integration returns additional evidence.
+
+Evidence capture failure must be explicit in proof status and must not convert a denial into an allow. Phase 2 does not add OS-level sandboxing or a new policy engine.

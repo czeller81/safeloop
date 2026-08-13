@@ -157,3 +157,9 @@ Both are tested against real executor calls, not state objects: a permit issued
 High-risk consequential operations fail closed. The one deliberate availability
 tradeoff: `/health` is unauthenticated so an operator can tell a stopped runtime
 from an unreachable one; it exposes only liveness, version, and session count.
+
+## Session inspection proof summaries
+
+`safeloop session inspect <session_id>` now prints concise execution proof summaries when a session contains Phase 2 proof records. The default text view shows executor, operation, verification status, selected before/after state, result metadata, evidence IDs, and artifact IDs. It deliberately avoids dumping large structured proof JSON.
+
+Use `--json` to inspect the full structured graph, including `execution_proofs`. The JSON shape remains additive so v0.2 historical sessions and Phase 1 work graphs remain readable.
