@@ -1,9 +1,11 @@
 import { execFileSync } from 'child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, truncateSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createSafeloopRuntime, RuntimeError, type SafeloopRuntime, type SessionHandle } from '../src/runtime/runtimeCore';
 import { buildSessionWorkGraph } from '../src/runtime/sessionWorkGraph';
+import { createLocalEvidenceRegistry } from '../src/evidenceRegistry';
+import { DEFAULT_FILE_HASH_LIMIT_BYTES, observeFileState } from '../src/runtime/executionProof';
 import { validateProtocol } from '../src/runtime/schemaValidator';
 import type { ActionProposal } from '../src/runtime/protocol';
 
@@ -721,5 +723,112 @@ describe('Phase 2 executor proof enrichment', () => {
     expect((proof.before as Record<string, unknown>).hash_capped).toBe(true);
     expect((proof.after as Record<string, unknown>).hash_capped).toBe(true);
     expect((proof.after as Record<string, unknown>).sha256).toBeUndefined();
+    expect(proof.verification_status).toBe('PARTIALLY_VERIFIED');
+    expect(String(proof.verification_summary)).not.toMatch(/hash observed|complete content hash observed/);
+    const evidence = createLocalEvidenceRegistry({ baseDir }).get(result!.evidence_ids[0]);
+    expect(evidence?.provenance.supportedClaim).toContain('PARTIALLY_VERIFIED');
+    expect(evidence?.provenance.supportedClaim).not.toContain('VERIFIED: post-append hash observed');
+  });
+
+  it('computes a complete hash at the filesystem evidence cap boundary', async () => {
+    const boundary = join(workspace, 'boundary.bin');
+    writeFileSync(boundary, '');
+    truncateSync(boundary, DEFAULT_FILE_HASH_LIMIT_BYTES);
+    const { result } = await proposeAndExecute({ action_kind: 'filesystem', operation: 'append', target: boundary, arguments: { content: '' }, agent_id: 'agent-a' });
+    const proof = result?.detail?.execution_proof as Record<string, unknown>;
+    expect(proof.verification_status).toBe('VERIFIED');
+    expect((proof.after as Record<string, unknown>).hash_capped).toBeUndefined();
+    expect((proof.after as Record<string, unknown>).sha256).toMatch(/^sha256:/);
+  });
+
+  it('confirms delete only when post-state absence is observed', async () => {
+    const doomed = join(workspace, 'delete-me.txt');
+    writeFileSync(doomed, 'remove me');
+    const action: ActionProposal = { action_kind: 'filesystem', operation: 'delete', target: doomed, agent_id: 'agent-a' };
+    const decision = runtime.propose(handle.credential, { session_id: handle.session.session_id, task_id: taskId, action });
+    const permit = decision.execution_permit ?? runtime.permits().issue({
+      action_fingerprint: decision.action_fingerprint,
+      agent_id: 'agent-a',
+      task_id: taskId,
+      session_id: handle.session.session_id,
+      scenario_id: 'coding',
+      tenant_id: 'tenant-a',
+      disposition: 'ALLOW_WITH_WARNING',
+      workspace_relation: 'inside',
+      workspace_root: realpathSync(workspace),
+      resolved_target: realpathSync(doomed),
+    });
+    const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit, action });
+    const proof = result?.detail?.execution_proof as Record<string, unknown>;
+    expect(proof.verification_status).toBe('VERIFIED');
+    expect((proof.after as Record<string, unknown>).observation_status).toBe('ABSENT');
+    expect((proof.result as Record<string, unknown>).deleted).toBe(true);
+  });
+
+
+  it('does not claim verified when write post-state content cannot be read', async () => {
+    const writeOnly = join(workspace, 'write-only.txt');
+    writeFileSync(writeOnly, 'before');
+    chmodSync(writeOnly, 0o200);
+    try {
+      const { result } = await proposeAndExecute({ action_kind: 'filesystem', operation: 'write', target: writeOnly, arguments: { content: 'after' }, agent_id: 'agent-a' });
+      const proof = result?.detail?.execution_proof as Record<string, unknown>;
+      expect(result?.status).toBe('EXECUTED');
+      expect(proof.verification_status).toBe('NOT_VERIFIABLE');
+      expect((proof.after as Record<string, unknown>).observation_status).toBe('OBSERVED');
+      expect((proof.after as Record<string, unknown>).hash_error).toBe('permission_denied');
+    } finally {
+      chmodSync(writeOnly, 0o600);
+    }
+  });
+
+  it('does not claim verified when move destination content cannot be read', async () => {
+    const source = join(workspace, 'move-source.txt');
+    const destination = join(workspace, 'move-destination.txt');
+    writeFileSync(source, 'move me');
+    chmodSync(source, 0o200);
+    const action: ActionProposal = {
+      action_kind: 'filesystem', operation: 'move', target: source, arguments: { destination }, agent_id: 'agent-a',
+    };
+    const decision = runtime.propose(handle.credential, { session_id: handle.session.session_id, task_id: taskId, action });
+    const permit = decision.execution_permit ?? runtime.permits().issue({
+      action_fingerprint: decision.action_fingerprint,
+      agent_id: 'agent-a',
+      task_id: taskId,
+      session_id: handle.session.session_id,
+      scenario_id: 'coding',
+      tenant_id: 'tenant-a',
+      disposition: 'ALLOW_WITH_WARNING',
+      workspace_relation: 'inside',
+      workspace_root: realpathSync(workspace),
+      resolved_target: realpathSync(source),
+      resolved_destination: destination,
+    });
+    const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit, action });
+    try {
+      const proof = result?.detail?.execution_proof as Record<string, unknown>;
+      expect(result?.status).toBe('EXECUTED');
+      expect(proof.verification_status).toBe('NOT_VERIFIABLE');
+      expect((proof.result as Record<string, unknown>).moved).toBe('unknown');
+      expect(((proof.after as Record<string, unknown>).destination as Record<string, unknown>).hash_error).toBe('permission_denied');
+    } finally {
+      if (existsSync(destination)) chmodSync(destination, 0o600);
+    }
+  });
+  it('does not represent an unobservable path as absent', () => {
+    const sealed = join(workspace, 'sealed');
+    const hidden = join(sealed, 'hidden.txt');
+    mkdirSync(sealed);
+    writeFileSync(hidden, 'still here');
+    chmodSync(sealed, 0);
+    try {
+      const state = observeFileState(hidden);
+      expect(state.observation_status).toBe('UNAVAILABLE');
+      expect(state.exists).not.toBe(false);
+      expect(state.object_type).toBe('unknown');
+    } finally {
+      chmodSync(sealed, 0o700);
+    }
+    expect(readFileSync(hidden, 'utf8')).toBe('still here');
   });
 });

@@ -1,11 +1,14 @@
 import { createHash } from 'crypto';
-import { existsSync, openSync, readSync, statSync, closeSync } from 'fs';
+import { closeSync, lstatSync, openSync, readSync } from 'fs';
 
 export type ExecutionVerificationStatus = 'VERIFIED' | 'PARTIALLY_VERIFIED' | 'NOT_VERIFIABLE' | 'FAILED';
 
+export type ObservationStatus = 'OBSERVED' | 'ABSENT' | 'UNAVAILABLE';
+
 export interface ObservedFileState {
   path: string;
-  exists: boolean;
+  observation_status: ObservationStatus;
+  exists?: boolean;
   object_type: 'file' | 'directory' | 'other' | 'absent' | 'unknown';
   size_bytes?: number;
   sha256?: string;
@@ -13,6 +16,7 @@ export interface ObservedFileState {
   hash_capped?: boolean;
   hash_cap_bytes?: number;
   hash_error?: string;
+  observation_error?: string;
 }
 
 export interface ExecutionProofRecord {
@@ -43,43 +47,67 @@ export function sha256Json(value: unknown): string {
   return sha256Text(JSON.stringify(value ?? null));
 }
 
-export function observeFileState(path: string, maxHashBytes = DEFAULT_FILE_HASH_LIMIT_BYTES): ObservedFileState {
-  try {
-    if (!existsSync(path)) return { path, exists: false, object_type: 'absent' };
-    const stats = statSync(path);
-    if (stats.isDirectory()) return { path, exists: true, object_type: 'directory', size_bytes: stats.size };
-    if (!stats.isFile()) return { path, exists: true, object_type: 'other', size_bytes: stats.size };
-    const state: ObservedFileState = { path, exists: true, object_type: 'file', size_bytes: stats.size };
-    if (stats.size > maxHashBytes) {
-      return { ...state, hash_capped: true, hash_cap_bytes: maxHashBytes };
-    }
+function errorCategory(error: unknown): string {
+  const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : '';
+  switch (code) {
+    case 'EACCES':
+    case 'EPERM':
+      return 'permission_denied';
+    case 'ENOTDIR':
+      return 'not_directory';
+    case 'ELOOP':
+      return 'symlink_loop';
+    case 'ENOENT':
+      return 'not_found';
+    default:
+      return code ? `filesystem_error:${code}` : 'filesystem_error';
+  }
+}
 
-    const hash = createHash('sha256');
-    const fd = openSync(path, 'r');
-    try {
-      const buffer = Buffer.allocUnsafe(64 * 1024);
-      let bytesRead = 0;
-      let lineCount = 0;
-      do {
-        bytesRead = readSync(fd, buffer, 0, buffer.length, null);
-        if (bytesRead > 0) {
-          hash.update(buffer.subarray(0, bytesRead));
-          for (let index = 0; index < bytesRead; index += 1) {
-            if (buffer[index] === 10) lineCount += 1;
-          }
-        }
-      } while (bytesRead > 0);
-      return { ...state, sha256: `sha256:${hash.digest('hex')}`, line_count: lineCount };
-    } finally {
-      closeSync(fd);
-    }
+export function observeFileState(path: string, maxHashBytes = DEFAULT_FILE_HASH_LIMIT_BYTES): ObservedFileState {
+  let stats;
+  try {
+    stats = lstatSync(path);
   } catch (error) {
+    if (errorCategory(error) === 'not_found') {
+      return { path, observation_status: 'ABSENT', exists: false, object_type: 'absent' };
+    }
     return {
       path,
-      exists: false,
+      observation_status: 'UNAVAILABLE',
       object_type: 'unknown',
-      hash_error: error instanceof Error ? error.message : String(error),
+      observation_error: errorCategory(error),
     };
+  }
+
+  if (stats.isDirectory()) return { path, observation_status: 'OBSERVED', exists: true, object_type: 'directory', size_bytes: stats.size };
+  if (!stats.isFile()) return { path, observation_status: 'OBSERVED', exists: true, object_type: 'other', size_bytes: stats.size };
+  const state: ObservedFileState = { path, observation_status: 'OBSERVED', exists: true, object_type: 'file', size_bytes: stats.size };
+  if (stats.size > maxHashBytes) {
+    return { ...state, hash_capped: true, hash_cap_bytes: maxHashBytes };
+  }
+
+  const hash = createHash('sha256');
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, 'r');
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let bytesRead = 0;
+    let lineCount = 0;
+    do {
+      bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) {
+        hash.update(buffer.subarray(0, bytesRead));
+        for (let index = 0; index < bytesRead; index += 1) {
+          if (buffer[index] === 10) lineCount += 1;
+        }
+      }
+    } while (bytesRead > 0);
+    return { ...state, sha256: `sha256:${hash.digest('hex')}`, line_count: lineCount };
+  } catch (error) {
+    return { ...state, hash_error: errorCategory(error) };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 

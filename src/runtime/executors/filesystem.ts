@@ -20,7 +20,7 @@ import {
 } from 'fs';
 import { dirname, isAbsolute, resolve } from 'path';
 import { redactAndBound } from '../redaction';
-import { attachExecutionProof, filesystemDeltaSummary, observeFileState, type ExecutionProofRecord } from '../executionProof';
+import { attachExecutionProof, filesystemDeltaSummary, observeFileState, type ExecutionProofRecord, type ExecutionVerificationStatus, type ObservedFileState } from '../executionProof';
 import { verifyExecutionCwd, verifyResolvedPath } from '../executionContext';
 import {
   containmentModeForOperation,
@@ -64,7 +64,7 @@ function proof(
   before: unknown,
   after: unknown,
   result: Record<string, unknown>,
-  status: 'VERIFIED' | 'PARTIALLY_VERIFIED' | 'NOT_VERIFIABLE' | 'FAILED',
+  status: ExecutionVerificationStatus,
   summary: string,
 ): ExecutionProofRecord {
   return {
@@ -79,6 +79,49 @@ function proof(
   };
 }
 
+
+function fileStateVerification(state: ObservedFileState, fullHashClaim: string): { status: ExecutionVerificationStatus; summary: string } {
+  if (state.observation_status === 'UNAVAILABLE') {
+    return { status: 'NOT_VERIFIABLE', summary: `${fullHashClaim} state could not be observed` };
+  }
+  if (state.observation_status === 'ABSENT') {
+    return { status: 'FAILED', summary: `${fullHashClaim} state was confirmed absent` };
+  }
+  if (state.object_type !== 'file') {
+    return { status: 'VERIFIED', summary: `${fullHashClaim} metadata observed` };
+  }
+  if (state.sha256) {
+    return { status: 'VERIFIED', summary: `${fullHashClaim} file state and complete content hash observed` };
+  }
+  if (state.hash_capped) {
+    return {
+      status: 'PARTIALLY_VERIFIED',
+      summary: `${fullHashClaim} file state observed; content hash not computed because file exceeded evidence hashing limit`,
+    };
+  }
+  return { status: 'NOT_VERIFIABLE', summary: `${fullHashClaim} file state observed but content hash could not be computed` };
+}
+
+function absentVerification(state: ObservedFileState, label: string): { status: ExecutionVerificationStatus; summary: string; confirmed: boolean } {
+  if (state.observation_status === 'ABSENT') return { status: 'VERIFIED', summary: `${label} confirmed absent`, confirmed: true };
+  if (state.observation_status === 'UNAVAILABLE') return { status: 'NOT_VERIFIABLE', summary: `${label} could not be observed`, confirmed: false };
+  return { status: 'FAILED', summary: `${label} still present after operation`, confirmed: false };
+}
+
+function moveVerification(sourceAfter: ObservedFileState, destinationAfter: ObservedFileState): { status: ExecutionVerificationStatus; summary: string; moved: boolean | 'unknown' } {
+  const source = absentVerification(sourceAfter, 'move source');
+  const destination = fileStateVerification(destinationAfter, 'move destination');
+  if (source.status === 'NOT_VERIFIABLE' || destination.status === 'NOT_VERIFIABLE') {
+    return { status: 'NOT_VERIFIABLE', summary: 'move post-state could not be fully observed', moved: 'unknown' };
+  }
+  if (!source.confirmed || destinationAfter.observation_status !== 'OBSERVED') {
+    return { status: 'FAILED', summary: 'move post-state did not match expected source/destination transition', moved: false };
+  }
+  if (destination.status === 'PARTIALLY_VERIFIED') {
+    return { status: 'PARTIALLY_VERIFIED', summary: destination.summary, moved: true };
+  }
+  return { status: 'VERIFIED', summary: 'source absence and destination file state observed', moved: true };
+}
 function absolute(path: string, cwd: string): string {
   return isAbsolute(path) ? path : resolve(cwd, path);
 }
@@ -203,8 +246,9 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
       const artifacts: ExecutorArtifact[] = [];
 
       const record = (operationName: string, targetPath: string): void => {
-        const hash = hashFile(targetPath);
-        artifacts.push({ path: targetPath, content_hash: hash ?? 'sha256:absent', operation: operationName });
+        const state = observeFileState(targetPath);
+        const hash = state.sha256 ?? (state.hash_capped ? 'sha256:capped' : state.observation_status === 'ABSENT' ? 'sha256:absent' : 'sha256:unavailable');
+        artifacts.push({ path: targetPath, content_hash: hash, operation: operationName });
       };
 
       switch (operation) {
@@ -218,7 +262,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
             stdout: redactAndBound(content, context.maxOutputBytes),
             detail: attachExecutionProof(
               { path, operation, bytes: Buffer.byteLength(content), content_hash: before },
-              proof(operation, beforeState, observeFileState(path), { bytes_read: Buffer.byteLength(content) }, 'VERIFIED', 'read target metadata and content hash observed'),
+              (() => { const after = observeFileState(path); const verdict = fileStateVerification(after, 'read target'); return proof(operation, beforeState, after, { bytes_read: Buffer.byteLength(content) }, verdict.status, verdict.summary); })(),
             ),
           };
         }
@@ -276,7 +320,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
             status: 'EXECUTED',
             detail: attachExecutionProof(
               { path, operation, bytes: Buffer.byteLength(content), content_hash_before: before, content_hash_after: afterState.sha256 },
-              proof(operation, beforeState, afterState, { bytes_written: Buffer.byteLength(content), summary: filesystemDeltaSummary(beforeState, afterState) }, 'VERIFIED', 'post-write hash observed'),
+              (() => { const verdict = fileStateVerification(afterState, 'post-write'); return proof(operation, beforeState, afterState, { bytes_written: Buffer.byteLength(content), summary: filesystemDeltaSummary(beforeState, afterState) }, verdict.status, verdict.summary); })(),
             ),
             artifacts,
           };
@@ -292,7 +336,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
             status: 'EXECUTED',
             detail: attachExecutionProof(
               { path, operation, bytes: Buffer.byteLength(content), content_hash_before: before, content_hash_after: afterState.sha256 },
-              proof(operation, beforeState, afterState, { bytes_written: Buffer.byteLength(content), summary: filesystemDeltaSummary(beforeState, afterState) }, 'VERIFIED', 'post-append hash observed'),
+              (() => { const verdict = fileStateVerification(afterState, 'post-append'); return proof(operation, beforeState, afterState, { bytes_written: Buffer.byteLength(content), summary: filesystemDeltaSummary(beforeState, afterState) }, verdict.status, verdict.summary); })(),
             ),
             artifacts,
           };
@@ -304,7 +348,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
           artifacts.push({ path, content_hash: 'sha256:directory', operation });
           return {
             status: 'EXECUTED',
-            detail: attachExecutionProof({ path, operation }, proof(operation, beforeState, afterState, { directory_created: afterState.exists }, 'VERIFIED', 'directory existence observed')),
+            detail: attachExecutionProof({ path, operation }, proof(operation, beforeState, afterState, { directory_created: afterState.exists === true }, afterState.observation_status === 'OBSERVED' ? 'VERIFIED' : 'NOT_VERIFIABLE', afterState.observation_status === 'OBSERVED' ? 'directory existence observed' : 'directory post-state could not be observed')),
             artifacts,
           };
         }
@@ -331,7 +375,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
             status: 'EXECUTED',
             detail: attachExecutionProof(
               { path, destination, operation, content_hash_before: before, content_hash_after: destinationAfter.sha256 },
-              proof(operation, { source: beforeState, destination: destinationBefore }, { source: sourceAfter, destination: destinationAfter }, { moved: sourceAfter.exists === false && destinationAfter.exists === true }, 'VERIFIED', 'source absence and destination state observed after move'),
+              (() => { const verdict = moveVerification(sourceAfter, destinationAfter); return proof(operation, { source: beforeState, destination: destinationBefore }, { source: sourceAfter, destination: destinationAfter }, { moved: verdict.moved }, verdict.status, verdict.summary); })(),
             ),
             artifacts,
           };
@@ -349,7 +393,7 @@ export function createFilesystemExecutor(): ManagedExecutorPlugin {
             status: 'EXECUTED',
             detail: attachExecutionProof(
               { path, operation, was_directory: wasDirectory, content_hash_before: before },
-              proof(operation, beforeState, afterState, { deleted: afterState.exists === false }, 'VERIFIED', 'post-delete absence observed'),
+              (() => { const verdict = absentVerification(afterState, 'post-delete path'); return proof(operation, beforeState, afterState, { deleted: verdict.confirmed ? true : afterState.observation_status === 'UNAVAILABLE' ? 'unknown' : false }, verdict.status, verdict.summary); })(),
             ),
             artifacts,
           };
