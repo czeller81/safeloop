@@ -305,6 +305,42 @@ function nonFlagArgs(args: string[]): string[] {
   return values;
 }
 
+function shortValue(value: unknown): string {
+  if (value === undefined || value === null) return 'n/a';
+  const text = String(value);
+  return text.length > 96 ? `${text.slice(0, 93)}...` : text;
+}
+
+function printProofState(label: string, state: unknown): void {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return;
+  const record = state as Record<string, unknown>;
+  console.log(`      ${label}`);
+  for (const key of ['path', 'exists', 'object_type', 'size_bytes', 'sha256', 'hash_capped', 'repository_identity', 'branch', 'head']) {
+    if (key in record) console.log(`        ${key}: ${shortValue(record[key])}`);
+  }
+}
+
+function printExecutionProofs(graph: SessionWorkGraph): void {
+  if (!graph.execution_proofs.length) return;
+  console.log('');
+  console.log('Execution Proofs:');
+  for (const proof of graph.execution_proofs) {
+    console.log(`  ${proof.execution_id ?? 'execution'} - ${proof.executor}${proof.operation ? `.${proof.operation}` : ''}`);
+    console.log(`    Verification: ${proof.verification_status} - ${proof.verification_summary}`);
+    printProofState('Before:', proof.before);
+    printProofState('After:', proof.after);
+    if (proof.result && typeof proof.result === 'object' && !Array.isArray(proof.result)) {
+      const result = proof.result as Record<string, unknown>;
+      const fields = ['status', 'exit_code', 'response_status', 'duration_ms', 'stdout_digest', 'stderr_digest', 'summary'];
+      console.log('      Result:');
+      for (const key of fields) {
+        if (key in result) console.log(`        ${key}: ${shortValue(result[key])}`);
+      }
+    }
+    if (proof.evidence_ids?.length) console.log(`    Evidence: ${proof.evidence_ids.join(', ')}`);
+    if (proof.artifact_ids?.length) console.log(`    Artifacts: ${proof.artifact_ids.join(', ')}`);
+  }
+}
 function printSessionGraph(graph: SessionWorkGraph): void {
   console.log(`Session ${graph.session_id}`);
   console.log(`Work events: ${graph.diagnostics.work_event_count}`);
@@ -335,6 +371,8 @@ function printSessionGraph(graph: SessionWorkGraph): void {
       }
     }
   }
+
+  printExecutionProofs(graph);
 
   if (graph.evidence.length || graph.artifacts.length || graph.memories.length) {
     console.log('');

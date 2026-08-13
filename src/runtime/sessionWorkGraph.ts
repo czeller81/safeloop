@@ -4,6 +4,7 @@ import { readJsonFile, resolveSafeloopPath, type SafeloopStorageOptions } from '
 import { isRuntimeWorkEvent } from './workEvents';
 import type { ArtifactRecord, RuntimeWorkEvent } from './protocol';
 import type { StoredMemory } from './memoryStore';
+import type { ExecutionProofRecord } from './executionProof';
 
 interface ArtifactFile { version: 1; records: ArtifactRecord[] }
 interface MemoryFile { version: 1; records: StoredMemory[] }
@@ -28,6 +29,7 @@ export interface SessionWorkGraph {
   evidence: EvidenceRegistryRecord[];
   artifacts: ArtifactRecord[];
   memories: StoredMemory[];
+  execution_proofs: ExecutionProofRecord[];
   legacy_events: SafeloopStreamEvent[];
   diagnostics: {
     legacy_event_count: number;
@@ -111,6 +113,23 @@ function countUnresolvedLegacyReferences(legacyEvents: SafeloopStreamEvent[], wo
   return count;
 }
 
+function workEventProof(event: RuntimeWorkEvent): ExecutionProofRecord | undefined {
+  const proof = event.data?.execution_proof;
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof)) return undefined;
+  const record = proof as ExecutionProofRecord;
+  return typeof record.executor === 'string' && typeof record.verification_status === 'string' ? record : undefined;
+}
+function dedupeExecutionProofs(proofs: ExecutionProofRecord[]): ExecutionProofRecord[] {
+  const seen = new Set<string>();
+  const out: ExecutionProofRecord[] = [];
+  for (const proof of proofs) {
+    const key = `${proof.execution_id ?? ''}:${proof.executor}:${proof.operation ?? ''}:${proof.verification_status}:${(proof.evidence_ids ?? []).join(',')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(proof);
+  }
+  return out;
+}
 function readArtifacts(options: SafeloopStorageOptions): ArtifactRecord[] {
   return readJsonFile<ArtifactFile>(resolveSafeloopPath('runtime-artifacts.json', options), { version: 1, records: [] }).records ?? [];
 }
@@ -162,6 +181,7 @@ export function buildSessionWorkGraph(sessionId: string, options: SafeloopStorag
   const evidenceIds = new Set(events.flatMap((event) => event.evidence_ids ?? []));
   const evidence = createLocalEvidenceRegistry(options).list().filter((record) => evidenceIds.has(record.evidenceId));
   const memories = readMemories(options).filter((record) => record.candidate.session_id === sessionId || events.some((event) => event.memory_candidate_id === record.candidate.memory_id));
+  const executionProofs = dedupeExecutionProofs(events.map(workEventProof).filter((proof): proof is ExecutionProofRecord => Boolean(proof)));
 
   return {
     session_id: sessionId,
@@ -171,6 +191,7 @@ export function buildSessionWorkGraph(sessionId: string, options: SafeloopStorag
     evidence,
     artifacts,
     memories,
+    execution_proofs: executionProofs,
     legacy_events: legacyEvents,
     diagnostics: {
       legacy_event_count: legacyEvents.length,
@@ -234,6 +255,7 @@ export function buildSessionTimelinePage(
     evidence: graph.evidence.filter((record) => events.some((event) => event.evidence_ids?.includes(record.evidenceId))),
     artifacts: graph.artifacts.filter((artifact) => events.some((event) => event.artifact_ids?.includes(artifact.artifact_id))),
     memories: graph.memories.filter((record) => events.some((event) => event.memory_candidate_id === record.candidate.memory_id)),
+    execution_proofs: graph.execution_proofs.filter((proof) => proof.execution_id ? events.some((event) => event.execution_id === proof.execution_id) : true),
     diagnostics: graph.diagnostics,
     page: {
       limit,
