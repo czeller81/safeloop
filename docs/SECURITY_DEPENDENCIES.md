@@ -1,6 +1,6 @@
 # Security Dependencies
 
-Updated: 2026-08-07
+Updated: 2026-08-14
 
 `npm audit fix` was run without `--force`. It safely updated transitive dev dependencies in `package-lock.json`:
 
@@ -8,6 +8,7 @@ Updated: 2026-08-07
 - `js-yaml`: `3.14.2` -> `3.15.1`
 - `postcss`: `8.5.15` -> `8.5.26`
 - `nanoid`: `3.3.12` -> `3.3.17`
+- `nanoid`: `3.3.17` -> `3.3.18` for `GHSA-2v37-7h3g-55p8`
 
 The remaining Vite/esbuild development-server advisory path was removed by upgrading Vite to `8.2.1` and re-running the SafeLoop build/test gates.
 
