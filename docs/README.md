@@ -78,6 +78,8 @@ SafeLoop documentation is split between current user guidance, developer referen
 | [HERMES_PILOT_REPORT.md](HERMES_PILOT_REPORT.md) | AUDIT_EVIDENCE | Hermes pilot proof and limitations. |
 | [V0_7_HEAVY_TESTING_REPORT.md](V0_7_HEAVY_TESTING_REPORT.md) | HISTORICAL | Older npm `0.7.0` accountability/live-monitor SDK line testing record. |
 | [evidence/](evidence/) | AUDIT_EVIDENCE | Machine-readable proof artifacts. |
+| [audits/APPROVAL_STATE_REMEDIATION_DESIGN.md](audits/APPROVAL_STATE_REMEDIATION_DESIGN.md) | AUDIT_EVIDENCE | Phase 2B approval-state remediation design audit. |
+| [audits/GITHUB_ISSUE_RECONCILIATION_2026-08.md](audits/GITHUB_ISSUE_RECONCILIATION_2026-08.md) | AUDIT_EVIDENCE | Live GitHub issue reconciliation for issues #4-#7. |
 
 ## Version-History Note
 

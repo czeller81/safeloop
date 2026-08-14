@@ -2,4 +2,4 @@ blank_issues_enabled: true
 contact_links:
   - name: Security report
     url: mailto:charleszeller@gmail.com
-    about: Please report security issues privately before public disclosure.
+    about: Do not post exploit details publicly. Report vulnerabilities privately before disclosure; see SECURITY.md.

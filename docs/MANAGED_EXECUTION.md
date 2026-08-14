@@ -65,9 +65,20 @@ the profile and the existing CommandGuard policy.
 Operations: `read`, `list`, `stat`, `create`, `write`, `overwrite`, `append`,
 `mkdir`, `move`, `delete`.
 
-Evidence records path, operation, and content hashes **before and after** — never
-the file body. A governed agent editing a file full of customer data should not
-cause that data to be copied into an audit ledger that outlives the task.
+Evidence records path, operation, observation status, and content hashes when
+they are actually available ? never the file body. A governed agent editing a
+file full of customer data should not cause that data to be copied into an audit
+ledger that outlives the task.
+
+Filesystem proof status is derived from observation quality:
+
+| Observation | Verification status | Notes |
+| --- | --- | --- |
+| File state observed and complete SHA-256 computed | `VERIFIED` | Applies to files up to and including the 64 MiB evidence hash cap. |
+| File state observed but size exceeds 64 MiB | `PARTIALLY_VERIFIED` | `hash_capped: true`; no full content hash is claimed. |
+| Post-state cannot be observed or content cannot be read for hashing | `NOT_VERIFIABLE` | Unreadable paths are not represented as absent. |
+| Delete post-state is confirmed missing | `VERIFIED` with after `ABSENT` | `deleted: true` is emitted only when absence is observed. |
+| Post-state contradicts the intended transition | `FAILED` | For example, a delete target still present after the operation. |
 
 Policy is workspace-relative. Containment is computed on resolved absolute paths
 with `realpath` applied to the nearest existing ancestor, so a symlink inside the

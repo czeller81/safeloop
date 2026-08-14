@@ -28,14 +28,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: TypeScript check
+        run: node ./node_modules/typescript/bin/tsc --noEmit
+
+      - name: Run Jest tests
+        run: npm test -- --runInBand
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python test dependencies
+        run: python -m pip install -r python/requirements-dev.txt
+
+      - name: Run Python tests
+        run: python -m pytest python/tests
 
       - name: Build
         run: npm run build
 
-      - name: TypeScript check
-        run: node ./node_modules/typescript/bin/tsc --noEmit
+      - name: Dependency audit
+        run: npm audit --audit-level=moderate
+
+      - name: Certify coding profile
+        run: npm run certify -- --profile coding
+
+      - name: Certify research profile
+        run: npm run certify -- --profile research
+
+      - name: Hermes MCP doctor
+        run: npm run mcp:doctor:hermes
 
       - name: Live simulation
         run: npm run example:live-simulation

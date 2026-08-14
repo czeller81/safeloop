@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## Post-v0.2.0 - Phase 2B approval-state remediation (unreleased)
+
+### Fixed
+
+- Fixed risk-escalated approval redemption by recomputing the effective governance disposition from both profile rules and runtime risk during redemption. Risk-held HTTP reads, in-workspace destructive filesystem actions, and production-target writes now grant, redeem, issue permits, and execute only through valid one-time permits.
+- Hardened the permit fingerprint regression so proposal-state drift fails at the proposal stage instead of surfacing later as a misleading missing-permit rejection.
+- Resolved `GHSA-2v37-7h3g-55p8` by updating transitive `nanoid` from `3.3.17` to `3.3.18` in `package-lock.json` via `npm audit fix` without a package.json dependency change.
+
+### Documentation
+
+- Added `docs/audits/APPROVAL_STATE_REMEDIATION_DESIGN.md` documenting the approval-state root cause, chosen remediation, and security invariants.
+- Updated approval and managed filesystem evidence documentation to match post-v0.2.0 remediation behavior.
+
 ## Post-v0.2.0 - Public documentation modernization (unreleased)
 
 ### Documentation

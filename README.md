@@ -73,7 +73,7 @@ deterministic rules
   -> exact managed execution
 ```
 
-LLM analysis is not the sole policy enforcer.
+The effective disposition is the stricter result of profile rules and runtime risk evaluation. Approval redemption reconstructs that same effective decision before issuing a permit, so risk-escalated approvals remain redeemable without weakening fail-closed behavior. LLM analysis is not the sole policy enforcer.
 
 ## Bound Approval And Execution
 
@@ -189,6 +189,15 @@ The command guard and managed executors record decisions, evidence, diagnostics,
 SafeLoop's current reference implementation is TypeScript-based. The runtime protocol is language-neutral, with JSON schemas, TypeScript exports, a Python client, local HTTP APIs, CLI/stdin JSON commands, and MCP surfaces.
 
 Hermes and Malu are integration targets/usages, not partnerships. SafeLoop does not claim to automatically intercept private tools in Codex, Claude Code, Hermes, Malu, Kiro, Replit Agents, or custom runtimes. Those agents must route consequential actions through SafeLoop adapters, SDKs, MCP, HTTP, stdio, CLI, or managed executor paths.
+
+## Filesystem Evidence Semantics
+
+For managed filesystem actions, SafeLoop records observed state truthfully:
+
+- `VERIFIED`: post-state observed and complete SHA-256 computed for files up to and including 64 MiB, or confirmed metadata/absence for metadata/delete cases.
+- `PARTIALLY_VERIFIED`: file state observed but content hash skipped because the file exceeded the 64 MiB evidence hash cap.
+- `NOT_VERIFIABLE`: path or content could not be observed; unreadable existing paths are not treated as absent.
+- `FAILED`: observed post-state contradicts the expected transition.
 
 ## Dashboard And Evidence
 

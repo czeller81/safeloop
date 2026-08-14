@@ -40,7 +40,15 @@ npx safeloop init
 npx safeloop check --command "rm -rf ."
 npx safeloop ledger seal
 npx safeloop ledger verify
+npm run certify -- --profile coding
+npm run mcp:doctor:hermes
 ```
+
+## Security-sensitive changes
+
+Approval, permit, executor, policy, risk, memory, ledger, and credential changes need focused regression tests and documentation updates. Do not weaken fail-closed behavior, fingerprint binding, one-time permit consumption, or the cooperative enforcement boundary to make a test pass.
+
+Do not open public issues with exploit details or secrets. Use the private security reporting path in `SECURITY.md`.
 
 ## Contribution principles
 
