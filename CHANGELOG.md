@@ -2,29 +2,85 @@
 
 All notable changes to this project will be documented in this file.
 
-## Post-v0.2.0 - Phase 2B approval-state remediation (unreleased)
+## 0.2.1 - 2026-08-14
+
+This source/GitHub patch release contains work that landed after the immutable
+`v0.2.0` tag. Do not read these fixes back into the original `v0.2.0` release,
+which remains tagged at `01d73bec3500901a1c1e203fb532f0511c9958a4`.
+
+### Added
+
+- Added the causal work-graph foundation for reconstructing governed agent
+  sessions. The schema-versioned session/work graph links proposals,
+  governance decisions, approval requests, approval redemption, permit issuance,
+  execution, evidence, verification, and memory linkage where available. Session
+  inspection via CLI and bounded timeline/session inspection APIs now expose
+  real causal IDs while preserving compatibility with legacy sessions.
+- Added structured execution proof records for managed filesystem, Git, shell,
+  HTTP, and downstream MCP executor paths. Proof records distinguish what was
+  authorized, what executed, what SafeLoop directly observed, and what remains
+  outside proof scope.
+- Added explicit execution verification statuses: `VERIFIED`,
+  `PARTIALLY_VERIFIED`, `NOT_VERIFIABLE`, and `FAILED`.
 
 ### Fixed
 
-- Fixed risk-escalated approval redemption by recomputing the effective governance disposition from both profile rules and runtime risk during redemption. Risk-held HTTP reads, in-workspace destructive filesystem actions, and production-target writes now grant, redeem, issue permits, and execute only through valid one-time permits.
-- Hardened the permit fingerprint regression so proposal-state drift fails at the proposal stage instead of surfacing later as a misleading missing-permit rejection.
-- Resolved `GHSA-2v37-7h3g-55p8` by updating transitive `nanoid` from `3.3.17` to `3.3.18` in `package-lock.json` via `npm audit fix` without a package.json dependency change.
+- Made filesystem proof semantics truthful after independent review. Confirmed
+  absence is now distinct from inability to observe; permission and observation
+  failures are not treated as absence; files above the evidence hashing cap are
+  marked `PARTIALLY_VERIFIED`; SafeLoop no longer claims a complete content hash
+  when one was not computed; verified delete requires confirmed post-state
+  absence; and move source/destination proof is evaluated independently.
+- Fixed risk-escalated approval redemption by recomputing the effective
+  governance disposition from both profile rules and runtime risk during
+  redemption. Risk-held HTTP reads, in-workspace destructive filesystem actions,
+  and production-target writes now grant, redeem, issue permits, and execute
+  only through valid one-time permits while preserving action, fingerprint,
+  identity, tenant, session, and execution-context binding. The remediation does
+  not introduce an authorization bypass.
+- Hardened the permit fingerprint regression so proposal-state drift fails at
+  the proposal stage instead of surfacing later as a misleading missing-permit
+  rejection.
+- Resolved `GHSA-2v37-7h3g-55p8` by updating transitive `nanoid` from
+  `3.3.17` to `3.3.18` in `package-lock.json` via `npm audit fix` without a
+  `package.json` dependency change. `npm audit --audit-level=moderate` returned
+  0 vulnerabilities during release preparation.
 
 ### Documentation
 
-- Added `docs/audits/APPROVAL_STATE_REMEDIATION_DESIGN.md` documenting the approval-state root cause, chosen remediation, and security invariants.
-- Updated approval and managed filesystem evidence documentation to match post-v0.2.0 remediation behavior.
+- Modernized the README around SafeLoop's v0.2 runtime-governance positioning
+  and routed-action boundary.
+- Added a source-controlled v2 architecture diagram for governed actions,
+  memory persistence, execution path inventory, evidence, and dashboard
+  observation, then replaced obsolete generated architecture graph assets with
+  the approved GitHub-ready image.
+- Added a docs index that classifies current docs, developer references, user
+  guides, historical records, and audit evidence.
+- Added `docs/audits/APPROVAL_STATE_REMEDIATION_DESIGN.md` and
+  `docs/audits/GITHUB_ISSUE_RECONCILIATION_2026-08.md` to record the approval
+  remediation design and public issue reconciliation evidence.
+- Updated approval, managed execution, security, architecture, and roadmap
+  documentation to match post-`v0.2.0` behavior while keeping Same-UID,
+  userspace timing, external memory, dashboard observation, and Hermes/MCP
+  boundaries narrow.
+- Reconciled and closed implemented GitHub issues #4, #5, #6, and #7 with
+  evidence comments; verified local Markdown links during release preparation.
+- Documented the npm `0.7.0` divergence as older June 2026
+  accountability/live-monitor SDK history, with forward-only synchronization
+  recommended for any future npm publication. This source/GitHub release does
+  not publish npm.
 
-## Post-v0.2.0 - Public documentation modernization (unreleased)
+### Boundaries
 
-### Documentation
-
-- Modernized the README around SafeLoop's v0.2 runtime-governance positioning and routed-action boundary.
-- Added a source-controlled v2 architecture diagram for governed actions, memory persistence, execution path inventory, evidence, and dashboard observation.
-- Replaced the generated architecture graph assets with the approved GitHub-ready PNG and updated public references away from obsolete architecture images.
-- Added a docs index that classifies current docs, developer references, user guides, historical records, and audit evidence.
-- Updated security and architecture docs to preserve Same-UID, userspace timing, external memory, dashboard observation, and Hermes certification boundaries.
-- Documented the npm `0.7.0` divergence as older June 2026 accountability/live-monitor SDK history, with forward-only synchronization recommended for future npm publication.
+- SafeLoop governs actions routed through SafeLoop-managed execution paths, not
+  arbitrary OS activity or universal process containment.
+- Shell proof covers the governed process invocation, execution context, exit
+  result, and output digests; it does not prove every downstream side effect of
+  that process.
+- HTTP proof covers the governed request/response transaction, not the remote
+  system's business outcome.
+- MCP proof covers the governed call/result unless explicit downstream evidence
+  is linked; it does not automatically prove all downstream side effects.
 
 ## 0.2.0-rc3 - Execution-context binding (historical release candidate)
 
