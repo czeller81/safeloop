@@ -273,6 +273,8 @@ describe('permit binding at execution time', () => {
       task_id: taskId,
       action: write('approved content'),
     });
+    expect(decision.disposition).toBe('ALLOW');
+    expect(decision.execution_permit).toBeDefined();
     const result = await runtime.execute(handle.credential, {
       session_id: handle.session.session_id,
       permit: decision.execution_permit,
@@ -415,6 +417,81 @@ describe('bound approval lifecycle through the runtime', () => {
     });
     expect(result.status).toBe('REJECTED');
     expect(existsSync(outsidePath())).toBe(false);
+  });
+});
+
+
+describe('risk-escalated approval redemption', () => {
+  function grantAndRedeem(action: ActionProposal) {
+    const decision = runtime.propose(handle.credential, {
+      session_id: handle.session.session_id,
+      task_id: taskId,
+      action,
+    });
+    expect(decision.disposition).toBe('REQUIRE_APPROVAL');
+    expect(decision.approval_request).toBeDefined();
+    expect(decision.execution_permit).toBeUndefined();
+
+    const grant = runtime.grantApproval({
+      approval_request_id: decision.approval_request!.approval_request_id,
+      approver: 'operator@local',
+    });
+    const redemption = runtime.redeemApproval(handle.credential, {
+      session_id: handle.session.session_id,
+      task_id: taskId,
+      token: grant.token,
+      action,
+    });
+    expect(redemption.redeemed).toBe(true);
+    expect(redemption.execution_permit).toBeDefined();
+    return { decision, redemption };
+  }
+
+  it('redeems approval for HTTP read escalated by runtime risk', async () => {
+    const fetchImpl = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/plain' },
+      text: async () => 'risk-approved response',
+    });
+    runtime = createSafeloopRuntime({ storageOptions: { baseDir }, defaultProfile: 'coding', workspace, fetchImpl });
+    handle = runtime.startSession({ agent: { agent_id: 'agent-a' }, tenant_id: 'tenant-a', workspace });
+    taskId = runtime.startTask(handle.credential, { session_id: handle.session.session_id }).task_id;
+
+    const action: ActionProposal = {
+      action_kind: 'http', operation: 'read', method: 'GET', resource: 'https://api.example/items', arguments: {}, agent_id: 'agent-a',
+    };
+    const { decision, redemption } = grantAndRedeem(action);
+    expect(decision.triggered_policies).toContain('http.public-read');
+    expect(decision.triggered_policies).toContain('runtime.external-communication');
+    const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit: redemption.execution_permit, action });
+    expect(result.status).toBe('EXECUTED');
+    expect(result.stdout).toBe('risk-approved response');
+  });
+
+  it('redeems approval for in-workspace filesystem delete escalated by runtime risk', async () => {
+    const target = join(workspace, 'delete-risk.txt');
+    writeFileSync(target, 'delete me');
+    const action: ActionProposal = { action_kind: 'filesystem', operation: 'delete', target, agent_id: 'agent-a' };
+    const { decision, redemption } = grantAndRedeem(action);
+    expect(decision.triggered_policies).toContain('fs.destructive.workspace');
+    expect(decision.triggered_policies).toContain('runtime.destructive-action');
+    const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit: redemption.execution_permit, action });
+    expect(result.status).toBe('EXECUTED');
+    expect(existsSync(target)).toBe(false);
+  });
+
+  it('redeems approval for production-target filesystem write escalated by runtime risk', async () => {
+    const target = join(workspace, 'production-release-note.txt');
+    const action: ActionProposal = {
+      action_kind: 'filesystem', operation: 'create', target, arguments: { content: 'release note' }, agent_id: 'agent-a',
+    };
+    const { decision, redemption } = grantAndRedeem(action);
+    expect(decision.triggered_policies).toContain('fs.write.workspace');
+    expect(decision.triggered_policies).toContain('runtime.production-change');
+    const result = await runtime.execute(handle.credential, { session_id: handle.session.session_id, permit: redemption.execution_permit, action });
+    expect(result.status).toBe('EXECUTED');
+    expect(readFileSync(target, 'utf8')).toBe('release note');
   });
 });
 

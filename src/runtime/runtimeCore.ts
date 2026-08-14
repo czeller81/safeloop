@@ -114,6 +114,13 @@ export interface SessionState {
   blocked_reason?: string;
 }
 
+type BoundCanonicalAction = ReturnType<typeof canonicalizeAction>;
+type EffectiveGovernanceEvaluation = {
+  profileEvaluation: ReturnType<typeof evaluateProfile>;
+  riskDecision: ReturnType<typeof evaluateRuntimePolicy>;
+  disposition: RuntimeDispositionCode;
+};
+
 export type RuntimeErrorCode =
   | 'unauthenticated'
   | 'unknown_session'
@@ -284,6 +291,39 @@ function summarizeAuthorizationContext(described: DescribedContext): string {
   if (described.head_ref) parts.push(`on ${described.head_ref}`);
   else if (described.resolved_cwd) parts.push(`in ${described.resolved_cwd}`);
   return parts.length ? ` [${parts.join(', ')}]` : '';
+}
+
+function evaluateEffectiveGovernance(
+  state: SessionState,
+  taskId: string,
+  canonical: BoundCanonicalAction,
+  fingerprint: string,
+): EffectiveGovernanceEvaluation {
+  const profileEvaluation = evaluateProfile(state.profile, canonical, state.session.workspace);
+  const riskDecision = evaluateRuntimePolicy({
+    taskId,
+    sessionId: state.session.session_id,
+    agentId: state.session.agent.agent_id,
+    agentName: state.session.agent.agent_name,
+    agentType: state.session.agent.agent_type,
+    model: state.session.agent.model,
+    provider: state.session.agent.provider,
+    tenantId: state.session.tenant_id,
+    tool: canonical.tool || canonical.action_kind,
+    action: describeCanonicalAction(canonical),
+    target: canonical.target || canonical.resource,
+    argumentsHash: fingerprint,
+    context: { tenantId: state.session.tenant_id, failClosedForHighRisk: true },
+  });
+
+  return {
+    profileEvaluation,
+    riskDecision,
+    disposition: moreSevere(
+      profileEvaluation.disposition,
+      riskDecision.disposition as RuntimeDispositionCode,
+    ),
+  };
 }
 
 function describeAuthorizationContext(
@@ -586,30 +626,11 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       const fingerprint = fingerprintAction(canonical).fingerprint;
       const proposalId = newId('proposal');
 
-      // Deterministic profile rules first.
-      const profileEvaluation = evaluateProfile(state.profile, canonical, state.session.workspace);
-
-      // Then the existing risk engine, reused rather than duplicated.
-      const riskDecision = evaluateRuntimePolicy({
-        taskId: input.task_id,
-        sessionId: state.session.session_id,
-        agentId: state.session.agent.agent_id,
-        agentName: state.session.agent.agent_name,
-        agentType: state.session.agent.agent_type,
-        model: state.session.agent.model,
-        provider: state.session.agent.provider,
-        tenantId: state.session.tenant_id,
-        tool: canonical.tool || canonical.action_kind,
-        action: describeCanonicalAction(canonical),
-        target: canonical.target || canonical.resource,
-        argumentsHash: fingerprint,
-        context: { tenantId: state.session.tenant_id, failClosedForHighRisk: true },
-      });
-
-      // The more severe of the two wins. Neither engine can loosen the other.
-      const disposition: RuntimeDispositionCode = moreSevere(
-        profileEvaluation.disposition,
-        riskDecision.disposition as RuntimeDispositionCode,
+      const { profileEvaluation, riskDecision, disposition } = evaluateEffectiveGovernance(
+        state,
+        input.task_id,
+        canonical,
+        fingerprint,
       );
 
       state.breaker.evaluate(
@@ -877,9 +898,14 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       const canonical = canonicalizeAction(bound);
       const fingerprint = fingerprintAction(canonical).fingerprint;
 
-      // Re-evaluate: a token may only lift a hold that policy still applies.
-      const profileEvaluation = evaluateProfile(state.profile, canonical, state.session.workspace);
-      const stillRequiresApproval = profileEvaluation.disposition === 'REQUIRE_APPROVAL';
+      // Re-evaluate: a token may only lift a hold that effective policy still applies.
+      const { profileEvaluation, disposition } = evaluateEffectiveGovernance(
+        state,
+        input.task_id,
+        canonical,
+        fingerprint,
+      );
+      const stillRequiresApproval = disposition === 'REQUIRE_APPROVAL';
 
       const redeemInput = {
         action_fingerprint: fingerprint,

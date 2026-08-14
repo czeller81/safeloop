@@ -44,6 +44,13 @@ Redemption yields a **permit**, not a boolean. There is no representation of
 "this agent is approved" anywhere in the system — only "this exact action is
 authorized".
 
+The approval requirement is the effective runtime decision, not merely a
+profile-rule result. Proposal and redemption both combine deterministic profile
+rules with runtime risk evaluation. This preserves risk-escalated holds such as
+external HTTP reads, destructive in-workspace deletes, and production-target
+writes while still rejecting tokens when current effective policy no longer says
+`REQUIRE_APPROVAL`.
+
 ## What a token binds
 
 | Claim | Why it is bound |
@@ -71,9 +78,12 @@ above, using the runtime secret. Editing any claim invalidates the signature.
 4. **Expiry.**
 5. **Identity** — tenant, agent, task, session, scenario.
 6. **Fingerprint.**
-7. **Still-required.** The runtime re-evaluates the action. A token only lifts a
-   REQUIRE_APPROVAL hold; it can never authorize an action policy now denies
-   outright (`not_approval_required`).
+7. **Still-required effective disposition.** The runtime re-evaluates the
+   same bound canonical action through both deterministic profile rules and
+   runtime risk evaluation, then recomputes the effective disposition with
+   `moreSevere(profile, risk)`. A token only lifts a current
+   `REQUIRE_APPROVAL` hold; it can never authorize an action policy now allows
+   without approval or denies outright (`not_approval_required`).
 
 Identity is checked before the fingerprint. Both reject, but since identity is
 part of the fingerprint binding set, checking fingerprint first would report
