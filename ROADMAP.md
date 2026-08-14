@@ -1,8 +1,8 @@
 # SafeLoop Roadmap
 
-## Current 0.1.x Line
+## Current 0.2.x Line
 
-SafeLoop is staying on the `0.1.x` release line while the repository is hardened, documented, and made easier to adopt.
+The immutable `v0.2.0` release remains tagged at its original audited commit. Current source work after that tag includes Phase 1, Phase 2, and Phase 2B improvements, and the next GitHub/source release is expected to be a `0.2.x` patch release. These post-`v0.2.0` fixes should not be described as part of the original `v0.2.0` tag.
 
 Implemented work on the current branch includes:
 
@@ -62,6 +62,6 @@ Do not add:
 
 ## Notes on Next Work
 
-- 0.1.x: documentation, repository polish, local deployment hardening, and MCP setup reliability
-- Next minor line: connector hardening, approval resume, K-12/local RAG deployment diagnostics, and clearer policy configuration
+- 0.2.x patch line: post-`v0.2.0` documentation, repository polish, local deployment hardening, MCP setup reliability, evidence truthfulness, and approval-state remediation
+- Next minor line: connector hardening, broader approval resume workflows, K-12/local RAG deployment diagnostics, and clearer policy configuration
 - v1.0: formal agent collaboration protocol and exchange formats
