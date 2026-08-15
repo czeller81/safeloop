@@ -2,6 +2,7 @@ import { calculateReadinessScore, type ReadinessScoreResult } from '../readiness
 import type { DashboardRuntimeControl } from './runtimeControls';
 import type { FlightRecorderIndex, FlightRecorderSession } from '../runtime/flightRecorder';
 import type { DashboardSnapshot } from './dashboardData';
+import type { OperationalTelemetrySnapshot } from '../runtime/operationalTelemetry';
 import type { EventReadDiagnostics, SafeloopStreamEvent } from '../eventStream';
 import type { ModelUsageRecord } from '../modelUsage';
 import { analyzeLoopOversight as analyzeLoopOversightImpl } from '../oversightAnalyzer';
@@ -356,6 +357,8 @@ export interface MonitorViewModel {
   timecardSummary?: BillableTimecardSummary;
   // deployment metadata for local/cloud mode awareness
   deployment?: SafeLoopDeploymentMetadata;
+  // Operational health supplied by the runtime telemetry model when available.
+  operationalHealth?: OperationalTelemetrySnapshot;
   // Flight Recorder session summaries and latest-session detail projected from the runtime work graph
   flightRecorder?: FlightRecorderIndex;
   flightRecorderDetail?: FlightRecorderSession;

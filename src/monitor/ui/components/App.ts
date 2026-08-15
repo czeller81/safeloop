@@ -16,6 +16,7 @@ import { renderHandoffsCard } from './HandoffsCard';
 import { renderOperatorSummaryPanel } from './OperatorSummaryPanel';
 import { renderLiveActivityPanel } from './LiveActivityPanel';
 import { renderFlightRecorderPanel } from './FlightRecorderPanel';
+import { renderOperationalHealthPanel } from './OperationalHealthPanel';
 
 export function renderAppBody(viewModel: MonitorViewModel): string {
   return `
@@ -25,6 +26,7 @@ export function renderAppBody(viewModel: MonitorViewModel): string {
         ${renderCommandRail(viewModel)}
         <main class="sl-canvas">
           ${renderLiveActivityPanel(viewModel)}
+          ${renderOperationalHealthPanel(viewModel)}
           ${renderFlightRecorderPanel(viewModel)}
           ${renderCircuitMapPlaceholder(viewModel)}
           <details class="operational-details" id="operational-details" data-state-key="operational-details">

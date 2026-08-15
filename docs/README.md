@@ -16,6 +16,7 @@ SafeLoop documentation is split between current user guidance, developer referen
 | [PROFILES.md](PROFILES.md) | CURRENT | Certified profile behavior and execution path inventory. |
 | [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md) | CURRENT | Human-facing read-only session reconstruction, proof views, export, and limitations. |
 | [OPERATOR_OBSERVABILITY.md](OPERATOR_OBSERVABILITY.md) | CURRENT | Operator dashboard semantics for causal graph, timeline, conflicts, filters, proof limits, and read-only boundaries. |
+| [OPERATIONAL_TELEMETRY.md](OPERATIONAL_TELEMETRY.md) | CURRENT | Health model, bounded metrics, synthetic controls, version provenance, and telemetry privacy boundaries. |
 
 ## Architecture
 

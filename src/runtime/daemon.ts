@@ -39,6 +39,7 @@ import {
 import type { SafeloopStorageOptions } from '../localStorage';
 import { buildSessionTimelinePage } from './sessionWorkGraph';
 import { buildFlightRecorderSession, exportFlightRecorderSession, MAX_FLIGHT_RECORDER_LIMIT, redactFlightRecorderValue } from './flightRecorder';
+import { buildOperationalTelemetry } from './operationalTelemetry';
 
 export const DEFAULT_DAEMON_PORT = 3787;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -194,6 +195,47 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
     {
       method: 'GET', path: '/health', auth: 'none',
       handle: (_body, runtime) => runtime.health(),
+    },
+    {
+      method: 'GET', path: '/health/live', auth: 'none',
+      handle: (_body, runtime) => ({
+        status: 'healthy',
+        checked_at: new Date().toISOString(),
+        summary: 'Runtime process responds.',
+        runtime: runtime.health(),
+      }),
+    },
+    {
+      method: 'GET', path: '/health/ready', auth: 'runtime',
+      handle: (_body, runtime) => buildOperationalTelemetry(runtime.status(), { storageOptions }).health.readiness,
+    },
+    {
+      method: 'GET', path: '/health/governance', auth: 'runtime',
+      handle: (_body, runtime) => buildOperationalTelemetry(runtime.status(), { storageOptions }).health.governance,
+    },
+    {
+      method: 'GET', path: '/health/evidence', auth: 'runtime',
+      handle: (_body, runtime) => buildOperationalTelemetry(runtime.status(), { storageOptions }).health.evidence,
+    },
+    {
+      method: 'GET', path: '/health/dependencies', auth: 'runtime',
+      handle: (_body, runtime) => ({ dependencies: buildOperationalTelemetry(runtime.status(), { storageOptions }).health.dependencies }),
+    },
+    {
+      method: 'GET', path: '/health/telemetry', auth: 'runtime',
+      handle: (_body, runtime) => buildOperationalTelemetry(runtime.status(), { storageOptions }).health.telemetry,
+    },
+    {
+      method: 'GET', path: '/v1/health', auth: 'runtime',
+      handle: (_body, runtime) => buildOperationalTelemetry(runtime.status(), { storageOptions }),
+    },
+    {
+      method: 'GET', path: '/v1/metrics', auth: 'runtime',
+      handle: (_body, runtime) => ({
+        schema_version: 1,
+        generated_at: new Date().toISOString(),
+        metrics: buildOperationalTelemetry(runtime.status(), { storageOptions }).metrics,
+      }),
     },
     {
       method: 'GET', path: '/v1/status', auth: 'runtime',

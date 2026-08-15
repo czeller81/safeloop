@@ -1689,3 +1689,6 @@ export function createBreaker(config?: BreakerConfig): Breaker {
 }
 export { buildFlightRecorderSession, exportFlightRecorderSession, listFlightRecorderSessions } from './runtime/flightRecorder';
 export type { FlightRecorderSession, FlightRecorderIndex, FlightRecorderExportBundle, FlightRecorderObservabilityReadModel, FlightRecorderObservabilityNode, FlightRecorderObservabilityEdge } from './runtime/flightRecorder';
+
+export { buildOperationalTelemetry, prometheusText, recordTelemetry } from './runtime/operationalTelemetry';
+export type { OperationalTelemetrySnapshot, HealthComponent, DependencyHealth, MetricSample, GoldenControlResult, SyntheticGovernanceReport, TelemetryExporter } from './runtime/operationalTelemetry';

@@ -10,6 +10,9 @@ import { buildMonitorDashboardPayload, summarizeLoopSummaries } from './viewMode
 import { renderAppBody, renderFallbackDocument } from './ui/components/App';
 import { redactSensitive } from './redact';
 import { buildFlightRecorderSession, listFlightRecorderSessions } from '../runtime/flightRecorder';
+import { buildOperationalTelemetry } from '../runtime/operationalTelemetry';
+import { RUNTIME_VERSION, type RuntimeStatus } from '../runtime/runtimeCore';
+import { PROTOCOL_VERSION } from '../runtime/protocol';
 import type { SafeloopStorageOptions } from '../localStorage';
 
 export { summarizeLoopSummaries } from './viewModel';
@@ -92,12 +95,40 @@ function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: numbe
   });
 }
 
+
+function monitorRuntimeStatus(payload: ReturnType<typeof buildMonitorDashboardPayload>): RuntimeStatus {
+  const sessions = (payload.viewModel.flightRecorder?.sessions ?? []).map((summary) => ({
+    session_id: summary.session_id,
+    agent_id: summary.agent_id ?? 'unknown',
+    tenant_id: summary.tenant_id ?? 'unknown',
+    profile: summary.profile ?? 'unknown',
+    scenario_id: undefined,
+    tasks: summary.task_ids,
+    breaker_state: 'CLOSED',
+    breaker_reason: null,
+    budget_usage: { actions: 0, runtime_ms: 0, tokens: 0, cost_usd: 0, retries: 0 },
+    budget_remaining: { actions: null, runtime: null, tokens: null, cost: null, retries: null },
+    pending_approvals: 0,
+    managed_paths: [],
+    runtime_controls: [],
+    finished_at: summary.final_state === 'completed' ? summary.last_event_at : undefined,
+  }));
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    runtime_version: RUNTIME_VERSION,
+    started_at: payload.lastUpdated,
+    active_sessions: sessions.filter((session) => !session.finished_at).length,
+    sessions,
+  };
+}
+
 function buildDashboardPayload(options: SafeloopStorageOptions = {}) {
   const payload = buildMonitorDashboardPayload(getDashboardSnapshot(options));
   const flightRecorder = listFlightRecorderSessions(options, { limit: 25 });
   payload.viewModel.flightRecorder = flightRecorder;
   const latestSessionId = flightRecorder.sessions[0]?.session_id;
   if (latestSessionId) payload.viewModel.flightRecorderDetail = buildFlightRecorderSession(latestSessionId, options);
+  payload.viewModel.operationalHealth = buildOperationalTelemetry(monitorRuntimeStatus(payload), { storageOptions: options });
   return redactSensitive(payload);
 }
 
