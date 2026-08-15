@@ -124,3 +124,10 @@ The export is local JSON and is derived from the same SafeLoop events and model 
 - No authentication is built in for the local server.
 - Do not expose the monitor port to an untrusted network.
 - Raw event metadata may contain user-provided values; the dashboard redacts obvious secret-like keys in the inspector, but sensitive values should not be written to the ledger in the first place.
+
+
+## Flight Recorder Panel
+
+The monitor dashboard includes a Flight Recorder panel for recent governed runtime sessions. It shows session counters, verification distribution, prevented-action count, evidence count, memory count, and a CLI command for deeper inspection.
+
+The panel is read-only. It summarizes existing work events and proof records; it does not approve actions, redeem approvals, issue permits, execute work, or change runtime policy. For full semantics and export boundaries, see [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md).

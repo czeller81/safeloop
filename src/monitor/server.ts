@@ -9,6 +9,7 @@ import { createGovernedPolicyEngine } from '../failClosed';
 import { buildMonitorDashboardPayload, summarizeLoopSummaries } from './viewModel';
 import { renderAppBody, renderFallbackDocument } from './ui/components/App';
 import { redactSensitive } from './redact';
+import { buildFlightRecorderSession, listFlightRecorderSessions } from '../runtime/flightRecorder';
 import type { SafeloopStorageOptions } from '../localStorage';
 
 export { summarizeLoopSummaries } from './viewModel';
@@ -92,7 +93,12 @@ function readJsonBody(req: IncomingMessage, res: ServerResponse, maxBytes: numbe
 }
 
 function buildDashboardPayload(options: SafeloopStorageOptions = {}) {
-  return redactSensitive(buildMonitorDashboardPayload(getDashboardSnapshot(options)));
+  const payload = buildMonitorDashboardPayload(getDashboardSnapshot(options));
+  const flightRecorder = listFlightRecorderSessions(options, { limit: 25 });
+  payload.viewModel.flightRecorder = flightRecorder;
+  const latestSessionId = flightRecorder.sessions[0]?.session_id;
+  if (latestSessionId) payload.viewModel.flightRecorderDetail = buildFlightRecorderSession(latestSessionId, options);
+  return redactSensitive(payload);
 }
 
 function getBearerToken(req: IncomingMessage): string | null {

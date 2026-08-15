@@ -1,5 +1,6 @@
 import { calculateReadinessScore, type ReadinessScoreResult } from '../readinessScore';
 import type { DashboardRuntimeControl } from './runtimeControls';
+import type { FlightRecorderIndex, FlightRecorderSession } from '../runtime/flightRecorder';
 import type { DashboardSnapshot } from './dashboardData';
 import type { EventReadDiagnostics, SafeloopStreamEvent } from '../eventStream';
 import type { ModelUsageRecord } from '../modelUsage';
@@ -355,6 +356,9 @@ export interface MonitorViewModel {
   timecardSummary?: BillableTimecardSummary;
   // deployment metadata for local/cloud mode awareness
   deployment?: SafeLoopDeploymentMetadata;
+  // Flight Recorder session summaries and latest-session detail projected from the runtime work graph
+  flightRecorder?: FlightRecorderIndex;
+  flightRecorderDetail?: FlightRecorderSession;
 }
 
 // --- Deployment Metadata types ---
