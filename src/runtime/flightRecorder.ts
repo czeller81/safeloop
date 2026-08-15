@@ -76,6 +76,8 @@ export interface FlightRecorderPreventedAction {
   rule_or_risk_source?: string;
   approval_could_resolve: boolean;
   execution_occurred: boolean;
+  execution_status: 'not_observed' | 'observed' | 'unknown';
+  uncertainty_reason?: string;
   related_ids: Record<string, string>;
 }
 
@@ -85,6 +87,8 @@ export interface FlightRecorderPreventionConflict {
   category: PreventedActionCategory;
   reason: string;
   execution_occurred: true;
+  execution_status: 'observed' | 'unknown';
+  temporal_status: 'after_block' | 'same_time_or_unknown';
   related_ids: Record<string, string>;
 }
 
@@ -213,12 +217,14 @@ function asBool(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
+const FLIGHT_RECORDER_SENSITIVE_KEYS = /^(?:password|passwd|secret|token|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|credential|authorization|private[_-]?key|client[_-]?secret|operator|aws[_-]?secret[_-]?access[_-]?key)$/i;
+
 const FLIGHT_RECORDER_STRING_PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/(Authorization\s*:\s*Bearer\s+)[^\s"',;]+/gi, '$1[REDACTED]'],
-  [/(Bearer\s+)[A-Za-z0-9._-]{3,}/gi, '$1[REDACTED]'],
-  [/Bearer[-_][A-Za-z0-9._-]{3,}/gi, 'Bearer-[REDACTED]'],
+  [/((?:password|passwd|secret|token|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|credential|authorization|operator|aws[_-]?secret[_-]?access[_-]?key)\s*[=:]\s*)("?)[^\s"',;/\\[\]]{3,}\2/gi, '$1[REDACTED]'],
+  [/(Bearer\s+)(?!\[REDACTED\])[A-Za-z0-9._-]{3,}/gi, '$1[REDACTED]'],
+  [/Bearer[-_](?!\[REDACTED\])[A-Za-z0-9._-]{3,}/gi, 'Bearer-[REDACTED]'],
   [/SAFELOOP_SECRET_[A-Z0-9_]+/g, '[REDACTED secret]'],
-  [/((?:password|passwd|secret|token|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key)\s*[=:]\s*)("?)[^\s"',;/]+\2/gi, '$1[REDACTED]'],
 ];
 
 function redactFlightRecorderString(value: string): string {
@@ -230,17 +236,17 @@ function redactFlightRecorderString(value: string): string {
 }
 
 export function redactFlightRecorderValue(value: unknown): unknown {
-  const redacted = redactWorkEventData(value);
-  if (Array.isArray(redacted)) return redacted.map((entry) => redactFlightRecorderValue(entry));
-  if (redacted && typeof redacted === 'object') {
+  if (Array.isArray(value)) return value.map((entry) => redactFlightRecorderValue(entry));
+  if (value && typeof value === 'object') {
+    const initiallyRedacted = redactWorkEventData(value) as Record<string, unknown>;
     const out: Record<string, unknown> = {};
-    for (const [key, nested] of Object.entries(redacted as Record<string, unknown>)) {
-      out[key] = redactFlightRecorderValue(nested);
+    for (const [key, nested] of Object.entries(initiallyRedacted)) {
+      out[key] = FLIGHT_RECORDER_SENSITIVE_KEYS.test(key) ? '[REDACTED]' : redactFlightRecorderValue(nested);
     }
     return out;
   }
-  if (typeof redacted === 'string') return redactFlightRecorderString(redacted);
-  return redacted;
+  if (typeof value === 'string') return redactFlightRecorderString(value);
+  return value;
 }
 
 function redactOptionalString(value: string | undefined): string | undefined {
@@ -403,16 +409,30 @@ function actionIdentityValues(event: RuntimeWorkEvent): Set<string> {
   return values;
 }
 
-function linkedExecutionEvents(blocked: RuntimeWorkEvent, executions: RuntimeWorkEvent[]): RuntimeWorkEvent[] {
+function hasExplicitRecordedLink(blocked: RuntimeWorkEvent, execution: RuntimeWorkEvent): boolean {
   const blockedIds = actionIdentityValues(blocked);
-  return executions.filter((execution) => {
-    if (execution.parent_event_id && blockedIds.has(execution.parent_event_id)) return true;
-    if ((execution.causes ?? []).some((cause) => blockedIds.has(cause))) return true;
-    for (const value of actionIdentityValues(execution)) {
-      if (blockedIds.has(value)) return true;
-    }
-    return false;
-  });
+  if (execution.parent_event_id && blockedIds.has(execution.parent_event_id)) return true;
+  if ((execution.causes ?? []).some((cause) => blockedIds.has(cause))) return true;
+  for (const value of actionIdentityValues(execution)) {
+    if (blockedIds.has(value)) return true;
+  }
+  return false;
+}
+
+function linkedExecutionEvents(blocked: RuntimeWorkEvent, executions: RuntimeWorkEvent[]): RuntimeWorkEvent[] {
+  return executions.filter((execution) => hasExplicitRecordedLink(blocked, execution));
+}
+
+function temporalRelation(blocked: RuntimeWorkEvent, execution: RuntimeWorkEvent): 'after_block' | 'before_block' | 'same_time_or_unknown' {
+  const blockedMs = timestampMs(blocked.timestamp);
+  const executionMs = timestampMs(execution.timestamp);
+  if (blockedMs === undefined || executionMs === undefined || blockedMs === executionMs) return 'same_time_or_unknown';
+  return executionMs > blockedMs ? 'after_block' : 'before_block';
+}
+
+function missingCausalLinks(event: RuntimeWorkEvent, eventIds: Set<string>): string[] {
+  const refs = [event.parent_event_id, ...(event.causes ?? [])].filter((id): id is string => typeof id === 'string' && id.length > 0);
+  return refs.filter((id) => !eventIds.has(id));
 }
 
 function preventedKey(event: RuntimeWorkEvent): string {
@@ -428,6 +448,7 @@ function preventedKey(event: RuntimeWorkEvent): string {
 }
 
 function buildPreventedProjection(events: RuntimeWorkEvent[]): PreventedProjection {
+  const eventIds = new Set(events.map((event) => event.id));
   const executions = events.filter((event) => event.type === 'execution.started' || event.type === 'execution.completed');
   const prevented: FlightRecorderPreventedAction[] = [];
   const conflicts: FlightRecorderPreventionConflict[] = [];
@@ -440,13 +461,18 @@ function buildPreventedProjection(events: RuntimeWorkEvent[]): PreventedProjecti
     const relatedIds = stringRefsFor(event);
     const reason = redactFlightRecorderString(asString(data.reason) ?? asString(data.explanation) ?? event.summary ?? category);
     const linkedExecutions = linkedExecutionEvents(event, executions);
-    if (linkedExecutions.length) {
+    const afterBlock = linkedExecutions.filter((execution) => temporalRelation(event, execution) === 'after_block');
+    const unknownOrder = linkedExecutions.filter((execution) => temporalRelation(event, execution) === 'same_time_or_unknown');
+    if (afterBlock.length || unknownOrder.length) {
+      const conflictExecutions = afterBlock.length ? afterBlock : unknownOrder;
       conflicts.push({
         blocked_event_id: event.id,
-        execution_event_ids: linkedExecutions.map((execution) => execution.id),
+        execution_event_ids: conflictExecutions.map((execution) => execution.id),
         category,
         reason,
         execution_occurred: true,
+        execution_status: afterBlock.length ? 'observed' : 'unknown',
+        temporal_status: afterBlock.length ? 'after_block' : 'same_time_or_unknown',
         related_ids: relatedIds,
       });
       continue;
@@ -454,6 +480,7 @@ function buildPreventedProjection(events: RuntimeWorkEvent[]): PreventedProjecti
     const key = preventedKey(event);
     if (seenPrevented.has(key)) continue;
     seenPrevented.add(key);
+    const missingLinks = missingCausalLinks(event, eventIds);
     prevented.push({
       event_id: event.id,
       timestamp: event.timestamp,
@@ -464,6 +491,8 @@ function buildPreventedProjection(events: RuntimeWorkEvent[]): PreventedProjecti
       rule_or_risk_source: Array.isArray(data.matched_rules) ? redactFlightRecorderString(data.matched_rules.join(', ')) : redactOptionalString(asString(data.profile)),
       approval_could_resolve: disposition === 'REQUIRE_APPROVAL' || event.type === 'approval.denied',
       execution_occurred: false,
+      execution_status: missingLinks.length ? 'unknown' : 'not_observed',
+      ...(missingLinks.length ? { uncertainty_reason: `missing causal reference(s): ${missingLinks.join(', ')}` } : {}),
       related_ids: relatedIds,
     });
   }

@@ -13,6 +13,8 @@
 
 const PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z ]+ )?PRIVATE KEY-----/g, '[REDACTED private key]'],
+  [/(Authorization\s*:\s*Bearer\s+)[^\s"',;]+/gi, '$1[REDACTED]'],
+  [/((?:password|passwd|secret|token|api[_-]?key|apikey|access[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|credential|authorization|operator|aws[_-]?secret[_-]?access[_-]?key)\s*[=:]\s*)("?)[^\s"',;/\\[\]]{3,}\2/gi, '$1[REDACTED]'],
   [/\bsk-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED api key]'],
   [/\bgh[pousr]_[A-Za-z0-9]{16,}\b/g, '[REDACTED github token]'],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, '[REDACTED slack token]'],
@@ -20,7 +22,6 @@ const PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '[REDACTED jwt]'],
   [/\bssh-(?:rsa|ed25519|dss) [A-Za-z0-9+/=]{40,}/g, '[REDACTED ssh public key]'],
   [/\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@/g, '[REDACTED credential]@'],
-  [/((?:password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret)\s*[=:]\s*)("?)[^\s"',;]{6,}\2/gi, '$1[REDACTED]'],
 ];
 
 export function redactSecrets(text: string): string {

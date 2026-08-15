@@ -214,10 +214,16 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
     },
     {
       method: 'POST', path: '/v1/session/prevented', auth: 'runtime',
-      handle: (body, runtime) => ({
-        session_id: requireFlightRecorderSessionRead(body, runtime),
-        prevented_actions: buildFlightRecorderSession(requireString(body, 'session_id'), storageOptions).prevented_actions,
-      }),
+      handle: (body, runtime) => {
+        const sessionId = requireFlightRecorderSessionRead(body, runtime);
+        const flight = buildFlightRecorderSession(sessionId, storageOptions);
+        return {
+          session_id: sessionId,
+          prevented_actions: flight.prevented_actions,
+          prevention_conflicts: flight.prevention_conflicts,
+          diagnostics: flight.diagnostics,
+        };
+      },
     },
     {
       method: 'POST', path: '/v1/session/evidence', auth: 'runtime',

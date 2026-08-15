@@ -96,7 +96,8 @@ function renderPrevented(detail: FlightDetail): string {
       <article class="flight-proof-card flight-danger-card">
         <div><span class="flight-event-type">PREVENTED</span><strong>${escapeHtml(entry.category)}</strong></div>
         <p>${escapeHtml(entry.reason)}</p>
-        <p>Execution occurred: ${escapeHtml(String(entry.execution_occurred))}</p>
+        <p>Execution status: ${escapeHtml(entry.execution_status ?? String(entry.execution_occurred))}</p>
+        ${entry.uncertainty_reason ? `<p class="flight-warning">${escapeHtml(entry.uncertainty_reason)}</p>` : ''}
         <p>Approval could resolve: ${escapeHtml(String(entry.approval_could_resolve))}</p>
       </article>
     `).join('')
@@ -106,7 +107,8 @@ function renderPrevented(detail: FlightDetail): string {
       <article class="flight-proof-card flight-warning-card">
         <div><span class="flight-event-type">INCONSISTENT RECORD</span><strong>${escapeHtml(conflict.category)}</strong></div>
         <p>${escapeHtml(conflict.reason)}</p>
-        <p>Execution occurred: true</p>
+        <p>Execution status: ${escapeHtml(conflict.execution_status ?? 'observed')}</p>
+        <p>Temporal status: ${escapeHtml(conflict.temporal_status ?? 'after_block')}</p>
         <p>Execution events: ${escapeHtml(conflict.execution_event_ids.join(', '))}</p>
       </article>
     `).join('')

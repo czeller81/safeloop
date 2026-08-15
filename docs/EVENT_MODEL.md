@@ -132,9 +132,9 @@ metadata.
 
 ## Flight Recorder projection
 
-Phase 3 adds `buildFlightRecorderSession(session_id)`, a human-facing read-only projection over the existing session work graph. It summarizes session lifecycle, prevented actions, verification status, evidence and artifact references, governed memory provenance, and proof limitations. It does not create new causal links; missing `parent_event_id` or `causes` references remain visible as missing links.
+Phase 3 adds `buildFlightRecorderSession(session_id)`, a human-facing read-only projection over the existing session work graph. It summarizes session lifecycle, prevented actions, prevention conflicts, verification status, evidence and artifact references, governed memory provenance, and proof limitations. It does not create new causal links; missing `parent_event_id` or `causes` references remain visible as missing links, and execution certainty is explicit when linkage is incomplete.
 
-The daemon exposes authenticated read-only Flight Recorder APIs for session summaries, prevented actions, evidence/proof views, memory provenance, safe export, and the existing bounded timeline. These APIs require both the runtime bearer credential and the credential for the requested session.
+The daemon exposes authenticated read-only Flight Recorder APIs for session summaries, prevented actions plus prevention conflicts, evidence/proof views, memory provenance, safe export, and the existing bounded timeline. These APIs require both the runtime bearer credential and the credential for the requested session.
 
 See [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md).
 

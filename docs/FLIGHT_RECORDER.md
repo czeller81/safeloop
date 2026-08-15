@@ -44,7 +44,7 @@ Read-only endpoints:
 | `POST /v1/sessions` | List Flight Recorder session summaries visible to the supplied session credential. |
 | `POST /v1/session/summary` | Return one session summary. |
 | `POST /v1/session/timeline` | Return the bounded session work-event page. |
-| `POST /v1/session/prevented` | Return prevented actions for one session. |
+| `POST /v1/session/prevented` | Return prevented actions, prevention conflicts, and graph diagnostics for one session. |
 | `POST /v1/session/evidence` | Return execution proof, evidence, and artifact summaries. |
 | `POST /v1/session/memory` | Return governed memory provenance for one session. |
 | `POST /v1/session/export` | Return a safe JSON export bundle. |
@@ -61,7 +61,7 @@ The monitor panel is an operator summary, not an approval surface. It does not g
 
 Flight Recorder-facing projections redact data before API, CLI, UI, and export surfaces receive it. Work-event data, execution proof metadata, evidence supported claims, artifact metadata, and governed memory provenance are treated as untrusted display data and are copied through a redacted projection rather than returned directly from storage.
 
-Redaction is best-effort over configured structured fields and known secret-shaped strings such as bearer tokens, API-key-like values, password assignments, private-key markers, URL userinfo credentials, and SafeLoop test canaries. It is not a guarantee that every possible secret format can be recognized, so adapters should still avoid writing raw secrets to the ledger.
+Redaction is best-effort over configured structured fields and known secret-shaped strings such as bearer tokens, API-key-like values, password/passwd/api key/client secret/private key/credential/authorization/operator assignments, AWS secret access-key assignments, private-key markers, URL userinfo credentials, and SafeLoop test canaries. Assignment redaction preserves non-secret path structure, so `/tmp/password=secret/report.txt` is projected as `/tmp/password=[REDACTED]/report.txt` rather than losing `/report.txt`. It is not a guarantee that every possible secret format can be recognized, so adapters should still avoid writing raw secrets to the ledger.
 
 ## Export boundary
 
@@ -70,13 +70,15 @@ Redaction is best-effort over configured structured fields and known secret-shap
 - `includes_file_bodies: false`
 - `includes_full_process_output: false`
 
-Exported data is redacted through the Flight Recorder projection boundary. It contains IDs, hashes, status, summaries, bounded proof metadata, and provenance links. It does not include full file contents, raw credentials, authorization headers, complete stdout/stderr, or hidden model reasoning. Freeform evidence claims and artifact paths may be partially redacted when they contain secret-shaped components.
+Exported data is redacted through the Flight Recorder projection boundary. It contains IDs, hashes, status, summaries, bounded proof metadata, and provenance links. It does not include full file contents, raw credentials, authorization headers, complete stdout/stderr, or hidden model reasoning. Freeform evidence claims and artifact paths may be partially redacted when they contain secret-shaped components. Historical ledger records are not rewritten for privacy; redaction is applied at projection time.
 
 ## Prevented-action semantics
 
 A prevented action means SafeLoop governance or executor admission blocked a protected side effect and no linked execution record indicates that the protected execution occurred. The projection uses recorded identifiers such as proposal IDs, decision IDs, approval IDs, permit IDs, execution IDs, action fingerprints, and causal event IDs where available. It does not use text matching.
 
-If records say both that governance blocked an action and that a linked execution occurred, the Flight Recorder reports an inconsistent record instead of counting the action as prevented. Historical data is not rewritten; the contradiction remains visible for review.
+If records say both that governance blocked an action and that a linked execution occurred afterward, the Flight Recorder reports an inconsistent record instead of counting the action as prevented. `/v1/session/prevented` includes these records in `prevention_conflicts` alongside `prevented_actions` so API consumers do not see a clean-looking prevented list when contradictory execution evidence exists. Historical data is not rewritten; the contradiction remains visible for review. If a linked execution happened before a later block, the projection does not treat that as a contradiction. If timestamps are missing or identical, the record is surfaced with unknown temporal certainty rather than converted into a definitive conflict.
+
+Each prevented action includes additive execution certainty. `execution_status: not_observed` means no linked protected execution was recorded with sufficient causal evidence. `execution_status: observed` is used for linked execution evidence. `execution_status: unknown` is used when dangling or missing causal references, identical timestamps, or incomplete linkage prevent a definitive assertion. The legacy `execution_occurred` boolean remains for compatibility and should be read as whether linked execution was observed in the current projection, not as proof that execution was impossible.
 
 Execution failures after a process/request/tool call ran are not counted as prevented actions. Examples include shell non-zero exit, HTTP 500 after the request was sent, MCP failed result after the call, or verification failure after execution.
 

@@ -286,6 +286,49 @@ describe('SDK over the daemon', () => {
       { kind: 'filesystem', operation: 'create', path: join(workspace, 'flight-endpoint.txt'), content: 'endpoint proof' },
       task_id,
     );
+    const denied = createRuntimeWorkEvent({
+      type: 'decision.recorded',
+      id: 'endpoint-conflict-deny',
+      timestamp: new Date().toISOString(),
+      session_id: victim.session.session_id,
+      task_id,
+      agent_id: 'flight-victim',
+      tenant_id: 'tenant-victim',
+      proposal_id: 'endpoint-conflict-proposal',
+      decision_id: 'endpoint-conflict-decision',
+      data: { disposition: 'DENY', reason: 'blocked Authorization: Bearer endpoint-secret-token' },
+    });
+    appendEvent({
+      id: `legacy-${denied.id}`,
+      type: denied.type,
+      agentId: denied.agent_id ?? 'flight-victim',
+      sessionId: denied.session_id,
+      summary: denied.summary ?? denied.type,
+      timestamp: denied.timestamp,
+      metadata: { workEvent: denied },
+    }, { baseDir });
+    const executedAfterDeny = createRuntimeWorkEvent({
+      type: 'execution.completed',
+      id: 'endpoint-conflict-execution',
+      timestamp: new Date(Date.parse(denied.timestamp) + 1000).toISOString(),
+      session_id: victim.session.session_id,
+      task_id,
+      agent_id: 'flight-victim',
+      tenant_id: 'tenant-victim',
+      proposal_id: 'endpoint-conflict-proposal',
+      decision_id: 'endpoint-conflict-decision',
+      execution_id: 'endpoint-conflict-execution-id',
+      data: { status: 'EXECUTED' },
+    });
+    appendEvent({
+      id: `legacy-${executedAfterDeny.id}`,
+      type: executedAfterDeny.type,
+      agentId: executedAfterDeny.agent_id ?? 'flight-victim',
+      sessionId: executedAfterDeny.session_id,
+      summary: executedAfterDeny.summary ?? executedAfterDeny.type,
+      timestamp: executedAfterDeny.timestamp,
+      metadata: { workEvent: executedAfterDeny },
+    }, { baseDir });
 
     const post = (path: string, body: Record<string, unknown>, runtimeCredential = daemon.connection.credential) => fetch(`http://127.0.0.1:${daemon.connection.port}${path}`, {
       method: 'POST',
@@ -314,7 +357,16 @@ describe('SDK over the daemon', () => {
 
     const prevented = await post('/v1/session/prevented', { credential: victim.credential, session_id: victim.session.session_id });
     expect(prevented.status).toBe(200);
-    expect(await prevented.json()).toMatchObject({ session_id: victim.session.session_id, prevented_actions: [] });
+    const preventedPayload = await prevented.json() as { session_id: string; prevented_actions: unknown[]; prevention_conflicts: Array<{ blocked_event_id: string; execution_event_ids: string[]; reason: string; execution_status: string; temporal_status: string }>; diagnostics: unknown };
+    expect(preventedPayload).toMatchObject({ session_id: victim.session.session_id, prevented_actions: [] });
+    expect(preventedPayload.prevention_conflicts).toEqual([expect.objectContaining({
+      blocked_event_id: 'endpoint-conflict-deny',
+      execution_event_ids: ['endpoint-conflict-execution'],
+      execution_status: 'observed',
+      temporal_status: 'after_block',
+    })]);
+    expect(preventedPayload.diagnostics).toBeDefined();
+    expect(JSON.stringify(preventedPayload)).not.toContain('endpoint-secret-token');
 
     const exported = await post('/v1/session/export', { credential: victim.credential, session_id: victim.session.session_id });
     expect(exported.status).toBe(200);
