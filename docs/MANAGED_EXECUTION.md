@@ -174,3 +174,9 @@ from an unreachable one; it exposes only liveness, version, and session count.
 `safeloop session inspect <session_id>` now prints concise execution proof summaries when a session contains Phase 2 proof records. The default text view shows executor, operation, verification status, selected before/after state, result metadata, evidence IDs, and artifact IDs. It deliberately avoids dumping large structured proof JSON.
 
 Use `--json` to inspect the full structured graph, including `execution_proofs`. The JSON shape remains additive so v0.2 historical sessions and Phase 1 work graphs remain readable.
+
+## Flight Recorder proof view
+
+Phase 3 exposes managed execution proof records through the CLI, local monitor, and authenticated read-only runtime APIs. These views preserve the executor proof boundaries above: shell proof covers the governed process invocation/result, HTTP proof covers the transaction rather than the remote business outcome, MCP proof covers the call/result rather than downstream side effects, and filesystem proof reports only observed path state and available hashes.
+
+See [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md) for the human-facing session reconstruction and export contract.

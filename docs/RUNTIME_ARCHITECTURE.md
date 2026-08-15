@@ -68,6 +68,7 @@ src/runtime/
   recorder.ts               bridge to evidence registry and ledger
   workEvents.ts             schema-versioned causal work-event envelope
   sessionWorkGraph.ts       read-only per-session graph projection
+  flightRecorder.ts         human-facing read-only session reconstruction
   runtimeCore.ts            sessions, identity, tasks, decisions
   runtimeAuth.ts            two-layer local credentials
   daemon.ts                 loopback HTTP + unix socket
@@ -81,6 +82,9 @@ python/safeloop_client/runtime.py   Python adapter SDK
 Concerns stay separated: protocol, canonicalization, identity, policy, risk,
 approvals, runtime state, transports, executors, memory, SDKs, profiles,
 conformance, telemetry. There is no god class.
+
+Phase 3 adds a Flight Recorder experience on top of `sessionWorkGraph.ts`. It reuses recorded work events, execution proofs, evidence, artifacts, approvals, permits, and memory provenance; it does not change enforcement semantics. See [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md).
+
 
 ## What was reused, not rebuilt
 

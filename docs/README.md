@@ -14,6 +14,7 @@ SafeLoop documentation is split between current user guidance, developer referen
 | [SECURITY_MODEL.md](SECURITY_MODEL.md) | CURRENT | Public security boundary and deployment responsibilities. |
 | [CONFORMANCE.md](CONFORMANCE.md) | CURRENT | Runtime profile conformance model. |
 | [PROFILES.md](PROFILES.md) | CURRENT | Certified profile behavior and execution path inventory. |
+| [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md) | CURRENT | Human-facing read-only session reconstruction, proof views, export, and limitations. |
 
 ## Architecture
 
