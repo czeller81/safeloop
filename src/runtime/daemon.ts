@@ -226,6 +226,26 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
       },
     },
     {
+      method: 'POST', path: '/v1/session/graph', auth: 'runtime',
+      handle: (body, runtime) => {
+        const sessionId = requireFlightRecorderSessionRead(body, runtime);
+        const flight = buildFlightRecorderSession(sessionId, storageOptions);
+        return { session_id: sessionId, observability: flight.observability, graph: flight.observability?.graph };
+      },
+    },
+    {
+      method: 'POST', path: '/v1/session/conflicts', auth: 'runtime',
+      handle: (body, runtime) => {
+        const sessionId = requireFlightRecorderSessionRead(body, runtime);
+        const flight = buildFlightRecorderSession(sessionId, storageOptions);
+        return {
+          session_id: sessionId,
+          prevention_conflicts: flight.prevention_conflicts,
+          conflict_center: flight.observability?.conflict_center ?? [],
+          diagnostics: flight.diagnostics,
+        };
+      },
+    },    {
       method: 'POST', path: '/v1/session/evidence', auth: 'runtime',
       handle: (body, runtime) => {
         const sessionId = requireFlightRecorderSessionRead(body, runtime);

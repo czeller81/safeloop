@@ -368,6 +368,25 @@ describe('SDK over the daemon', () => {
     expect(preventedPayload.diagnostics).toBeDefined();
     expect(JSON.stringify(preventedPayload)).not.toContain('endpoint-secret-token');
 
+    const graph = await post('/v1/session/graph', { credential: victim.credential, session_id: victim.session.session_id });
+    expect(graph.status).toBe(200);
+    const graphPayload = await graph.json() as { graph: { nodes: Array<{ id: string; label: string }>; edges: Array<{ from: string; to: string; recorded: boolean }>; diagnostics: { uses_recorded_causal_links_only: boolean } }; observability: { conflict_center: unknown[] } };
+    expect(graphPayload.graph.diagnostics.uses_recorded_causal_links_only).toBe(true);
+    expect(graphPayload.graph.nodes.some((node) => node.id === 'endpoint-conflict-deny')).toBe(true);
+    expect(graphPayload.graph.edges.some((edge) => edge.from === 'endpoint-conflict-deny' && edge.to === 'endpoint-conflict-execution')).toBe(false);
+    expect(JSON.stringify(graphPayload)).not.toContain('endpoint-secret-token');
+
+    const conflicts = await post('/v1/session/conflicts', { credential: victim.credential, session_id: victim.session.session_id });
+    expect(conflicts.status).toBe(200);
+    const conflictsPayload = await conflicts.json() as { prevention_conflicts: unknown[]; conflict_center: unknown[]; diagnostics: unknown };
+    expect(conflictsPayload.prevention_conflicts).toHaveLength(1);
+    expect(conflictsPayload.conflict_center).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'endpoint-conflict-deny', status: 'CONFLICT' })]));
+    expect(JSON.stringify(conflictsPayload)).not.toContain('endpoint-secret-token');
+
+    const unauthorizedGraph = await post('/v1/session/graph', { credential: attacker.credential, session_id: victim.session.session_id });
+    expect(unauthorizedGraph.status).toBe(401);
+    expect(JSON.stringify(await unauthorizedGraph.json())).not.toContain('endpoint-conflict-deny');
+
     const exported = await post('/v1/session/export', { credential: victim.credential, session_id: victim.session.session_id });
     expect(exported.status).toBe(200);
     const bundle = await exported.json() as { export_type: string; includes_file_bodies: boolean; includes_full_process_output: boolean };

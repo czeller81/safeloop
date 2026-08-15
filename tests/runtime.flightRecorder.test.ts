@@ -508,6 +508,70 @@ describe('Flight Recorder projection', () => {
     expect(flight.summary.prevented_count).toBe(2);
     expect(flight.prevented_actions.map((entry) => entry.event_id)).toEqual(['one-a', 'two-a']);
   });
+  it('builds an operator observability read model without fabricating causal graph edges', () => {
+    const sessionId = 'observability-session';
+    const common = {
+      session_id: sessionId,
+      task_id: 'observability-task',
+      agent_id: 'observability-agent',
+      tenant_id: 'observability-tenant',
+    };
+    const events = [
+      createRuntimeWorkEvent({ ...common, type: 'task.started', id: 'obs-task', timestamp: '2026-08-15T01:00:00.000Z', data: { goal: 'observe credential=goal-secret <script>alert(1)</script>' } }),
+      createRuntimeWorkEvent({ ...common, type: 'proposal.recorded', id: 'clean-proposal', timestamp: '2026-08-15T01:00:01.000Z', proposal_id: 'proposal-clean', action_fingerprint: 'fp-clean', parent_event_id: 'obs-task', summary: 'write clean artifact' }),
+      createRuntimeWorkEvent({ ...common, type: 'decision.recorded', id: 'clean-decision', timestamp: '2026-08-15T01:00:02.000Z', proposal_id: 'proposal-clean', decision_id: 'decision-clean', action_fingerprint: 'fp-clean', parent_event_id: 'clean-proposal', data: { disposition: 'ALLOW' } }),
+      createRuntimeWorkEvent({ ...common, type: 'permit.issued', id: 'clean-permit', timestamp: '2026-08-15T01:00:03.000Z', permit_id: 'permit-clean', proposal_id: 'proposal-clean', decision_id: 'decision-clean', action_fingerprint: 'fp-clean', parent_event_id: 'clean-decision' }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.started', id: 'clean-started', timestamp: '2026-08-15T01:00:04.000Z', execution_id: 'execution-clean', permit_id: 'permit-clean', action_fingerprint: 'fp-clean', parent_event_id: 'clean-permit' }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'clean-completed', timestamp: '2026-08-15T01:00:05.000Z', execution_id: 'execution-clean', permit_id: 'permit-clean', evidence_ids: ['evidence-clean'], artifact_ids: ['artifact-clean'], parent_event_id: 'clean-started', data: { status: 'EXECUTED', execution_proof: { executor: 'filesystem', operation: 'create', verification_status: 'VERIFIED', verification_summary: 'complete hash observed', verification_scope: 'target', execution_id: 'execution-clean', evidence_ids: ['evidence-clean'], artifact_ids: ['artifact-clean'], before: { path: '/tmp/password=clean-secret/before.txt' }, after: { path: '/tmp/password=clean-secret/after.txt', sha256: 'sha256:abc' }, result: { summary: 'created' } } } }),
+      createRuntimeWorkEvent({ ...common, type: 'decision.recorded', id: 'prevent-deny', timestamp: '2026-08-15T01:00:06.000Z', proposal_id: 'proposal-prevent', decision_id: 'decision-prevent', data: { disposition: 'DENY', reason: 'blocked by policy' } }),
+      createRuntimeWorkEvent({ ...common, type: 'decision.recorded', id: 'conflict-deny', timestamp: '2026-08-15T01:00:07.000Z', proposal_id: 'proposal-conflict', decision_id: 'decision-conflict', data: { disposition: 'DENY', reason: 'denied credential=conflict-secret' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'conflict-execution', timestamp: '2026-08-15T01:00:08.000Z', proposal_id: 'proposal-conflict', decision_id: 'decision-conflict', execution_id: 'execution-conflict', data: { status: 'EXECUTED' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'unrelated-execution', timestamp: '2026-08-15T01:00:09.000Z', proposal_id: 'proposal-other', decision_id: 'decision-other', execution_id: 'execution-other', data: { status: 'EXECUTED' } }),
+      createRuntimeWorkEvent({ ...common, type: 'decision.recorded', id: 'dangling-deny', timestamp: '2026-08-15T01:00:10.000Z', proposal_id: 'proposal-dangling', decision_id: 'decision-dangling', causes: ['missing-proposal'], data: { disposition: 'DENY', reason: 'missing causal data' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'failed-shell', timestamp: '2026-08-15T01:00:11.000Z', execution_id: 'execution-failed-shell', data: { status: 'FAILED', reason: 'shell exited 2' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'http-500', timestamp: '2026-08-15T01:00:12.000Z', execution_id: 'execution-http-500', data: { status: 'FAILED', reason: 'HTTP 500 after request' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'mcp-failed', timestamp: '2026-08-15T01:00:13.000Z', execution_id: 'execution-mcp-failed', data: { status: 'FAILED', reason: 'MCP failed result' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.rejected', id: 'breaker-block', timestamp: '2026-08-15T01:00:14.000Z', data: { status: 'BLOCKED_BY_BREAKER', reason: 'breaker open' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.rejected', id: 'budget-block', timestamp: '2026-08-15T01:00:15.000Z', data: { status: 'BUDGET_EXHAUSTED', reason: 'budget exhausted' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.rejected', id: 'context-block', timestamp: '2026-08-15T01:00:16.000Z', data: { status: 'REJECTED', reason: 'execution context mismatch' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'partial-proof', timestamp: '2026-08-15T01:00:17.000Z', execution_id: 'execution-partial', data: { status: 'EXECUTED', execution_proof: { executor: 'filesystem', operation: 'append', verification_status: 'PARTIALLY_VERIFIED', verification_summary: 'hash capped', verification_scope: 'target', execution_id: 'execution-partial', evidence_ids: [], artifact_ids: [], result: { hash_capped: true } } } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'not-verifiable-proof', timestamp: '2026-08-15T01:00:18.000Z', execution_id: 'execution-not-verifiable', data: { status: 'EXECUTED', execution_proof: { executor: 'http', operation: 'post', verification_status: 'NOT_VERIFIABLE', verification_summary: 'remote outcome unknown', verification_scope: 'transaction', execution_id: 'execution-not-verifiable', evidence_ids: [], artifact_ids: [], result: { authorization: 'Bearer http-secret-value' } } } }),
+      createRuntimeWorkEvent({ ...common, type: 'decision.recorded', id: 'similar-text-deny', timestamp: '2026-08-15T01:00:19.000Z', proposal_id: 'proposal-similar-a', decision_id: 'decision-similar-a', summary: 'delete /tmp/similar.txt', data: { disposition: 'DENY', reason: '<img src=x onerror=alert(1)>' } }),
+      createRuntimeWorkEvent({ ...common, type: 'execution.completed', id: 'similar-text-exec', timestamp: '2026-08-15T01:00:20.000Z', proposal_id: 'proposal-similar-b', decision_id: 'decision-similar-b', execution_id: 'execution-similar-b', summary: 'delete /tmp/similar.txt', data: { status: 'EXECUTED', url: 'javascript:alert(1)' } }),
+    ];
+    for (const event of events) appendWorkEvent(event);
+
+    const flight = buildFlightRecorderSession(sessionId, { baseDir });
+    const observability = flight.observability!;
+    const rendered = JSON.stringify(observability);
+
+    expect(observability.browser_metadata.conflict_count).toBe(1);
+    expect(observability.browser_metadata.uncertainty_count).toBeGreaterThan(0);
+    expect(observability.graph.diagnostics.uses_recorded_causal_links_only).toBe(true);
+    expect(observability.graph.diagnostics.missing_reference_count).toBeGreaterThanOrEqual(1);
+    expect(observability.conflict_center).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'conflict-deny', status: 'CONFLICT' }),
+      expect.objectContaining({ id: 'dangling-deny', status: 'UNKNOWN' }),
+    ]));
+    expect(flight.prevented_actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_id: 'prevent-deny', execution_status: 'not_observed' }),
+      expect.objectContaining({ event_id: 'dangling-deny', execution_status: 'unknown' }),
+    ]));
+    expect(flight.prevented_actions.some((entry) => entry.event_id === 'similar-text-deny')).toBe(true);
+    expect(flight.prevention_conflicts).toEqual([expect.objectContaining({ blocked_event_id: 'conflict-deny', execution_event_ids: ['conflict-execution'] })]);
+    expect(observability.graph.edges.some((edge) => edge.from === 'similar-text-deny' && edge.to === 'similar-text-exec')).toBe(false);
+    expect(observability.graph.edges.some((edge) => edge.from === 'unrelated-execution' && edge.to === 'prevent-deny')).toBe(false);
+    expect(observability.graph.nodes.some((node) => node.id === 'missing:missing-proposal' && node.status === 'missing_reference')).toBe(true);
+    expect(observability.filters.find((filter) => filter.id === 'breaker')?.count).toBe(1);
+    expect(observability.filters.find((filter) => filter.id === 'budget')?.count).toBe(1);
+    expect(observability.filters.find((filter) => filter.id === 'unknown')?.count).toBeGreaterThan(0);
+    expect(rendered).toContain('PARTIALLY_VERIFIED');
+    expect(rendered).toContain('NOT_VERIFIABLE');
+    for (const leaked of ['goal-secret', 'clean-secret', 'conflict-secret', 'http-secret-value']) expect(JSON.stringify(flight)).not.toContain(leaked);
+    expect(flight.summary.prevented_count).toBeGreaterThanOrEqual(5);
+    expect(flight.summary.prevention_conflict_count).toBe(1);
+    expect(flight.summary.verification_summary).toContain('VERIFIED');
+  });
   it('summarizes an empty started session without fabricating activity', () => {
     const empty = runtime.startSession({
       agent: { agent_id: 'empty-flight-agent' },

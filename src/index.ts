@@ -1688,4 +1688,4 @@ export function createBreaker(config?: BreakerConfig): Breaker {
   };
 }
 export { buildFlightRecorderSession, exportFlightRecorderSession, listFlightRecorderSessions } from './runtime/flightRecorder';
-export type { FlightRecorderSession, FlightRecorderIndex, FlightRecorderExportBundle } from './runtime/flightRecorder';
+export type { FlightRecorderSession, FlightRecorderIndex, FlightRecorderExportBundle, FlightRecorderObservabilityReadModel, FlightRecorderObservabilityNode, FlightRecorderObservabilityEdge } from './runtime/flightRecorder';

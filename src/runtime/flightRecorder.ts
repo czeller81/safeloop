@@ -62,6 +62,11 @@ export interface FlightRecorderSessionSummary {
   not_verifiable_count: number;
   failed_count: number;
   prevented_count: number;
+  prevention_conflict_count?: number;
+  uncertainty_count?: number;
+  missing_causal_link_count?: number;
+  governance_intervention_count?: number;
+  verification_summary?: string;
   final_state: string;
   latest_summary?: string;
 }
@@ -179,12 +184,97 @@ export interface FlightRecorderSession {
   memory: FlightRecorderMemoryView[];
   known_limitations: string[];
   diagnostics: SessionWorkGraph['diagnostics'];
+  observability?: FlightRecorderObservabilityReadModel;
 }
 
 export interface FlightRecorderIndex {
   schema_version: 1;
   sessions: FlightRecorderSessionSummary[];
   page: { limit: number; returned_count: number; total_count: number; next_cursor?: string; has_more: boolean; max_limit: number };
+}
+
+export type FlightRecorderObservabilityStatus =
+  | 'allowed'
+  | 'denied'
+  | 'prevented'
+  | 'executed'
+  | 'failed'
+  | 'verified'
+  | 'partially_verified'
+  | 'not_verifiable'
+  | 'conflict'
+  | 'unknown'
+  | 'missing_reference';
+
+export interface FlightRecorderObservabilityBadge {
+  label: string;
+  status: FlightRecorderObservabilityStatus;
+  description: string;
+}
+
+export interface FlightRecorderObservabilityNode {
+  id: string;
+  kind: FlightRecorderEventCategory | 'EVIDENCE' | 'ARTIFACT' | 'PROOF' | 'DIAGNOSTIC' | 'MISSING_REFERENCE';
+  label: string;
+  status: FlightRecorderObservabilityStatus;
+  timestamp?: string;
+  event_type?: string;
+  text: string;
+  badges: FlightRecorderObservabilityBadge[];
+  refs: Record<string, string | string[]>;
+  detail?: unknown;
+}
+
+export interface FlightRecorderObservabilityEdge {
+  from: string;
+  to: string;
+  type: 'parent' | 'cause' | 'references_evidence' | 'references_artifact' | 'references_memory' | 'proof_for_execution' | 'missing_reference';
+  recorded: boolean;
+  label: string;
+}
+
+export interface FlightRecorderObservabilityFilterOption {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface FlightRecorderObservabilityReadModel {
+  schema_version: 1;
+  session_id: string;
+  browser_metadata: {
+    session_id: string;
+    task_or_goal: string;
+    started_at?: string;
+    latest_activity_at?: string;
+    event_count: number;
+    prevention_count: number;
+    conflict_count: number;
+    uncertainty_count: number;
+    execution_count: number;
+    verification_summary: string;
+    tenant_id?: string;
+    agent_id?: string;
+  };
+  summary_cards: FlightRecorderObservabilityBadge[];
+  filters: FlightRecorderObservabilityFilterOption[];
+  graph: {
+    nodes: FlightRecorderObservabilityNode[];
+    edges: FlightRecorderObservabilityEdge[];
+    diagnostics: {
+      uses_recorded_causal_links_only: true;
+      missing_reference_count: number;
+      conflict_count: number;
+      cycle_detected: boolean;
+    };
+  };
+  conflict_center: Array<{
+    id: string;
+    status: 'CONFLICT' | 'UNKNOWN';
+    label: string;
+    description: string;
+    related_ids: Record<string, string | string[]>;
+  }>;
 }
 
 export interface FlightRecorderExportBundle extends FlightRecorderSession {
@@ -620,15 +710,231 @@ function knownLimitations(proofs: FlightRecorderProofView[]): string[] {
   return [...base, ...specific];
 }
 
+function verificationSummary(proofs: FlightRecorderProofView[]): string {
+  if (!proofs.length) return 'Unknown';
+  const counts = proofs.reduce((out, proof) => {
+    out[proof.verification_status] = (out[proof.verification_status] ?? 0) + 1;
+    return out;
+  }, {} as Record<string, number>);
+  return Object.entries(counts).map(([status, count]) => `${status}: ${count}`).join(', ');
+}
+
+function timelineEventStatus(event: FlightRecorderTimelineEvent): FlightRecorderObservabilityStatus {
+  const disposition = asString(asRecord(event.data).disposition);
+  const status = asString(asRecord(event.data).status);
+  const proofStatus = asString(asRecord(asRecord(event.data).execution_proof).verification_status);
+  if (event.category === 'PREVENTED') return 'prevented';
+  if (disposition === 'DENY' || disposition === 'STOP_AGENT') return 'denied';
+  if (event.type === 'execution.completed' && (status === 'FAILED' || status === 'ERROR')) return 'failed';
+  if (event.type === 'execution.completed' || event.type === 'execution.started') return 'executed';
+  if (proofStatus === 'VERIFIED' || status === 'VERIFIED') return 'verified';
+  if (proofStatus === 'PARTIALLY_VERIFIED' || status === 'PARTIALLY_VERIFIED') return 'partially_verified';
+  if (proofStatus === 'NOT_VERIFIABLE' || status === 'NOT_VERIFIABLE') return 'not_verifiable';
+  if (event.category === 'DECISION' && disposition === 'ALLOW') return 'allowed';
+  if (event.causal_links.missing_links.length) return 'unknown';
+  return 'unknown';
+}
+
+function statusBadge(label: string, status: FlightRecorderObservabilityStatus, description = label): FlightRecorderObservabilityBadge {
+  return { label, status, description };
+}
+
+function badgesForEvent(event: FlightRecorderTimelineEvent): FlightRecorderObservabilityBadge[] {
+  const badges = [statusBadge(event.category, timelineEventStatus(event), event.explanation)];
+  if (event.causal_links.missing_links.length) badges.push(statusBadge('Incomplete evidence', 'missing_reference', 'One or more recorded causal references are missing.'));
+  const data = asRecord(event.data);
+  const disposition = asString(data.disposition);
+  const status = asString(data.status);
+  if (disposition) badges.push(statusBadge(disposition, disposition === 'ALLOW' ? 'allowed' : disposition === 'DENY' ? 'denied' : 'unknown'));
+  if (status) badges.push(statusBadge(status, status === 'FAILED' ? 'failed' : status === 'EXECUTED' ? 'executed' : 'unknown'));
+  return badges;
+}
+
+function proofStatus(status: ExecutionVerificationStatus): FlightRecorderObservabilityStatus {
+  if (status === 'VERIFIED') return 'verified';
+  if (status === 'PARTIALLY_VERIFIED') return 'partially_verified';
+  if (status === 'NOT_VERIFIABLE') return 'not_verifiable';
+  return 'failed';
+}
+
+function hasCycle(nodes: FlightRecorderObservabilityNode[], edges: FlightRecorderObservabilityEdge[]): boolean {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const outgoing = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!edge.recorded || !nodeIds.has(edge.from) || !nodeIds.has(edge.to)) continue;
+    const list = outgoing.get(edge.from) ?? [];
+    list.push(edge.to);
+    outgoing.set(edge.from, list);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const next of outgoing.get(id) ?? []) {
+      if (visit(next)) return true;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+  return nodes.some((node) => visit(node.id));
+}
+
+function buildObservabilityReadModel(flight: Omit<FlightRecorderSession, 'observability'>): FlightRecorderObservabilityReadModel {
+  const nodes: FlightRecorderObservabilityNode[] = flight.timeline.map((event) => ({
+    id: event.id,
+    kind: event.category,
+    label: event.summary,
+    status: timelineEventStatus(event),
+    timestamp: event.timestamp,
+    event_type: event.type,
+    text: event.explanation,
+    badges: badgesForEvent(event),
+    refs: event.refs,
+    detail: { refs: event.refs, data: event.data, causal_links: event.causal_links },
+  }));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges: FlightRecorderObservabilityEdge[] = [];
+  const missing = new Set<string>();
+  for (const event of flight.timeline) {
+    if (event.causal_links.parent_event_id) {
+      if (nodeIds.has(event.causal_links.parent_event_id)) edges.push({ from: event.causal_links.parent_event_id, to: event.id, type: 'parent', recorded: true, label: 'recorded parent' });
+      else missing.add(event.causal_links.parent_event_id);
+    }
+    for (const cause of event.causal_links.causes) {
+      if (nodeIds.has(cause)) edges.push({ from: cause, to: event.id, type: 'cause', recorded: true, label: 'recorded cause' });
+      else missing.add(cause);
+    }
+    for (const evidenceId of event.refs.evidence_ids ?? []) {
+      if (typeof evidenceId === 'string') edges.push({ from: event.id, to: evidenceId, type: 'references_evidence', recorded: true, label: 'recorded evidence reference' });
+    }
+    for (const artifactId of event.refs.artifact_ids ?? []) {
+      if (typeof artifactId === 'string') edges.push({ from: event.id, to: artifactId, type: 'references_artifact', recorded: true, label: 'recorded artifact reference' });
+    }
+    const memoryId = event.refs.memory_candidate_id;
+    if (typeof memoryId === 'string') edges.push({ from: event.id, to: memoryId, type: 'references_memory', recorded: true, label: 'recorded memory reference' });
+  }
+  for (const id of missing) {
+    const missingId = `missing:${id}`;
+    nodes.push({
+      id: missingId,
+      kind: 'MISSING_REFERENCE',
+      label: `Missing reference ${id}`,
+      status: 'missing_reference',
+      text: 'Recorded causal reference did not resolve to an event in this session projection.',
+      badges: [statusBadge('Missing causal reference', 'missing_reference')],
+      refs: { missing_reference: id },
+    });
+    for (const event of flight.timeline.filter((candidate) => candidate.causal_links.missing_links.includes(id))) {
+      edges.push({ from: missingId, to: event.id, type: 'missing_reference', recorded: false, label: 'missing recorded reference' });
+    }
+  }
+  for (const evidence of flight.evidence) {
+    nodes.push({ id: evidence.evidence_id, kind: 'EVIDENCE', label: evidence.supported_claim ?? evidence.evidence_id, status: 'verified', text: evidence.verification_status, badges: [statusBadge(evidence.verification_status, 'verified')], refs: { artifact_ids: evidence.artifact_ids }, detail: evidence });
+  }
+  for (const artifact of flight.artifacts) {
+    nodes.push({ id: artifact.artifact_id, kind: 'ARTIFACT', label: artifact.path, status: 'unknown', text: `${artifact.operation} artifact`, badges: [statusBadge('Artifact', 'unknown', 'Recorded artifact reference')], refs: { artifact_id: artifact.artifact_id }, detail: artifact });
+  }
+  for (const memory of flight.memory) {
+    nodes.push({ id: memory.memory_id, kind: 'MEMORY', label: memory.memory_id, status: memory.persisted ? 'verified' : 'unknown', text: memory.provenance ?? memory.status, badges: [statusBadge(memory.status, memory.persisted ? 'verified' : 'unknown')], refs: { evidence_ids: memory.evidence_ids, artifact_ids: memory.artifact_ids }, detail: memory });
+  }
+  for (const proof of flight.execution_proofs) {
+    const proofId = `proof:${proof.execution_id ?? proof.executor}:${proof.operation ?? 'operation'}:${proof.verification_status}`;
+    nodes.push({ id: proofId, kind: 'PROOF', label: `${proof.executor} ${proof.verification_status}`, status: proofStatus(proof.verification_status), text: proof.verification_summary, badges: [statusBadge(proof.verification_status, proofStatus(proof.verification_status), proof.limitation)], refs: { evidence_ids: proof.evidence_ids, artifact_ids: proof.artifact_ids }, detail: proof });
+    const executionEvent = proof.execution_id ? flight.timeline.find((event) => event.refs.execution_id === proof.execution_id) : undefined;
+    if (executionEvent) edges.push({ from: executionEvent.id, to: proofId, type: 'proof_for_execution', recorded: true, label: 'recorded execution proof' });
+  }
+  const conflicts = flight.prevention_conflicts.map((conflict) => ({
+    id: conflict.blocked_event_id,
+    status: 'CONFLICT' as const,
+    label: `Prevention conflict: ${conflict.category}`,
+    description: conflict.reason,
+    related_ids: { blocked_event_id: conflict.blocked_event_id, execution_event_ids: conflict.execution_event_ids, ...conflict.related_ids },
+  }));
+  const unknowns = flight.prevented_actions.filter((entry) => entry.execution_status === 'unknown').map((entry) => ({
+    id: entry.event_id,
+    status: 'UNKNOWN' as const,
+    label: `Unknown execution certainty: ${entry.category}`,
+    description: entry.uncertainty_reason ?? entry.reason,
+    related_ids: { event_id: entry.event_id, ...entry.related_ids },
+  }));
+  const filters: FlightRecorderObservabilityFilterOption[] = [
+    { id: 'executed', label: 'Executed', count: flight.summary.execution_count },
+    { id: 'prevented', label: 'Prevented', count: flight.summary.prevented_count },
+    { id: 'conflict', label: 'Conflicts', count: flight.prevention_conflicts.length },
+    { id: 'unknown', label: 'Unknown', count: unknowns.length + flight.diagnostics.dangling_internal_edge_count + flight.diagnostics.legacy_unresolved_count },
+    { id: 'evidence', label: 'Evidence', count: flight.evidence.length },
+    { id: 'artifact', label: 'Artifacts', count: flight.artifacts.length },
+    { id: 'approval', label: 'Approvals', count: flight.summary.approval_count },
+    { id: 'permit', label: 'Permits', count: flight.timeline.filter((event) => event.category === 'PERMIT').length },
+    { id: 'breaker', label: 'Breaker', count: flight.prevented_actions.filter((entry) => entry.category === 'breaker_blocked').length },
+    { id: 'budget', label: 'Budget', count: flight.prevented_actions.filter((entry) => entry.category === 'budget_blocked').length },
+  ];
+  const uncertaintyCount = unknowns.length + flight.diagnostics.dangling_internal_edge_count + flight.diagnostics.legacy_unresolved_count;
+  return {
+    schema_version: 1,
+    session_id: flight.summary.session_id,
+    browser_metadata: {
+      session_id: flight.summary.session_id,
+      task_or_goal: flight.summary.task_goal ?? flight.summary.primary_task_id ?? flight.summary.session_id,
+      started_at: flight.summary.started_at,
+      latest_activity_at: flight.summary.last_event_at,
+      event_count: flight.summary.work_event_count,
+      prevention_count: flight.summary.prevented_count,
+      conflict_count: flight.prevention_conflicts.length,
+      uncertainty_count: uncertaintyCount,
+      execution_count: flight.summary.execution_count,
+      verification_summary: verificationSummary(flight.execution_proofs),
+      tenant_id: flight.summary.tenant_id,
+      agent_id: flight.summary.agent_id,
+    },
+    summary_cards: [
+      statusBadge(`${flight.summary.execution_count} executions`, flight.summary.execution_count ? 'executed' : 'unknown', 'Recorded completed executions'),
+      statusBadge(`${flight.summary.prevented_count} prevented`, flight.summary.prevented_count ? 'prevented' : 'unknown', 'Action-level prevented count'),
+      statusBadge(`${flight.prevention_conflicts.length} conflicts`, flight.prevention_conflicts.length ? 'conflict' : 'unknown', 'Recorded prevention contradictions'),
+      statusBadge(`${uncertaintyCount} unknown`, uncertaintyCount ? 'unknown' : 'verified', 'Missing references and unknown certainty'),
+      statusBadge(verificationSummary(flight.execution_proofs), flight.summary.failed_count ? 'failed' : flight.summary.not_verifiable_count ? 'not_verifiable' : flight.summary.partially_verified_count ? 'partially_verified' : flight.summary.verified_count ? 'verified' : 'unknown', 'Verification status distribution'),
+    ],
+    filters,
+    graph: {
+      nodes,
+      edges,
+      diagnostics: {
+        uses_recorded_causal_links_only: true,
+        missing_reference_count: missing.size,
+        conflict_count: flight.prevention_conflicts.length,
+        cycle_detected: hasCycle(nodes, edges),
+      },
+    },
+    conflict_center: [...conflicts, ...unknowns],
+  };
+}
 export function buildFlightRecorderSession(sessionId: string, options: SafeloopStorageOptions = {}): FlightRecorderSession {
   const graph = buildSessionWorkGraph(sessionId, options);
   const preventedProjection = buildPreventedProjection(graph.events);
   const proofs = graph.execution_proofs.map(proofView);
-  return {
+  const timeline = buildTimeline(graph);
+  const summary = summaryFromGraph(graph, preventedProjection.prevented);
+  const missingCausalLinkCount = timeline.reduce((count, event) => count + event.causal_links.missing_links.length, 0);
+  const uncertaintyCount = preventedProjection.prevented.filter((entry) => entry.execution_status === 'unknown').length
+    + graph.diagnostics.dangling_internal_edge_count
+    + graph.diagnostics.legacy_unresolved_count
+    + missingCausalLinkCount;
+  const governanceInterventionCount = preventedProjection.prevented.filter((entry) => ['breaker_blocked', 'budget_blocked', 'execution_context_mismatch', 'permit_rejected', 'approval_invalid', 'approval_not_granted', 'stop_agent'].includes(entry.category)).length;
+  const flight: FlightRecorderSession = {
     schema_version: 1,
-    summary: summaryFromGraph(graph, preventedProjection.prevented),
+    summary: {
+      ...summary,
+      prevention_conflict_count: preventedProjection.conflicts.length,
+      uncertainty_count: uncertaintyCount,
+      missing_causal_link_count: missingCausalLinkCount,
+      governance_intervention_count: governanceInterventionCount,
+      verification_summary: verificationSummary(proofs),
+    },
     coverage: coverageFromGraph(graph),
-    timeline: buildTimeline(graph),
+    timeline,
     prevented_actions: preventedProjection.prevented,
     prevention_conflicts: preventedProjection.conflicts,
     execution_proofs: proofs,
@@ -638,6 +944,8 @@ export function buildFlightRecorderSession(sessionId: string, options: SafeloopS
     known_limitations: knownLimitations(proofs),
     diagnostics: graph.diagnostics,
   };
+  flight.observability = buildObservabilityReadModel(flight);
+  return flight;
 }
 
 function sessionIds(options: SafeloopStorageOptions): string[] {

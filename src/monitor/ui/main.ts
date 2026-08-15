@@ -37,6 +37,8 @@ const UI_STORAGE_KEYS = {
   selectedTraceId: 'safeloop:selected-trace-id',
   selectedTracePayload: 'safeloop:selected-trace-payload',
   selectedNavSection: 'safeloop:selected-nav-section',
+  flightFilter: 'safeloop:flight-filter',
+  flightSearch: 'safeloop:flight-search',
 } as const;
 
 function readStorageJson<T>(key: string, fallback: T): T {
@@ -434,6 +436,44 @@ function bindTraceConsole(): void {
   } catch (_) { /* non-fatal */ }
 }
 
+function bindFlightRecorderControls(): void {
+  try {
+    const panel = root.querySelector('[data-flight-recorder]');
+    if (!(panel instanceof HTMLElement) || panel.dataset.flightBound === 'true') return;
+    panel.dataset.flightBound = 'true';
+    const apply = () => {
+      const filter = readStorageText(UI_STORAGE_KEYS.flightFilter) || 'all';
+      const search = (readStorageText(UI_STORAGE_KEYS.flightSearch) || '').toLowerCase().trim();
+      panel.querySelectorAll<HTMLElement>('[data-flight-filter]').forEach((button) => {
+        button.classList.toggle('flight-filter-active', (button.dataset.flightFilter || 'all') === filter);
+      });
+      panel.querySelectorAll<HTMLElement>('[data-flight-session], [data-flight-item]').forEach((item) => {
+        const itemFilters = item.dataset.filter || '';
+        const itemSearch = item.dataset.search || item.textContent?.toLowerCase() || '';
+        const filterMatches = filter === 'all' || itemFilters.split(/\s+/).includes(filter);
+        const searchMatches = !search || itemSearch.includes(search);
+        item.hidden = !(filterMatches && searchMatches);
+      });
+    };
+    panel.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-flight-filter]');
+      if (!(button instanceof HTMLElement)) return;
+      writeStorageText(UI_STORAGE_KEYS.flightFilter, button.dataset.flightFilter || 'all');
+      apply();
+    });
+    const input = panel.querySelector('[data-flight-search]');
+    if (input instanceof HTMLInputElement) {
+      input.value = readStorageText(UI_STORAGE_KEYS.flightSearch) || '';
+      input.addEventListener('input', () => {
+        writeStorageText(UI_STORAGE_KEYS.flightSearch, input.value);
+        apply();
+      });
+    }
+    apply();
+  } catch (_) { /* non-fatal */ }
+}
 function bindDetailsState(): void {
   try {
     root.querySelectorAll<HTMLDetailsElement>('details[id], details[data-state-key]').forEach((details) => {
@@ -565,6 +605,7 @@ function render(): void {
   bindDetailsState();
   bindNavState();
   bindTraceConsole();
+  bindFlightRecorderControls();
   updateLiveUi();
 }
 
