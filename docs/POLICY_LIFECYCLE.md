@@ -4,6 +4,8 @@ Phase 6 adds versioned lifecycle governance around the policy/profile material t
 
 Policy lifecycle governance does not rewrite historical decisions.
 
+Phase 6.1 makes lifecycle authority fail closed on corrupt storage. Missing storage is distinct from malformed or unsupported storage; only missing first-use storage may be bootstrapped by explicit baseline import/session startup. Corrupt storage is preserved for inspection and is not treated as an empty lifecycle.
+
 Rollback changes the active future policy state; it does not erase actions or decisions made under the rolled-back version.
 
 ## Architecture
@@ -78,9 +80,11 @@ Validation checks:
 - supported schema version
 - bundle hash integrity
 - profile structural validity
-- rule and configuration shape
-- positive golden control
-- negative golden control
+- budget, threshold, managed-path, memory-policy, and runtime-control shape
+- direct stored config content hash when resolving active or historical configs
+- filesystem safe-read and sensitive-delete controls
+- destructive shell command control
+- authenticated HTTP mutation control
 
 The positive control checks a known safe read path. The negative control checks a dangerous outside delete path and requires a blocking disposition such as `DENY`, `STOP_AGENT`, `REQUIRE_APPROVAL`, or `PAUSE`.
 
@@ -90,7 +94,7 @@ Validation proves structure and defined behavioral controls, not that every futu
 
 Activation requires an approved bundle and re-runs validation immediately before the atomic active pointer update. If activation fails before the atomic write, the previous active bundle remains authoritative. Repeated activation with the same request ID is idempotent.
 
-New governance decisions resolve one complete active policy/config state at proposal evaluation start.
+New governance decisions resolve one complete active policy/config state at proposal evaluation start. The proposal hot path is read-only with respect to lifecycle authority: it verifies the active profile-scoped bundle/config and fails closed on drift instead of importing, activating, or repairing state. A lightweight verified-provenance cache is invalidated when the lifecycle store file changes or a lifecycle mutation writes a new revision.
 
 ## Decision and Execution Provenance
 

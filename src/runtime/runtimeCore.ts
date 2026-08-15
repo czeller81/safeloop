@@ -59,7 +59,7 @@ import {
   type TaskContext,
 } from './protocol';
 import type { SafeloopStorageOptions } from '../localStorage';
-import { activePolicyProvenance } from '../policyLifecycle';
+import { activePolicyProvenance, ensureBaselinePolicyLifecycle } from '../policyLifecycle';
 
 export const RUNTIME_VERSION = '0.2.0';
 
@@ -463,6 +463,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
   const runtime: SafeloopRuntime = {
     startSession(input): SessionHandle {
       const profile = loadProfile(input.profile ?? config.defaultProfile ?? 'coding');
+      ensureBaselinePolicyLifecycle(profile.id, 'safeloop-runtime', config.storageOptions);
 
       // Delegation: a sub-agent session inherits its parent's ceilings and can
       // never widen them.

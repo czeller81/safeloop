@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   activatePolicyBundle,
+  activePolicyProvenance,
   approvePolicyBundle,
   canonicalJson,
   corruptPolicyLifecycleForTest,
@@ -71,10 +72,17 @@ describe('policy lifecycle hashing and immutability', () => {
     expect(store.bundles.filter((entry) => entry.status === 'ACTIVE')).toHaveLength(1);
   });
 
-  it('fails closed instead of silently switching active profiles during provenance lookup', () => {
+  it('preserves legitimate multi-profile baselines while mismatched active pointers fail closed', () => {
     ensureBaselinePolicyLifecycle('coding', 'operator', { baseDir });
-    expect(() => ensureBaselinePolicyLifecycle('research', 'runtime', { baseDir })).toThrow(/active_policy_profile_mismatch/);
-    expect(policyLifecycleStatus({ baseDir }).active_bundle?.profile_id).toBe('coding');
+    ensureBaselinePolicyLifecycle('research', 'operator', { baseDir });
+    expect(policyLifecycleStatus({ baseDir }, 'coding').active_bundle?.profile_id).toBe('coding');
+    expect(policyLifecycleStatus({ baseDir }, 'research').active_bundle?.profile_id).toBe('research');
+
+    corruptPolicyLifecycleForTest((store) => {
+      store.active_by_profile!.coding.profile_id = 'research';
+    }, { baseDir });
+    expect(() => policyLifecycleStatus({ baseDir }, 'coding')).not.toThrow();
+    expect(() => activePolicyProvenance('coding', { baseDir })).toThrow(/active_policy_profile_mismatch/);
   });
 
   it('safe diffs redact secret-like metadata values', () => {
@@ -130,7 +138,43 @@ describe('policy lifecycle activation, rollback, and drift', () => {
     expect(store.events.map((entry) => entry.type)).toEqual(expect.arrayContaining(['policy.rollback.initiated', 'policy.rollback.completed']));
   });
 
-  it('detects policy and config drift plus malformed startup state', () => {
+
+  it('fails closed on corrupt lifecycle storage without overwriting it', () => {
+    writeMalformedPolicyLifecycleForTest('{"schema_version":1,"bundles":[', { baseDir });
+    const before = readFileSync(join(baseDir, '.safeloop', 'policy-lifecycle.json'), 'utf8');
+    expect(policyLifecycleStatus({ baseDir }).store_state).toBe('STORE_CORRUPT');
+    expect(() => ensureBaselinePolicyLifecycle('coding', 'operator', { baseDir })).toThrow(/policy_lifecycle_store_corrupt/);
+    expect(readFileSync(join(baseDir, '.safeloop', 'policy-lifecycle.json'), 'utf8')).toBe(before);
+  });
+
+  it('detects direct config content tampering and blocks confident provenance', () => {
+    ensureBaselinePolicyLifecycle('coding', 'operator', { baseDir });
+    corruptPolicyLifecycleForTest((store) => {
+      const config = store.config_snapshots[0];
+      config.content.budgets.maximum_actions = (config.content.budgets.maximum_actions ?? 0) + 99;
+    }, { baseDir });
+    expect(detectPolicyDrift({ baseDir }).reasons.join(' ')).toMatch(/config_content_hash_mismatch|config_hash_mismatch/);
+    expect(() => activePolicyProvenance('coding', { baseDir })).toThrow(/config_content_hash_mismatch|config_hash_mismatch/);
+  });
+
+  it('rejects malformed lifecycle-controlled config values', () => {
+    const profile = cloneProfile();
+    (profile.budgets as Record<string, unknown>).maximum_cost_usd = 'not-a-number';
+    const bundle = createPolicyBundle({ profile, version: 'bad-budget', created_by: 'operator' }, { baseDir });
+    const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.join(' ')).toContain('budgets.maximum_cost_usd_must_be_finite_number');
+  });
+
+  it('rejects blanket dangerous shell and HTTP mutation policies through golden controls', () => {
+    const profile = cloneProfile();
+    profile.rules.unshift({ id: 'allow-all-shell-http', description: 'bad blanket allow', disposition: 'ALLOW', match: { action_kinds: ['shell', 'http'] } });
+    profile.rules = profile.rules.filter((rule) => !rule.id.includes('dangerous') && !rule.id.includes('destructive') && !rule.id.includes('authenticated') && !rule.id.startsWith('http.'));
+    const bundle = createPolicyBundle({ profile, version: 'blanket-dangerous', created_by: 'operator' }, { baseDir });
+    const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
+    expect(validation.valid).toBe(false);
+    expect(validation.golden_controls.controls.filter((entry) => entry.status === 'fail').map((entry) => entry.id)).toEqual(expect.arrayContaining(['shell-destructive-command', 'http-authenticated-mutation']));
+  });  it('detects policy and config drift plus malformed startup state', () => {
     const v1 = activateVersion('v1');
     expect(detectPolicyDrift({ baseDir }).state).toBe('NO_DRIFT');
     corruptPolicyLifecycleForTest((store) => {

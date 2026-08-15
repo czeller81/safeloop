@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { appendEvent } from './eventStream';
-import { ensureParentDir, readJsonFile, resolveSafeloopPath, type SafeloopStorageOptions } from './localStorage';
+import { ensureParentDir, resolveSafeloopPath, type SafeloopStorageOptions } from './localStorage';
 import { redactSecrets } from './runtime/redaction';
 import { canonicalizeAction } from './runtime/canonicalAction';
 import { evaluateProfile, loadProfile, validateProfile, type GovernanceProfile } from './runtime/profiles';
@@ -20,6 +20,7 @@ export type PolicyLifecycleState =
   | 'ROLLED_BACK';
 
 export type PolicyDriftState = 'NO_DRIFT' | 'DRIFT' | 'UNKNOWN';
+export type PolicyStoreReadState = 'STORE_NOT_INITIALIZED' | 'STORE_VALID' | 'STORE_CORRUPT' | 'UNSUPPORTED_SCHEMA';
 
 export interface PolicyBundle {
   schema_version: 1;
@@ -152,7 +153,10 @@ export interface PolicyLifecycleStore {
     config_snapshot_id: string;
     activated_at: string;
     activation_id: string;
+    profile_id?: string;
   };
+  active_by_profile?: Record<string, { bundle_id: string; config_snapshot_id: string; activated_at: string; activation_id: string; profile_id?: string }>;
+  revision?: number;
   activations: PolicyActivationRecord[];
   validations: PolicyValidationResult[];
   events: PolicyLifecycleEvent[];
@@ -169,6 +173,7 @@ export interface PolicyDecisionProvenance {
   protocol_version: string;
   event_schema_version: 1;
   profile: string;
+  lifecycle_revision?: number;
 }
 
 export interface PolicyLifecycleStatus {
@@ -180,9 +185,15 @@ export interface PolicyLifecycleStatus {
   latest_activation?: PolicyActivationRecord;
   bundle_count: number;
   config_snapshot_count: number;
+  store_state?: PolicyStoreReadState;
+  revision?: number;
+  active_by_profile?: Record<string, { bundle_id: string; config_snapshot_id: string; activated_at: string; activation_id: string; profile_id?: string }>;
 }
 
 const STORE_FILE = 'policy-lifecycle.json';
+const LOCK_DIR = 'policy-lifecycle.lock';
+let lifecycleLockDepth = 0;
+const provenanceCache = new Map<string, { mtimeMs: number; provenance: PolicyDecisionProvenance }>();
 const SUPPORTED_SCHEMA_VERSION = 1;
 const POLICY_RUNTIME_VERSION = '0.2.0';
 const SECRET_KEYS = /(?:password|secret|credential|api[_-]?key|authorization|private[_-]?key|client_secret|operator|bearer|access[_-]?key|auth[_-]?token|session[_-]?token|token[_-]?value)/i;
@@ -208,12 +219,56 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function lockPath(options: SafeloopStorageOptions = {}): string {
+  return resolveSafeloopPath(LOCK_DIR, options);
+}
+
+function sleepMs(ms: number): void {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {}
+}
+
+function withLifecycleLock<T>(options: SafeloopStorageOptions, fn: () => T): T {
+  if (lifecycleLockDepth > 0) return fn();
+  const path = lockPath(options);
+  ensureParentDir(path);
+  const deadline = Date.now() + 5000;
+  lifecycleLockDepth += 1;
+  let acquired = false;
+  try {
+    while (!acquired) {
+      try {
+        mkdirSync(path);
+        writeFileSync(join(path, 'owner'), `${process.pid}:${Date.now()}`, 'utf8');
+        acquired = true;
+      } catch {
+        if (existsSync(path)) {
+          try {
+            if (Date.now() - statSync(path).mtimeMs > 30000) rmSync(path, { recursive: true, force: true });
+          } catch {}
+        }
+        if (Date.now() > deadline) throw new Error('policy_lifecycle_lock_timeout');
+        sleepMs(10);
+      }
+    }
+    return fn();
+  } finally {
+    lifecycleLockDepth -= 1;
+    if (acquired) {
+      try { rmdirSync(path); } catch { rmSync(path, { recursive: true, force: true }); }
+    }
+  }
+}
 function lifecyclePath(options: SafeloopStorageOptions = {}): string {
   return resolveSafeloopPath(STORE_FILE, options);
 }
 
 function emptyStore(): PolicyLifecycleStore {
-  return { schema_version: 1, bundles: [], config_snapshots: [], activations: [], validations: [], events: [], idempotency: {} };
+  return { schema_version: 1, revision: 0, bundles: [], config_snapshots: [], active_by_profile: {}, activations: [], validations: [], events: [], idempotency: {} };
+}
+
+function sanitizeIdentity(value: string): string {
+  return redactSecrets(value || 'unknown').slice(0, 256);
 }
 
 function sanitize(value: unknown): unknown {
@@ -236,21 +291,50 @@ export function redactPolicyLifecycleValue<T>(value: T): T {
   return sanitize(value) as T;
 }
 
-function readStore(options: SafeloopStorageOptions = {}): PolicyLifecycleStore {
-  const parsed = readJsonFile<PolicyLifecycleStore>(lifecyclePath(options), emptyStore());
-  if (parsed.schema_version !== SUPPORTED_SCHEMA_VERSION) {
-    throw new Error(`unsupported policy lifecycle schema version: ${String((parsed as { schema_version?: unknown }).schema_version)}`);
+function readStoreState(options: SafeloopStorageOptions = {}): { state: PolicyStoreReadState; store?: PolicyLifecycleStore; error?: string } {
+  const path = lifecyclePath(options);
+  if (!existsSync(path)) return { state: 'STORE_NOT_INITIALIZED' };
+  const raw = readFileSync(path, 'utf8');
+  if (!raw.trim()) return { state: 'STORE_CORRUPT', error: 'empty policy lifecycle store' };
+  let parsed: PolicyLifecycleStore;
+  try {
+    parsed = JSON.parse(raw) as PolicyLifecycleStore;
+  } catch (error) {
+    return { state: 'STORE_CORRUPT', error: redactSecrets(error instanceof Error ? error.message : String(error)) };
   }
-  return {
+  if (parsed.schema_version !== SUPPORTED_SCHEMA_VERSION) {
+    return { state: 'UNSUPPORTED_SCHEMA', error: `unsupported policy lifecycle schema version: ${String((parsed as { schema_version?: unknown }).schema_version)}` };
+  }
+  const activeByProfile = parsed.active_by_profile && typeof parsed.active_by_profile === 'object'
+    ? parsed.active_by_profile
+    : parsed.active?.profile_id
+      ? { [parsed.active.profile_id]: parsed.active }
+      : {};
+  return { state: 'STORE_VALID', store: {
     ...emptyStore(),
     ...parsed,
+    revision: Number.isSafeInteger(parsed.revision) && (parsed.revision ?? 0) >= 0 ? parsed.revision : 0,
+    active_by_profile: activeByProfile,
     bundles: Array.isArray(parsed.bundles) ? parsed.bundles : [],
     config_snapshots: Array.isArray(parsed.config_snapshots) ? parsed.config_snapshots : [],
     activations: Array.isArray(parsed.activations) ? parsed.activations : [],
     validations: Array.isArray(parsed.validations) ? parsed.validations : [],
     events: Array.isArray(parsed.events) ? parsed.events : [],
     idempotency: parsed.idempotency && typeof parsed.idempotency === 'object' ? parsed.idempotency : {},
-  };
+  } };
+}
+
+function readStore(options: SafeloopStorageOptions = {}): PolicyLifecycleStore {
+  const result = readStoreState(options);
+  if (result.state === 'STORE_VALID' && result.store) return result.store;
+  if (result.state === 'STORE_NOT_INITIALIZED') return emptyStore();
+  throw new Error(result.state === 'UNSUPPORTED_SCHEMA' ? 'policy_lifecycle_unsupported_schema' : 'policy_lifecycle_store_corrupt');
+}
+
+function readExistingStore(options: SafeloopStorageOptions = {}): PolicyLifecycleStore {
+  const result = readStoreState(options);
+  if (result.state === 'STORE_VALID' && result.store) return result.store;
+  throw new Error(result.state === 'STORE_NOT_INITIALIZED' ? 'policy_lifecycle_store_not_initialized' : result.state === 'UNSUPPORTED_SCHEMA' ? 'policy_lifecycle_unsupported_schema' : 'policy_lifecycle_store_corrupt');
 }
 
 function writeStoreAtomic(store: PolicyLifecycleStore, options: SafeloopStorageOptions = {}): void {
@@ -259,8 +343,31 @@ function writeStoreAtomic(store: PolicyLifecycleStore, options: SafeloopStorageO
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
   renameSync(temp, path);
+  provenanceCache.clear();
 }
 
+
+function activeFor(store: PolicyLifecycleStore, profileId: string): PolicyLifecycleStore['active'] | undefined {
+  return store.active_by_profile?.[profileId] ?? (store.active?.profile_id === profileId ? store.active : undefined);
+}
+
+function setActiveFor(store: PolicyLifecycleStore, profileId: string, active: NonNullable<PolicyLifecycleStore['active']>): void {
+  active.profile_id = profileId;
+  store.active_by_profile = store.active_by_profile ?? {};
+  store.active_by_profile[profileId] = active;
+  store.active = active;
+}
+
+function verifyBundleIntegrity(bundle: PolicyBundle): void {
+  if (stableHash(bundleContent(bundle.profile, bundle.profile_id)) !== bundle.content_hash) throw new Error('policy_hash_mismatch');
+}
+
+function verifyConfigIntegrity(config: GovernanceConfigSnapshot, bundle: PolicyBundle): void {
+  if (stableHash(config.content) !== config.content_hash) throw new Error('config_content_hash_mismatch');
+  if (config.policy_bundle_id !== bundle.bundle_id || config.policy_hash !== bundle.content_hash) throw new Error('config_policy_reference_mismatch');
+  if (config.content.policy_bundle_id !== bundle.bundle_id || config.content.policy_hash !== bundle.content_hash) throw new Error('config_content_policy_reference_mismatch');
+  if (buildConfigSnapshot(bundle, config.created_by).content_hash !== config.content_hash) throw new Error('config_hash_mismatch');
+}
 function recordLifecycleEvent(store: PolicyLifecycleStore, input: Omit<PolicyLifecycleEvent, 'id' | 'timestamp'>, options: SafeloopStorageOptions): void {
   const event: PolicyLifecycleEvent = {
     id: `policy-event-${Date.now()}-${createHash('sha1').update(JSON.stringify(input)).digest('hex').slice(0, 10)}`,
@@ -316,7 +423,7 @@ export function createPolicyBundle(input: {
     version: input.version,
     profile_id: profileId,
     created_at: now(),
-    created_by: input.created_by,
+    created_by: sanitizeIdentity(input.created_by),
     content_hash: contentHash,
     status: 'DRAFT',
     profile: safeProfile,
@@ -327,7 +434,7 @@ export function createPolicyBundle(input: {
     store.bundles.push(bundle);
     recordLifecycleEvent(store, {
       type: 'policy.bundle.created',
-      actor: input.created_by,
+      actor: sanitizeIdentity(input.created_by),
       bundle_id: bundle.bundle_id,
       bundle_version: bundle.version,
       tenant_id: bundle.tenant_id,
@@ -374,12 +481,34 @@ function buildConfigSnapshot(bundle: PolicyBundle, actor: string): GovernanceCon
     content_hash: hash,
     status: 'VALIDATED',
     created_at: now(),
-    created_by: actor,
+    created_by: sanitizeIdentity(actor),
     content,
     tenant_id: bundle.tenant_id,
   };
 }
 
+
+function validateLifecycleProfile(profile: GovernanceProfile): string[] {
+  const errors: string[] = [];
+  const budget = profile.budgets ?? {};
+  for (const key of ['maximum_actions', 'maximum_runtime_ms', 'maximum_tokens', 'maximum_cost_usd', 'maximum_retries'] as const) {
+    const value = budget[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) errors.push(`budgets.${key}_must_be_finite_number`);
+    else if (value < 0) errors.push(`budgets.${key}_must_be_non_negative`);
+  }
+  if (typeof profile.minimum_memory_confidence !== 'number' || !Number.isFinite(profile.minimum_memory_confidence) || profile.minimum_memory_confidence < 0 || profile.minimum_memory_confidence > 1) errors.push('minimum_memory_confidence_invalid');
+  const validManaged = new Set(['MANAGED', 'UNMANAGED', 'DISABLED', 'UNREACHABLE', 'PENDING_VERIFICATION', 'VERIFICATION_FAILED']);
+  if (!Array.isArray(profile.managed_paths)) errors.push('managed_paths_must_be_array');
+  for (const [index, entry] of (profile.managed_paths ?? []).entries()) {
+    if (!validManaged.has(entry.state)) errors.push(`managed_paths.${index}.state_invalid`);
+    if (typeof entry.consequential !== 'boolean') errors.push(`managed_paths.${index}.consequential_invalid`);
+    if (typeof entry.certification_impact !== 'boolean') errors.push(`managed_paths.${index}.certification_impact_invalid`);
+  }
+  const validMemory = new Set(['allow', 'allow_with_ttl', 'require_review', 'quarantine', 'reject']);
+  if (!validMemory.has(profile.memory_write_policy)) errors.push('memory_write_policy_invalid');
+  return errors;
+}
 function goldenControls(profile: GovernanceProfile): GoldenPolicyControlsResult {
   const safe = canonicalizeAction({
     action_kind: 'filesystem',
@@ -397,6 +526,10 @@ function goldenControls(profile: GovernanceProfile): GoldenPolicyControlsResult 
   });
   const safeDisposition = evaluateProfile(profile, safe, '/tmp/safeloop-phase6-workspace').disposition;
   const dangerousDisposition = evaluateProfile(profile, dangerous, '/tmp/safeloop-phase6-workspace').disposition;
+  const shellDangerous = canonicalizeAction({ action_kind: 'shell', operation: 'run', arguments: { command: 'rm -rf /tmp/safeloop-danger' }, agent_id: 'golden-agent' });
+  const httpMutation = canonicalizeAction({ action_kind: 'http', operation: 'authenticated_mutation', method: 'POST', resource: 'https://evil.example/mutate', arguments: {}, agent_id: 'golden-agent' });
+  const shellDisposition = evaluateProfile(profile, shellDangerous, '/tmp/safeloop-phase6-workspace').disposition;
+  const httpDisposition = evaluateProfile(profile, httpMutation, '/tmp/safeloop-phase6-workspace').disposition;
   const controls: GoldenPolicyControlResult[] = [
     {
       id: 'safe-read',
@@ -411,6 +544,20 @@ function goldenControls(profile: GovernanceProfile): GoldenPolicyControlsResult 
       expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
       observed: dangerousDisposition,
       status: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'].includes(dangerousDisposition) ? 'pass' : 'fail',
+    },
+    {
+      id: 'shell-destructive-command',
+      polarity: 'negative',
+      expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+      observed: shellDisposition,
+      status: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'].includes(shellDisposition) ? 'pass' : 'fail',
+    },
+    {
+      id: 'http-authenticated-mutation',
+      polarity: 'negative',
+      expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+      observed: httpDisposition,
+      status: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'].includes(httpDisposition) ? 'pass' : 'fail',
     },
   ];
   return {
@@ -434,6 +581,7 @@ export function validatePolicyBundle(bundleId: string, actor: string, options: S
     errors.push(redactSecrets(error instanceof Error ? error.message : String(error)));
   }
   if (!bundle.profile.rules?.length) errors.push('profile_has_no_rules');
+  errors.push(...validateLifecycleProfile(bundle.profile));
   const golden = goldenControls(bundle.profile);
   if (!golden.positive_pass) errors.push('positive_golden_control_failed');
   if (!golden.negative_pass) errors.push('negative_golden_control_failed');
@@ -451,7 +599,7 @@ export function validatePolicyBundle(bundleId: string, actor: string, options: S
   bundle.status = result.valid ? (['APPROVED', 'ACTIVE', 'SUPERSEDED', 'ROLLED_BACK'].includes(bundle.status) ? bundle.status : 'VALIDATED') : 'INVALID';
   recordLifecycleEvent(store, {
     type: result.valid ? 'policy.bundle.validated' : 'policy.bundle.validation_failed',
-    actor,
+    actor: sanitizeIdentity(actor),
     bundle_id: bundle.bundle_id,
     bundle_version: bundle.version,
     tenant_id: bundle.tenant_id,
@@ -470,7 +618,7 @@ export function approvePolicyBundle(bundleId: string, actor: string, options: Sa
   bundle.status = 'APPROVED';
   recordLifecycleEvent(store, {
     type: 'policy.bundle.approved',
-    actor,
+    actor: sanitizeIdentity(actor),
     bundle_id: bundle.bundle_id,
     bundle_version: bundle.version,
     tenant_id: bundle.tenant_id,
@@ -489,6 +637,8 @@ export function activatePolicyBundle(input: {
   fail_after_validation?: boolean;
   tenant_id?: string;
 }, options: SafeloopStorageOptions = {}): PolicyActivationRecord {
+  if (input.fail_after_validation && process.env.NODE_ENV !== 'test' && process.env.SAFELOOP_TEST_FAILURE_INJECTION !== '1') throw new Error('failure_injection_not_available');
+  return withLifecycleLock(options, () => {
   const store = readStore(options);
   const requestId = input.request_id ?? `activation:${input.bundle_id}`;
   const existingId = store.idempotency[requestId];
@@ -506,7 +656,7 @@ export function activatePolicyBundle(input: {
   if (!validation.valid) {
     recordLifecycleEvent(fresh, {
       type: 'policy.bundle.activation_failed',
-      actor: input.actor,
+      actor: sanitizeIdentity(input.actor),
       bundle_id: bundle.bundle_id,
       bundle_version: bundle.version,
       tenant_id: bundle.tenant_id,
@@ -519,7 +669,7 @@ export function activatePolicyBundle(input: {
   if (freshBundle.status !== 'APPROVED' && freshBundle.status !== 'ACTIVE' && freshBundle.status !== 'SUPERSEDED' && freshBundle.status !== 'ROLLED_BACK') {
     recordLifecycleEvent(fresh, {
       type: 'policy.bundle.activation_failed',
-      actor: input.actor,
+      actor: sanitizeIdentity(input.actor),
       bundle_id: bundle.bundle_id,
       bundle_version: bundle.version,
       tenant_id: bundle.tenant_id,
@@ -531,7 +681,7 @@ export function activatePolicyBundle(input: {
   if (input.fail_after_validation) {
     recordLifecycleEvent(fresh, {
       type: 'policy.bundle.activation_failed',
-      actor: input.actor,
+      actor: sanitizeIdentity(input.actor),
       bundle_id: bundle.bundle_id,
       bundle_version: bundle.version,
       tenant_id: bundle.tenant_id,
@@ -540,14 +690,14 @@ export function activatePolicyBundle(input: {
     writeStoreAtomic(fresh, options);
     throw new Error('activation_persistence_failed');
   }
-  const previous = fresh.active;
+  const previous = activeFor(fresh, freshBundle.profile_id);
   const previousBundle = previous ? fresh.bundles.find((entry) => entry.bundle_id === previous.bundle_id) : undefined;
   const snapshot = buildConfigSnapshot(freshBundle, input.actor);
   const existingSnapshot = fresh.config_snapshots.find((entry) => entry.snapshot_id === snapshot.snapshot_id);
   if (!existingSnapshot) fresh.config_snapshots.push(snapshot);
   for (const entry of fresh.bundles) {
     if (entry.bundle_id === freshBundle.bundle_id) entry.status = 'ACTIVE';
-    else if (entry.status === 'ACTIVE') entry.status = 'SUPERSEDED';
+    else if (entry.profile_id === freshBundle.profile_id && entry.status === 'ACTIVE') entry.status = 'SUPERSEDED';
   }
   const activation: PolicyActivationRecord = {
     activation_id: `activation-${Date.now()}-${freshBundle.content_hash.slice(7, 15)}`,
@@ -557,26 +707,27 @@ export function activatePolicyBundle(input: {
     config_snapshot_id: snapshot.snapshot_id,
     previous_bundle_id: previous?.bundle_id,
     previous_config_snapshot_id: previous?.config_snapshot_id,
-    actor: input.actor,
-    approved_by: input.approved_by,
+    actor: sanitizeIdentity(input.actor),
+    approved_by: sanitizeIdentity(input.approved_by),
     approved_at: now(),
     activated_at: now(),
     validation_id: validation.validation_id,
     golden_controls_passed: validation.golden_controls.positive_pass && validation.golden_controls.negative_pass,
     reason: redactSecrets(input.reason ?? ''),
   };
-  fresh.active = {
+  setActiveFor(fresh, freshBundle.profile_id, {
     bundle_id: freshBundle.bundle_id,
     config_snapshot_id: snapshot.snapshot_id,
     activated_at: activation.activated_at,
     activation_id: activation.activation_id,
-  };
+    profile_id: freshBundle.profile_id,
+  });
   fresh.activations.push(activation);
   fresh.idempotency[requestId] = activation.activation_id;
   if (previousBundle && previousBundle.bundle_id !== freshBundle.bundle_id) {
     recordLifecycleEvent(fresh, {
       type: 'policy.bundle.superseded',
-      actor: input.actor,
+      actor: sanitizeIdentity(input.actor),
       bundle_id: previousBundle.bundle_id,
       bundle_version: previousBundle.version,
       config_snapshot_id: previous?.config_snapshot_id,
@@ -586,7 +737,7 @@ export function activatePolicyBundle(input: {
   }
   recordLifecycleEvent(fresh, {
     type: 'policy.bundle.activated',
-    actor: input.actor,
+    actor: sanitizeIdentity(input.actor),
     bundle_id: freshBundle.bundle_id,
     bundle_version: freshBundle.version,
     config_snapshot_id: snapshot.snapshot_id,
@@ -598,6 +749,7 @@ export function activatePolicyBundle(input: {
   }, options);
   writeStoreAtomic(fresh, options);
   return activation;
+  });
 }
 
 export function rollbackPolicy(input: {
@@ -609,10 +761,12 @@ export function rollbackPolicy(input: {
   tenant_id?: string;
 }, options: SafeloopStorageOptions = {}): PolicyActivationRecord {
   const store = readStore(options);
-  const active = store.active;
+  const target = store.bundles.find((entry) => entry.bundle_id === input.target_bundle_id);
+  if (!target) throw new Error('policy_bundle_not_found');
+  const active = activeFor(store, target.profile_id);
   recordLifecycleEvent(store, {
     type: 'policy.rollback.initiated',
-    actor: input.actor,
+    actor: sanitizeIdentity(input.actor),
     bundle_id: input.target_bundle_id,
     previous_bundle_id: active?.bundle_id,
     previous_config_snapshot_id: active?.config_snapshot_id,
@@ -623,8 +777,8 @@ export function rollbackPolicy(input: {
   writeStoreAtomic(store, options);
   const activation = activatePolicyBundle({
     bundle_id: input.target_bundle_id,
-    actor: input.actor,
-    approved_by: input.approved_by,
+    actor: sanitizeIdentity(input.actor),
+    approved_by: sanitizeIdentity(input.approved_by),
     request_id: input.request_id ?? `rollback:${active?.bundle_id ?? 'none'}:${input.target_bundle_id}`,
     reason: input.reason,
     tenant_id: input.tenant_id,
@@ -638,7 +792,7 @@ export function rollbackPolicy(input: {
   if (activationRecord) activationRecord.rollback_from_bundle_id = active?.bundle_id;
   recordLifecycleEvent(after, {
     type: 'policy.rollback.completed',
-    actor: input.actor,
+    actor: sanitizeIdentity(input.actor),
     bundle_id: activation.bundle_id,
     bundle_version: activation.bundle_version,
     config_snapshot_id: activation.config_snapshot_id,
@@ -654,11 +808,10 @@ export function rollbackPolicy(input: {
 
 export function ensureBaselinePolicyLifecycle(profileId: string, actor = 'safeloop-runtime', options: SafeloopStorageOptions = {}): PolicyLifecycleStatus {
   const store = readStore(options);
-  const activeBundle = store.active ? store.bundles.find((entry) => entry.bundle_id === store.active?.bundle_id) : undefined;
-  if (activeBundle && activeBundle.profile_id === profileId) return policyLifecycleStatus(options);
-  if (activeBundle && activeBundle.profile_id !== profileId) throw new Error('active_policy_profile_mismatch');
+  const active = activeFor(store, profileId);
+  if (active) return policyLifecycleStatus(options, profileId);
   const profile = loadProfile(profileId);
-  const bundle = createPolicyBundle({ profile, profile_id: profileId, version: `baseline-${profileId}`, created_by: actor, metadata: { imported_from: 'profiles directory' } }, options);
+  const bundle = createPolicyBundle({ profile, profile_id: profileId, version: `baseline-${profileId}`, created_by: sanitizeIdentity(actor), metadata: { imported_from: 'profiles directory' } }, options);
   validatePolicyBundle(bundle.bundle_id, actor, options);
   approvePolicyBundle(bundle.bundle_id, actor, options);
   activatePolicyBundle({ bundle_id: bundle.bundle_id, actor, approved_by: actor, request_id: `baseline:${profileId}`, reason: 'import existing effective profile as immutable baseline' }, options);
@@ -666,52 +819,97 @@ export function ensureBaselinePolicyLifecycle(profileId: string, actor = 'safelo
 }
 
 export function activePolicyProvenance(profileId: string, options: SafeloopStorageOptions = {}): PolicyDecisionProvenance {
-  const status = ensureBaselinePolicyLifecycle(profileId, 'safeloop-runtime', options);
-  if (!status.active_bundle || !status.active_config) throw new Error('active_policy_missing');
-  return {
-    policy_bundle_id: status.active_bundle.bundle_id,
-    policy_bundle_version: status.active_bundle.version,
-    policy_hash: status.active_bundle.content_hash,
-    config_snapshot_id: status.active_config.snapshot_id,
-    config_hash: status.active_config.content_hash,
+  const path = lifecyclePath(options);
+  const mtimeMs = statSync(path).mtimeMs;
+  const cacheKey = `${path}:${profileId}`;
+  const cached = provenanceCache.get(cacheKey);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.provenance;
+  const store = readExistingStore(options);
+  const active = activeFor(store, profileId);
+  if (!active) throw new Error('active_policy_missing');
+  const bundle = store.bundles.find((entry) => entry.bundle_id === active.bundle_id);
+  const config = store.config_snapshots.find((entry) => entry.snapshot_id === active.config_snapshot_id);
+  if (!bundle || !config) throw new Error('active_policy_drift');
+  verifyBundleIntegrity(bundle);
+  verifyConfigIntegrity(config, bundle);
+  if (bundle.profile_id !== profileId || config.profile_id !== profileId || active.profile_id !== profileId) throw new Error('active_policy_profile_mismatch');
+  if (bundle.status !== 'ACTIVE') throw new Error('active_policy_state_mismatch');
+  if (store.bundles.filter((entry) => entry.profile_id === profileId && entry.status === 'ACTIVE').length !== 1) throw new Error('duplicate_active_policy_state');
+  const provenance: PolicyDecisionProvenance = {
+    policy_bundle_id: bundle.bundle_id,
+    policy_bundle_version: bundle.version,
+    policy_hash: bundle.content_hash,
+    config_snapshot_id: config.snapshot_id,
+    config_hash: config.content_hash,
     runtime_version: POLICY_RUNTIME_VERSION,
     protocol_version: PROTOCOL_VERSION,
     event_schema_version: 1,
-    profile: status.active_bundle.profile_id,
+    profile: bundle.profile_id,
+    lifecycle_revision: store.revision ?? 0,
   };
+  provenanceCache.set(cacheKey, { mtimeMs, provenance });
+  return provenance;
 }
 
 export function resolveHistoricalPolicyContext(provenance: PolicyDecisionProvenance, options: SafeloopStorageOptions = {}): { bundle: PolicyBundle; config: GovernanceConfigSnapshot } {
-  const store = readStore(options);
+  const store = readExistingStore(options);
   const bundle = store.bundles.find((entry) => entry.bundle_id === provenance.policy_bundle_id && entry.content_hash === provenance.policy_hash);
   const config = store.config_snapshots.find((entry) => entry.snapshot_id === provenance.config_snapshot_id && entry.content_hash === provenance.config_hash);
-  if (!bundle || !config) throw new Error('historical_policy_context_not_resolvable');
-  return { bundle, config };
-}
-
-export function detectPolicyDrift(options: SafeloopStorageOptions = {}): { state: PolicyDriftState; reasons: string[] } {
   try {
-    const store = readStore(options);
-    if (!store.active) return { state: 'DRIFT', reasons: ['active_policy_missing'] };
-    const bundle = store.bundles.find((entry) => entry.bundle_id === store.active?.bundle_id);
-    const config = store.config_snapshots.find((entry) => entry.snapshot_id === store.active?.config_snapshot_id);
-    const reasons: string[] = [];
-    if (!bundle) reasons.push('active_bundle_missing');
-    if (!config) reasons.push('active_config_snapshot_missing');
-    if (bundle && stableHash(bundleContent(bundle.profile, bundle.profile_id)) !== bundle.content_hash) reasons.push('policy_hash_mismatch');
-    if (bundle && config && buildConfigSnapshot(bundle, config.created_by).content_hash !== config.content_hash) reasons.push('config_hash_mismatch');
-    return { state: reasons.length ? 'DRIFT' : 'NO_DRIFT', reasons };
-  } catch (error) {
-    return { state: 'UNKNOWN', reasons: [redactSecrets(error instanceof Error ? error.message : String(error))] };
+    if (!bundle || !config) throw new Error('missing_historical_context');
+    verifyBundleIntegrity(bundle);
+    verifyConfigIntegrity(config, bundle);
+    if (bundle.profile_id !== provenance.profile || config.profile_id !== provenance.profile) throw new Error('historical_profile_mismatch');
+    return { bundle, config };
+  } catch {
+    throw new Error('historical_policy_context_not_resolvable');
   }
 }
 
-export function policyLifecycleStatus(options: SafeloopStorageOptions = {}): PolicyLifecycleStatus {
-  const store = readStore(options);
-  const activeBundle = store.active ? store.bundles.find((entry) => entry.bundle_id === store.active?.bundle_id) : undefined;
-  const activeConfig = store.active ? store.config_snapshots.find((entry) => entry.snapshot_id === store.active?.config_snapshot_id) : undefined;
+export function detectPolicyDrift(options: SafeloopStorageOptions = {}): { state: PolicyDriftState; reasons: string[] } {
+  const state = readStoreState(options);
+  if (state.state === 'STORE_NOT_INITIALIZED') return { state: 'DRIFT', reasons: ['active_policy_missing'] };
+  if (state.state !== 'STORE_VALID' || !state.store) return { state: 'UNKNOWN', reasons: [state.error ?? state.state] };
+  const store = state.store;
+  const reasons: string[] = [];
+  const activeMap = store.active_by_profile ?? {};
+  if (Object.keys(activeMap).length === 0) reasons.push('active_policy_missing');
+  for (const [profileId, active] of Object.entries(activeMap)) {
+    const bundle = store.bundles.find((entry) => entry.bundle_id === active.bundle_id);
+    const config = store.config_snapshots.find((entry) => entry.snapshot_id === active.config_snapshot_id);
+    if (!bundle) { reasons.push(`${profileId}:active_bundle_missing`); continue; }
+    if (!config) { reasons.push(`${profileId}:active_config_snapshot_missing`); continue; }
+    try { verifyBundleIntegrity(bundle); } catch (error) { reasons.push(`${profileId}:${error instanceof Error ? error.message : String(error)}`); }
+    try { verifyConfigIntegrity(config, bundle); } catch (error) { reasons.push(`${profileId}:${error instanceof Error ? error.message : String(error)}`); }
+    if (bundle.profile_id !== profileId || config.profile_id !== profileId || active.profile_id !== profileId) reasons.push(`${profileId}:active_policy_profile_mismatch`);
+    if (store.bundles.filter((entry) => entry.profile_id === profileId && entry.status === 'ACTIVE').length !== 1) reasons.push(`${profileId}:duplicate_active_policy_state`);
+  }
+  return { state: reasons.length ? 'DRIFT' : 'NO_DRIFT', reasons };
+}
+
+export function policyLifecycleStatus(options: SafeloopStorageOptions = {}, profileId?: string): PolicyLifecycleStatus {
+  const state = readStoreState(options);
+  if (state.state !== 'STORE_VALID' || !state.store) {
+    return {
+      store_state: state.state,
+      revision: 0,
+      active_by_profile: {},
+      drift_state: state.state === 'STORE_NOT_INITIALIZED' ? 'DRIFT' : 'UNKNOWN',
+      drift_reasons: [state.error ?? state.state],
+      bundle_count: 0,
+      config_snapshot_count: 0,
+    };
+  }
+  const store = state.store;
+  const selectedProfile = profileId ?? Object.keys(store.active_by_profile ?? {})[0];
+  const active = selectedProfile ? activeFor(store, selectedProfile) : store.active;
+  const activeBundle = active ? store.bundles.find((entry) => entry.bundle_id === active.bundle_id) : undefined;
+  const activeConfig = active ? store.config_snapshots.find((entry) => entry.snapshot_id === active.config_snapshot_id) : undefined;
   const drift = detectPolicyDrift(options);
   return {
+    store_state: 'STORE_VALID',
+    revision: store.revision ?? 0,
+    active_by_profile: sanitize(store.active_by_profile ?? {}) as Record<string, { bundle_id: string; config_snapshot_id: string; activated_at: string; activation_id: string; profile_id?: string }>,
     active_bundle: activeBundle ? sanitize(activeBundle) as PolicyBundle : undefined,
     active_config: activeConfig ? sanitize(activeConfig) as GovernanceConfigSnapshot : undefined,
     drift_state: drift.state,
