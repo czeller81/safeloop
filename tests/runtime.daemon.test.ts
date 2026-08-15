@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { appendEvent } from '../src/eventStream';
@@ -326,6 +326,88 @@ describe('SDK over the daemon', () => {
     const rejected = await post('/v1/session/export', { credential: attacker.credential, session_id: victim.session.session_id });
     expect(rejected.status).toBe(401);
     expect(JSON.stringify(await rejected.json())).not.toContain('flight recorder endpoint proof');
+  });
+
+  it('redacts Flight Recorder evidence and export API metadata', async () => {
+    const session = await client.startSession({
+      agent: { agent_id: 'privacy-api-agent' }, tenant_id: 'tenant-privacy-api', workspace, profile: 'coding',
+    });
+    const timestamp = new Date().toISOString();
+    const workEvent = createRuntimeWorkEvent({
+      type: 'evidence.recorded',
+      id: 'privacy-api-work-event',
+      timestamp,
+      session_id: session.session.session_id,
+      task_id: 'privacy-api-task',
+      agent_id: 'privacy-api-agent',
+      tenant_id: 'tenant-privacy-api',
+      evidence_ids: ['privacy-api-evidence'],
+      artifact_ids: ['privacy-api-artifact'],
+      data: { authorization: 'Bearer SAFELOOP_SECRET_BEARER_02' },
+    });
+    appendEvent({
+      id: 'privacy-api-legacy',
+      type: 'evidence.recorded',
+      agentId: 'privacy-api-agent',
+      sessionId: session.session.session_id,
+      timestamp,
+      summary: 'privacy api event',
+      metadata: { workEvent },
+    }, { baseDir });
+    writeFileSync(join(baseDir, '.safeloop', 'evidence-registry.json'), JSON.stringify({
+      version: 1,
+      records: [{
+        evidenceId: 'privacy-api-evidence',
+        artifactHash: 'privacy-api-hash',
+        provenance: {
+          evidenceId: 'privacy-api-evidence',
+          type: 'privacy',
+          source: 'test',
+          timestamp,
+          producingAgent: 'privacy-api-agent',
+          confidence: 1,
+          supportedClaim: 'Bearer SAFELOOP_SECRET_BEARER_02 password=SAFELOOP_SECRET_PASSWORD_03',
+          provenance: { api_key: 'SAFELOOP_SECRET_APIKEY_01' },
+          verificationStatus: 'VERIFIED_FACT',
+        },
+        verificationStatus: 'VERIFIED_FACT',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }],
+    }), 'utf8');
+    writeFileSync(join(baseDir, '.safeloop', 'runtime-artifacts.json'), JSON.stringify({
+      version: 1,
+      records: [{
+        protocol_version: 'safeloop.runtime.v1',
+        artifact_id: 'privacy-api-artifact',
+        path: '/tmp/password=SAFELOOP_SECRET_PASSWORD_03/Bearer-SAFELOOP_SECRET_BEARER_02/file.txt',
+        content_hash: 'privacy-api-hash',
+        operation: 'write',
+        agent_id: 'privacy-api-agent',
+        task_id: 'privacy-api-task',
+        tenant_id: 'tenant-privacy-api',
+        recorded_at: timestamp,
+      }],
+    }), 'utf8');
+
+    const post = (path: string) => fetch(`http://127.0.0.1:${daemon.connection.port}${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${daemon.connection.credential}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ credential: session.credential, session_id: session.session.session_id }),
+    });
+
+    for (const path of ['/v1/session/evidence', '/v1/session/export']) {
+      const response = await post(path);
+      expect(response.status).toBe(200);
+      const body = JSON.stringify(await response.json());
+      expect(body).not.toContain('SAFELOOP_SECRET_APIKEY_01');
+      expect(body).not.toContain('SAFELOOP_SECRET_BEARER_02');
+      expect(body).not.toContain('SAFELOOP_SECRET_PASSWORD_03');
+      expect(body).toContain('[REDACTED');
+    }
   });
 
   it('requires the requested session credential for timeline reads', async () => {

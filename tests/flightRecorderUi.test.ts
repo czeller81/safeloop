@@ -117,6 +117,7 @@ describe('Flight Recorder monitor UI', () => {
           execution_occurred: false,
           related_ids: { decision_id: 'decision-detail-1' },
         }],
+        prevention_conflicts: [],
         execution_proofs: [{
           execution_id: 'execution-detail-1',
           executor: 'filesystem',

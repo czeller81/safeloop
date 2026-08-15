@@ -57,6 +57,12 @@ The local monitor dashboard includes a Flight Recorder panel. It lists recent go
 
 The monitor panel is an operator summary, not an approval surface. It does not grant approvals, redeem tokens, execute actions, or alter runtime state.
 
+## Privacy and redaction
+
+Flight Recorder-facing projections redact data before API, CLI, UI, and export surfaces receive it. Work-event data, execution proof metadata, evidence supported claims, artifact metadata, and governed memory provenance are treated as untrusted display data and are copied through a redacted projection rather than returned directly from storage.
+
+Redaction is best-effort over configured structured fields and known secret-shaped strings such as bearer tokens, API-key-like values, password assignments, private-key markers, URL userinfo credentials, and SafeLoop test canaries. It is not a guarantee that every possible secret format can be recognized, so adapters should still avoid writing raw secrets to the ledger.
+
 ## Export boundary
 
 `/v1/session/export` returns structured JSON with these explicit limits:
@@ -64,7 +70,15 @@ The monitor panel is an operator summary, not an approval surface. It does not g
 - `includes_file_bodies: false`
 - `includes_full_process_output: false`
 
-Exported data is redacted through the runtime work-event redaction path. It contains IDs, hashes, status, summaries, bounded proof metadata, and provenance links. It does not include full file contents, raw credentials, authorization headers, complete stdout/stderr, or hidden model reasoning.
+Exported data is redacted through the Flight Recorder projection boundary. It contains IDs, hashes, status, summaries, bounded proof metadata, and provenance links. It does not include full file contents, raw credentials, authorization headers, complete stdout/stderr, or hidden model reasoning. Freeform evidence claims and artifact paths may be partially redacted when they contain secret-shaped components.
+
+## Prevented-action semantics
+
+A prevented action means SafeLoop governance or executor admission blocked a protected side effect and no linked execution record indicates that the protected execution occurred. The projection uses recorded identifiers such as proposal IDs, decision IDs, approval IDs, permit IDs, execution IDs, action fingerprints, and causal event IDs where available. It does not use text matching.
+
+If records say both that governance blocked an action and that a linked execution occurred, the Flight Recorder reports an inconsistent record instead of counting the action as prevented. Historical data is not rewritten; the contradiction remains visible for review.
+
+Execution failures after a process/request/tool call ran are not counted as prevented actions. Examples include shell non-zero exit, HTTP 500 after the request was sent, MCP failed result after the call, or verification failure after execution.
 
 ## Proof semantics
 

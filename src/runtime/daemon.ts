@@ -38,7 +38,7 @@ import {
 } from './runtimeAuth';
 import type { SafeloopStorageOptions } from '../localStorage';
 import { buildSessionTimelinePage } from './sessionWorkGraph';
-import { buildFlightRecorderSession, exportFlightRecorderSession, MAX_FLIGHT_RECORDER_LIMIT } from './flightRecorder';
+import { buildFlightRecorderSession, exportFlightRecorderSession, MAX_FLIGHT_RECORDER_LIMIT, redactFlightRecorderValue } from './flightRecorder';
 
 export const DEFAULT_DAEMON_PORT = 3787;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -243,11 +243,11 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
       handle: (body, runtime) => {
         const sessionId = requireTimelineSessionRead(body, runtime);
         try {
-          return buildSessionTimelinePage(sessionId, storageOptions, {
+          return redactFlightRecorderValue(buildSessionTimelinePage(sessionId, storageOptions, {
             limit: optionalInteger(body, 'limit'),
             cursor: optionalString(body, 'cursor'),
             includeLegacyEvents: optionalBoolean(body, 'include_legacy_events') ?? false,
-          });
+          }));
         } catch (error) {
           if (error instanceof Error && (error.message === 'invalid_cursor' || error.message === 'invalid_limit')) {
             throw new RuntimeError('invalid_request', error.message);

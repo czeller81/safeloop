@@ -2612,3 +2612,8 @@ p {
     white-space: normal;
   }
 }
+
+
+.flight-warning-card {
+  border-color: rgba(253, 230, 138, 0.45);
+}

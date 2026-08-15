@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { appendEvent } from '../src/eventStream';
@@ -161,6 +161,154 @@ describe('Flight Recorder projection', () => {
     ]));
     expect(JSON.stringify(flight)).not.toContain('secret-token');
     expect(JSON.stringify(flight)).not.toContain('plain-secret-token');
+  });
+
+  it('redacts Flight Recorder evidence, artifact, memory, and export projection metadata', () => {
+    const safeloopDir = join(baseDir, '.safeloop');
+    mkdirSync(safeloopDir, { recursive: true });
+    const sessionId = 'privacy-session';
+    const timestamp = '2026-08-15T00:00:00.000Z';
+    const canaries = [
+      'SAFELOOP_SECRET_APIKEY_01',
+      'SAFELOOP_SECRET_BEARER_02',
+      'SAFELOOP_SECRET_PASSWORD_03',
+      'SAFELOOP_SECRET_PRIVATEKEY_04',
+      'SAFELOOP_SECRET_SESSION_05',
+    ];
+    const workEvent = createRuntimeWorkEvent({
+      type: 'evidence.recorded',
+      id: 'privacy-evidence-event',
+      timestamp,
+      session_id: sessionId,
+      task_id: 'privacy-task',
+      agent_id: 'privacy-agent',
+      tenant_id: 'privacy-tenant',
+      evidence_ids: ['privacy-evidence'],
+      artifact_ids: ['privacy-artifact'],
+      data: {
+        nested: { api_key: canaries[0], array: [{ token: canaries[1] }] },
+      },
+    });
+    appendEvent({
+      id: 'privacy-legacy-event',
+      type: 'evidence.recorded',
+      agentId: 'privacy-agent',
+      sessionId,
+      summary: 'legacy detail Authorization: Bearer SAFELOOP_SECRET_BEARER_02',
+      timestamp,
+      metadata: {
+        detail: { password: canaries[2], nested: { private_key: canaries[3] } },
+        workEvent,
+      },
+    }, { baseDir });
+    writeFileSync(join(safeloopDir, 'evidence-registry.json'), JSON.stringify({
+      version: 1,
+      records: [{
+        evidenceId: 'privacy-evidence',
+        artifactHash: 'privacy-hash',
+        provenance: {
+          evidenceId: 'privacy-evidence',
+          type: 'privacy',
+          source: 'test',
+          timestamp,
+          producingAgent: 'privacy-agent',
+          confidence: 1,
+          supportedClaim: `Bearer ${canaries[1]} password=${canaries[2]}`,
+          provenance: { nested: { api_key: canaries[0] }, array: [{ private_key: canaries[3] }] },
+          verificationStatus: 'VERIFIED_FACT',
+        },
+        verificationStatus: 'VERIFIED_FACT',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }],
+    }), 'utf8');
+    writeFileSync(join(safeloopDir, 'runtime-artifacts.json'), JSON.stringify({
+      version: 1,
+      records: [{
+        protocol_version: 'safeloop.runtime.v1',
+        artifact_id: 'privacy-artifact',
+        path: `/tmp/password=${canaries[2]}/Bearer-${canaries[1]}/file.txt`,
+        content_hash: 'privacy-hash',
+        operation: 'write',
+        agent_id: 'privacy-agent',
+        task_id: 'privacy-task',
+        tenant_id: 'privacy-tenant',
+        recorded_at: timestamp,
+      }],
+    }), 'utf8');
+    writeFileSync(join(safeloopDir, 'runtime-memory.json'), JSON.stringify({
+      version: 1,
+      records: [{
+        candidate: {
+          memory_id: 'privacy-memory',
+          memory_type: 'procedural',
+          situation: 'privacy',
+          lesson: 'privacy',
+          confidence: 0.9,
+          evidence: ['privacy-evidence'],
+          source_artifacts: ['privacy-artifact'],
+          session_id: sessionId,
+          provenance: `secret=${canaries[4]}`,
+        },
+        provenance: {
+          memory_id: 'privacy-memory',
+          status: 'ACTIVE',
+          decision: 'ALLOW',
+          confidence: 0.9,
+          evidence_ids: ['privacy-evidence'],
+          artifact_ids: ['privacy-artifact'],
+          originating_task: 'privacy-task',
+        },
+      }],
+    }), 'utf8');
+
+    const flight = buildFlightRecorderSession(sessionId, { baseDir });
+    const exported = exportFlightRecorderSession(sessionId, { baseDir });
+    const combined = JSON.stringify({ flight, exported });
+
+    for (const canary of canaries) expect(combined).not.toContain(canary);
+    expect(combined).toContain('[REDACTED');
+  });
+
+  it('does not count a governance block as prevented when linked execution occurred', () => {
+    const sessionId = 'conflict-session';
+    const denied = createRuntimeWorkEvent({
+      type: 'decision.recorded',
+      id: 'conflict-deny',
+      timestamp: '2026-08-15T00:00:00.000Z',
+      session_id: sessionId,
+      task_id: 'conflict-task',
+      agent_id: 'conflict-agent',
+      tenant_id: 'conflict-tenant',
+      proposal_id: 'conflict-proposal',
+      decision_id: 'conflict-decision',
+      data: { disposition: 'DENY', reason: 'denied before execution' },
+    });
+    const executed = createRuntimeWorkEvent({
+      type: 'execution.completed',
+      id: 'conflict-execution-completed',
+      timestamp: '2026-08-15T00:00:01.000Z',
+      session_id: sessionId,
+      task_id: 'conflict-task',
+      agent_id: 'conflict-agent',
+      tenant_id: 'conflict-tenant',
+      proposal_id: 'conflict-proposal',
+      decision_id: 'conflict-decision',
+      execution_id: 'conflict-execution',
+      data: { status: 'EXECUTED' },
+    });
+    appendWorkEvent(denied);
+    appendWorkEvent(executed);
+
+    const flight = buildFlightRecorderSession(sessionId, { baseDir });
+
+    expect(flight.summary.prevented_count).toBe(0);
+    expect(flight.prevented_actions).toHaveLength(0);
+    expect(flight.prevention_conflicts).toEqual([expect.objectContaining({
+      blocked_event_id: 'conflict-deny',
+      execution_event_ids: ['conflict-execution-completed'],
+      execution_occurred: true,
+    })]);
   });
 
   it('summarizes an empty started session without fabricating activity', () => {

@@ -91,15 +91,27 @@ function renderMemory(detail: FlightDetail): string {
 }
 
 function renderPrevented(detail: FlightDetail): string {
-  if (!detail.prevented_actions.length) return '<div class="empty-state">No prevented actions recorded for this session.</div>';
-  return detail.prevented_actions.map((prevented) => `
-    <article class="flight-proof-card flight-danger-card">
-      <div><span class="flight-event-type">PREVENTED</span><strong>${escapeHtml(prevented.category)}</strong></div>
-      <p>${escapeHtml(prevented.reason)}</p>
-      <p>Execution occurred: ${escapeHtml(String(prevented.execution_occurred))}</p>
-      <p>Approval could resolve: ${escapeHtml(String(prevented.approval_could_resolve))}</p>
-    </article>
-  `).join('');
+  const prevented = detail.prevented_actions.length
+    ? detail.prevented_actions.map((entry) => `
+      <article class="flight-proof-card flight-danger-card">
+        <div><span class="flight-event-type">PREVENTED</span><strong>${escapeHtml(entry.category)}</strong></div>
+        <p>${escapeHtml(entry.reason)}</p>
+        <p>Execution occurred: ${escapeHtml(String(entry.execution_occurred))}</p>
+        <p>Approval could resolve: ${escapeHtml(String(entry.approval_could_resolve))}</p>
+      </article>
+    `).join('')
+    : '<div class="empty-state">No prevented actions recorded for this session.</div>';
+  const conflicts = detail.prevention_conflicts.length
+    ? detail.prevention_conflicts.map((conflict) => `
+      <article class="flight-proof-card flight-warning-card">
+        <div><span class="flight-event-type">INCONSISTENT RECORD</span><strong>${escapeHtml(conflict.category)}</strong></div>
+        <p>${escapeHtml(conflict.reason)}</p>
+        <p>Execution occurred: true</p>
+        <p>Execution events: ${escapeHtml(conflict.execution_event_ids.join(', '))}</p>
+      </article>
+    `).join('')
+    : '';
+  return prevented + conflicts;
 }
 
 function renderDetail(detail?: FlightDetail): string {

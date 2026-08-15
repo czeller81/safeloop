@@ -79,6 +79,15 @@ export interface FlightRecorderPreventedAction {
   related_ids: Record<string, string>;
 }
 
+export interface FlightRecorderPreventionConflict {
+  blocked_event_id: string;
+  execution_event_ids: string[];
+  category: PreventedActionCategory;
+  reason: string;
+  execution_occurred: true;
+  related_ids: Record<string, string>;
+}
+
 export interface FlightRecorderTimelineEvent {
   id: string;
   type: RuntimeWorkEvent['type'];
@@ -159,6 +168,7 @@ export interface FlightRecorderSession {
   coverage: FlightRecorderCoverage;
   timeline: FlightRecorderTimelineEvent[];
   prevented_actions: FlightRecorderPreventedAction[];
+  prevention_conflicts: FlightRecorderPreventionConflict[];
   execution_proofs: FlightRecorderProofView[];
   evidence: FlightRecorderEvidenceView[];
   artifacts: ArtifactRecord[];
@@ -201,6 +211,40 @@ function asString(value: unknown): string | undefined {
 
 function asBool(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+const FLIGHT_RECORDER_STRING_PATTERNS: ReadonlyArray<[RegExp, string]> = [
+  [/(Authorization\s*:\s*Bearer\s+)[^\s"',;]+/gi, '$1[REDACTED]'],
+  [/(Bearer\s+)[A-Za-z0-9._-]{3,}/gi, '$1[REDACTED]'],
+  [/Bearer[-_][A-Za-z0-9._-]{3,}/gi, 'Bearer-[REDACTED]'],
+  [/SAFELOOP_SECRET_[A-Z0-9_]+/g, '[REDACTED secret]'],
+  [/((?:password|passwd|secret|token|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key)\s*[=:]\s*)("?)[^\s"',;/]+\2/gi, '$1[REDACTED]'],
+];
+
+function redactFlightRecorderString(value: string): string {
+  let output = redactWorkEventData(value) as string;
+  for (const [pattern, replacement] of FLIGHT_RECORDER_STRING_PATTERNS) {
+    output = output.replace(pattern, replacement);
+  }
+  return output;
+}
+
+export function redactFlightRecorderValue(value: unknown): unknown {
+  const redacted = redactWorkEventData(value);
+  if (Array.isArray(redacted)) return redacted.map((entry) => redactFlightRecorderValue(entry));
+  if (redacted && typeof redacted === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(redacted as Record<string, unknown>)) {
+      out[key] = redactFlightRecorderValue(nested);
+    }
+    return out;
+  }
+  if (typeof redacted === 'string') return redactFlightRecorderString(redacted);
+  return redacted;
+}
+
+function redactOptionalString(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : redactFlightRecorderString(value);
 }
 
 function timestampMs(value?: string): number | undefined {
@@ -309,8 +353,8 @@ function buildTimeline(graph: SessionWorkGraph): FlightRecorderTimelineEvent[] {
       task_id: event.task_id,
       agent_id: event.agent_id,
       tenant_id: event.tenant_id,
-      summary: event.summary ?? event.type,
-      explanation: explanationFor(event),
+      summary: redactFlightRecorderString(event.summary ?? event.type),
+      explanation: redactFlightRecorderString(explanationFor(event)),
       causal_links: {
         parent_event_id: event.parent_event_id,
         causes,
@@ -318,7 +362,7 @@ function buildTimeline(graph: SessionWorkGraph): FlightRecorderTimelineEvent[] {
         missing_links: missing,
       },
       refs: refsFor(event),
-      data: event.data ? redactWorkEventData(event.data) as Record<string, unknown> : undefined,
+      data: event.data ? redactFlightRecorderValue(event.data) as Record<string, unknown> : undefined,
     };
   });
 }
@@ -343,25 +387,87 @@ function preventedCategory(event: RuntimeWorkEvent): PreventedActionCategory | n
   return null;
 }
 
-function buildPreventedActions(events: RuntimeWorkEvent[]): FlightRecorderPreventedAction[] {
-  return events.flatMap((event) => {
+interface PreventedProjection {
+  prevented: FlightRecorderPreventedAction[];
+  conflicts: FlightRecorderPreventionConflict[];
+}
+
+function stringRefsFor(event: RuntimeWorkEvent): Record<string, string> {
+  return Object.fromEntries(Object.entries(refsFor(event)).filter(([, value]) => typeof value === 'string')) as Record<string, string>;
+}
+
+function actionIdentityValues(event: RuntimeWorkEvent): Set<string> {
+  const values = new Set<string>();
+  values.add(event.id);
+  for (const value of Object.values(stringRefsFor(event))) values.add(value);
+  return values;
+}
+
+function linkedExecutionEvents(blocked: RuntimeWorkEvent, executions: RuntimeWorkEvent[]): RuntimeWorkEvent[] {
+  const blockedIds = actionIdentityValues(blocked);
+  return executions.filter((execution) => {
+    if (execution.parent_event_id && blockedIds.has(execution.parent_event_id)) return true;
+    if ((execution.causes ?? []).some((cause) => blockedIds.has(cause))) return true;
+    for (const value of actionIdentityValues(execution)) {
+      if (blockedIds.has(value)) return true;
+    }
+    return false;
+  });
+}
+
+function preventedKey(event: RuntimeWorkEvent): string {
+  const refs = stringRefsFor(event);
+  return refs.proposal_id
+    ?? refs.action_fingerprint
+    ?? refs.decision_id
+    ?? refs.approval_request_id
+    ?? refs.approval_id
+    ?? refs.permit_id
+    ?? refs.execution_id
+    ?? event.id;
+}
+
+function buildPreventedProjection(events: RuntimeWorkEvent[]): PreventedProjection {
+  const executions = events.filter((event) => event.type === 'execution.started' || event.type === 'execution.completed');
+  const prevented: FlightRecorderPreventedAction[] = [];
+  const conflicts: FlightRecorderPreventionConflict[] = [];
+  const seenPrevented = new Set<string>();
+  for (const event of events) {
     const category = preventedCategory(event);
-    if (!category) return [];
+    if (!category) continue;
     const data = asRecord(event.data);
     const disposition = asString(data.disposition) ?? asString(data.status);
-    return [{
+    const relatedIds = stringRefsFor(event);
+    const reason = redactFlightRecorderString(asString(data.reason) ?? asString(data.explanation) ?? event.summary ?? category);
+    const linkedExecutions = linkedExecutionEvents(event, executions);
+    if (linkedExecutions.length) {
+      conflicts.push({
+        blocked_event_id: event.id,
+        execution_event_ids: linkedExecutions.map((execution) => execution.id),
+        category,
+        reason,
+        execution_occurred: true,
+        related_ids: relatedIds,
+      });
+      continue;
+    }
+    const key = preventedKey(event);
+    if (seenPrevented.has(key)) continue;
+    seenPrevented.add(key);
+    prevented.push({
       event_id: event.id,
       timestamp: event.timestamp,
       category,
-      action: actionLabel(event),
-      reason: asString(data.reason) ?? asString(data.explanation) ?? event.summary ?? category,
+      action: redactOptionalString(actionLabel(event)),
+      reason,
       disposition,
-      rule_or_risk_source: Array.isArray(data.matched_rules) ? data.matched_rules.join(', ') : asString(data.profile),
+      rule_or_risk_source: Array.isArray(data.matched_rules) ? redactFlightRecorderString(data.matched_rules.join(', ')) : redactOptionalString(asString(data.profile)),
       approval_could_resolve: disposition === 'REQUIRE_APPROVAL' || event.type === 'approval.denied',
       execution_occurred: false,
-      related_ids: Object.fromEntries(Object.entries(refsFor(event)).filter(([, value]) => typeof value === 'string')) as Record<string, string>,
-    }];
-  });
+      related_ids: relatedIds,
+    });
+  }
+  return { prevented, conflicts };
 }
 
 function summaryFromGraph(graph: SessionWorkGraph, prevented: FlightRecorderPreventedAction[]): FlightRecorderSessionSummary {
@@ -385,7 +491,7 @@ function summaryFromGraph(graph: SessionWorkGraph, prevented: FlightRecorderPrev
     agent_id: first?.agent_id,
     tenant_id: first?.tenant_id,
     profile,
-    task_goal: asString(asRecord(taskStarted?.data).goal),
+    task_goal: redactOptionalString(asString(asRecord(taskStarted?.data).goal)),
     started_at: first?.timestamp,
     last_event_at: last?.timestamp,
     duration_ms: duration(first?.timestamp, last?.timestamp),
@@ -406,7 +512,7 @@ function summaryFromGraph(graph: SessionWorkGraph, prevented: FlightRecorderPrev
     failed_count: proofCounts.FAILED ?? 0,
     prevented_count: prevented.length,
     final_state: last?.type ?? 'empty',
-    latest_summary: last?.summary,
+    latest_summary: redactOptionalString(last?.summary),
   };
 }
 
@@ -420,9 +526,9 @@ function proofView(proof: ExecutionProofRecord): FlightRecorderProofView {
     verification_summary: proof.verification_summary,
     verification_scope: proof.verification_scope,
     limitation: PROOF_LIMITATIONS[executor] ?? 'Proof covers only the data SafeLoop directly observed.',
-    before: redactWorkEventData(proof.before),
-    after: redactWorkEventData(proof.after),
-    result: redactWorkEventData(proof.result) as Record<string, unknown> | undefined,
+    before: redactFlightRecorderValue(proof.before),
+    after: redactFlightRecorderValue(proof.after),
+    result: redactFlightRecorderValue(proof.result) as Record<string, unknown> | undefined,
     evidence_ids: [...(proof.evidence_ids ?? [])],
     artifact_ids: [...(proof.artifact_ids ?? [])],
   };
@@ -432,7 +538,7 @@ function evidenceView(record: EvidenceRegistryRecord, artifacts: ArtifactRecord[
   return {
     evidence_id: record.evidenceId,
     verification_status: record.verificationStatus,
-    supported_claim: record.provenance.supportedClaim,
+    supported_claim: redactOptionalString(record.provenance.supportedClaim),
     artifact_hash: record.artifactHash,
     created_at: record.createdAt,
     artifact_ids: artifacts.filter((artifact) => artifact.content_hash === record.artifactHash).map((artifact) => artifact.artifact_id),
@@ -445,7 +551,7 @@ function memoryView(record: StoredMemory): FlightRecorderMemoryView {
     status: record.provenance.status,
     decision: record.provenance.decision,
     confidence: record.provenance.confidence,
-    provenance: record.candidate.provenance,
+    provenance: redactOptionalString(record.candidate.provenance),
     source_task: record.provenance.originating_task,
     source_session: record.candidate.session_id,
     evidence_ids: [...(record.provenance.evidence_ids ?? [])],
@@ -487,17 +593,18 @@ function knownLimitations(proofs: FlightRecorderProofView[]): string[] {
 
 export function buildFlightRecorderSession(sessionId: string, options: SafeloopStorageOptions = {}): FlightRecorderSession {
   const graph = buildSessionWorkGraph(sessionId, options);
-  const prevented = buildPreventedActions(graph.events);
+  const preventedProjection = buildPreventedProjection(graph.events);
   const proofs = graph.execution_proofs.map(proofView);
   return {
     schema_version: 1,
-    summary: summaryFromGraph(graph, prevented),
+    summary: summaryFromGraph(graph, preventedProjection.prevented),
     coverage: coverageFromGraph(graph),
     timeline: buildTimeline(graph),
-    prevented_actions: prevented,
+    prevented_actions: preventedProjection.prevented,
+    prevention_conflicts: preventedProjection.conflicts,
     execution_proofs: proofs,
     evidence: graph.evidence.map((record) => evidenceView(record, graph.artifacts)),
-    artifacts: graph.artifacts.map((artifact) => ({ ...artifact })),
+    artifacts: graph.artifacts.map((artifact) => redactFlightRecorderValue(artifact) as ArtifactRecord),
     memory: graph.memories.map(memoryView),
     known_limitations: knownLimitations(proofs),
     diagnostics: graph.diagnostics,

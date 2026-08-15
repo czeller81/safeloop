@@ -13,7 +13,7 @@ import {
 } from './mcpDiagnostics';
 import { startMonitorServer } from './monitor';
 import { buildSessionWorkGraph, type SessionWorkGraph } from './runtime/sessionWorkGraph';
-import { buildFlightRecorderSession, type FlightRecorderSession } from './runtime/flightRecorder';
+import { buildFlightRecorderSession, redactFlightRecorderValue, type FlightRecorderSession } from './runtime/flightRecorder';
 import {
   compileSafeloopPolicyMarkdown,
   initializeSafeloopPolicyConfig,
@@ -409,6 +409,15 @@ function printFlightRecorderSession(flight: FlightRecorderSession): void {
   }
 
   console.log('');
+  console.log('INCONSISTENT BLOCKED/EXECUTED RECORDS');
+  if (!flight.prevention_conflicts.length) console.log('  none');
+  for (const conflict of flight.prevention_conflicts) {
+    console.log(`  - ${conflict.blocked_event_id} ${conflict.category}: ${conflict.reason}`);
+    console.log(`    execution_occurred: ${conflict.execution_occurred}`);
+    console.log(`    execution_events: ${conflict.execution_event_ids.join(', ')}`);
+  }
+
+  console.log('');
   console.log('EXECUTIONS');
   const executions = flight.timeline.filter((event) => event.category === 'EXECUTION' || event.category === 'PREVENTED');
   if (!executions.length) console.log('  none');
@@ -453,7 +462,7 @@ function runSession(args: string[]): void {
   const graph = buildSessionWorkGraph(sessionId, { baseDir });
   const flight = buildFlightRecorderSession(sessionId, { baseDir });
   if (parseJsonFlag(args)) {
-    printJson({ ...graph, flight_recorder: flight });
+    printJson({ ...(redactFlightRecorderValue(graph) as SessionWorkGraph), flight_recorder: flight });
   } else {
     printSessionGraph(graph);
     printFlightRecorderSession(flight);
