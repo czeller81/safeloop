@@ -274,6 +274,60 @@ describe('SDK over the daemon', () => {
   });
 
 
+  it('serves read-only Flight Recorder endpoints only for the requested session owner', async () => {
+    const victim = await client.startSession({
+      agent: { agent_id: 'flight-victim' }, tenant_id: 'tenant-victim', workspace, profile: 'coding',
+    });
+    const attacker = await client.startSession({
+      agent: { agent_id: 'flight-attacker' }, tenant_id: 'tenant-attacker', workspace, profile: 'coding',
+    });
+    const { task_id } = await victim.startTask({ goal: 'flight recorder endpoint proof' });
+    await victim.execute(
+      { kind: 'filesystem', operation: 'create', path: join(workspace, 'flight-endpoint.txt'), content: 'endpoint proof' },
+      task_id,
+    );
+
+    const post = (path: string, body: Record<string, unknown>, runtimeCredential = daemon.connection.credential) => fetch(`http://127.0.0.1:${daemon.connection.port}${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${runtimeCredential}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const sessions = await post('/v1/sessions', { credential: victim.credential, limit: 10 });
+    expect(sessions.status).toBe(200);
+    const index = await sessions.json() as { sessions: Array<{ session_id: string }>; page: { total_count: number; returned_count: number } };
+    expect(index.sessions.map((session) => session.session_id)).toEqual([victim.session.session_id]);
+    expect(index.page.total_count).toBe(1);
+    expect(index.page.returned_count).toBe(1);
+    expect(JSON.stringify(index)).not.toContain('flight-attacker');
+    expect(JSON.stringify(index)).not.toContain(attacker.session.session_id);
+
+    const evidence = await post('/v1/session/evidence', { credential: victim.credential, session_id: victim.session.session_id });
+    expect(evidence.status).toBe(200);
+    const evidencePayload = await evidence.json() as { execution_proofs: unknown[]; evidence: unknown[]; artifacts: unknown[] };
+    expect(evidencePayload.execution_proofs.length).toBeGreaterThanOrEqual(1);
+    expect(evidencePayload.evidence.length).toBeGreaterThanOrEqual(1);
+    expect(evidencePayload.artifacts.length).toBeGreaterThanOrEqual(1);
+
+    const prevented = await post('/v1/session/prevented', { credential: victim.credential, session_id: victim.session.session_id });
+    expect(prevented.status).toBe(200);
+    expect(await prevented.json()).toMatchObject({ session_id: victim.session.session_id, prevented_actions: [] });
+
+    const exported = await post('/v1/session/export', { credential: victim.credential, session_id: victim.session.session_id });
+    expect(exported.status).toBe(200);
+    const bundle = await exported.json() as { export_type: string; includes_file_bodies: boolean; includes_full_process_output: boolean };
+    expect(bundle.export_type).toBe('safeloop.flight_recorder.session');
+    expect(bundle.includes_file_bodies).toBe(false);
+    expect(bundle.includes_full_process_output).toBe(false);
+
+    const rejected = await post('/v1/session/export', { credential: attacker.credential, session_id: victim.session.session_id });
+    expect(rejected.status).toBe(401);
+    expect(JSON.stringify(await rejected.json())).not.toContain('flight recorder endpoint proof');
+  });
+
   it('requires the requested session credential for timeline reads', async () => {
     const victim = await client.startSession({
       agent: { agent_id: 'victim-agent' }, tenant_id: 'tenant-victim', workspace, profile: 'coding',

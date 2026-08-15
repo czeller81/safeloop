@@ -13,6 +13,7 @@ import {
 } from './mcpDiagnostics';
 import { startMonitorServer } from './monitor';
 import { buildSessionWorkGraph, type SessionWorkGraph } from './runtime/sessionWorkGraph';
+import { buildFlightRecorderSession, type FlightRecorderSession } from './runtime/flightRecorder';
 import {
   compileSafeloopPolicyMarkdown,
   initializeSafeloopPolicyConfig,
@@ -382,6 +383,62 @@ function printSessionGraph(graph: SessionWorkGraph): void {
   }
 }
 
+
+function printFlightRecorderSession(flight: FlightRecorderSession): void {
+  const s = flight.summary;
+  console.log('');
+  console.log('SESSION SUMMARY');
+  console.log(`  Session: ${s.session_id}`);
+  console.log(`  Task: ${s.primary_task_id ?? 'n/a'}`);
+  console.log(`  Agent: ${s.agent_id ?? 'n/a'}`);
+  console.log(`  Tenant: ${s.tenant_id ?? 'n/a'}`);
+  console.log(`  Start: ${s.started_at ?? 'n/a'}`);
+  console.log(`  Duration: ${s.duration_ms ?? 0} ms`);
+  console.log(`  Executions: ${s.execution_count}`);
+  console.log(`  Approvals: ${s.approval_count}`);
+  console.log(`  Prevented: ${s.prevented_count}`);
+  console.log(`  Evidence: ${s.evidence_count}`);
+  console.log(`  Memory events: ${s.memory_event_count}`);
+
+  console.log('');
+  console.log('PREVENTED ACTIONS');
+  if (!flight.prevented_actions.length) console.log('  none');
+  for (const prevented of flight.prevented_actions) {
+    console.log(`  - ${prevented.timestamp} ${prevented.category}: ${prevented.reason}`);
+    console.log(`    execution_occurred: ${prevented.execution_occurred}`);
+  }
+
+  console.log('');
+  console.log('EXECUTIONS');
+  const executions = flight.timeline.filter((event) => event.category === 'EXECUTION' || event.category === 'PREVENTED');
+  if (!executions.length) console.log('  none');
+  for (const event of executions) console.log(`  - ${event.timestamp} ${event.type}: ${event.summary}`);
+
+  console.log('');
+  console.log('VERIFICATION');
+  if (!flight.execution_proofs.length) console.log('  none');
+  for (const proof of flight.execution_proofs) {
+    console.log(`  - ${proof.execution_id ?? 'execution'} ${proof.executor}${proof.operation ? `.${proof.operation}` : ''}: ${proof.verification_status}`);
+    console.log(`    ${proof.verification_summary}`);
+    console.log(`    Limitation: ${proof.limitation}`);
+  }
+
+  console.log('');
+  console.log('MEMORY');
+  if (!flight.memory.length) console.log('  none');
+  for (const memory of flight.memory) console.log(`  - ${memory.memory_id}: ${memory.status}${memory.decision ? ` (${memory.decision})` : ''}`);
+
+  console.log('');
+  console.log('GOVERNANCE COVERAGE');
+  console.log(`  Profile: ${flight.coverage.profile ?? 'unknown'}`);
+  console.log(`  ${flight.coverage.summary}`);
+  for (const path of flight.coverage.paths) console.log(`  - ${path.path}: ${path.status}`);
+
+  console.log('');
+  console.log('WHAT SAFELOOP CANNOT PROVE');
+  for (const limitation of flight.known_limitations) console.log(`  - ${limitation}`);
+}
+
 function runSession(args: string[]): void {
   const action = args[0];
   if (action !== 'inspect') {
@@ -394,10 +451,12 @@ function runSession(args: string[]): void {
   }
   const baseDir = resolveCliBaseDir(args);
   const graph = buildSessionWorkGraph(sessionId, { baseDir });
+  const flight = buildFlightRecorderSession(sessionId, { baseDir });
   if (parseJsonFlag(args)) {
-    printJson(graph);
+    printJson({ ...graph, flight_recorder: flight });
   } else {
     printSessionGraph(graph);
+    printFlightRecorderSession(flight);
   }
 }
 

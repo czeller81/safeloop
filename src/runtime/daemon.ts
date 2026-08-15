@@ -38,6 +38,7 @@ import {
 } from './runtimeAuth';
 import type { SafeloopStorageOptions } from '../localStorage';
 import { buildSessionTimelinePage } from './sessionWorkGraph';
+import { buildFlightRecorderSession, exportFlightRecorderSession, MAX_FLIGHT_RECORDER_LIMIT } from './flightRecorder';
 
 export const DEFAULT_DAEMON_PORT = 3787;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -127,6 +128,57 @@ function optionalString(body: Record<string, unknown>, key: string): string | un
   return value;
 }
 
+
+function ownedSessionIds(body: Record<string, unknown>, runtime: SafeloopRuntime): Set<string> {
+  const credential = sessionCredential(body);
+  const ids = runtime.sessions()
+    .filter((state) => credentialsMatch(state.credential, credential))
+    .map((state) => state.session.session_id);
+  if (ids.length === 0) {
+    throw new RuntimeError('unauthenticated', 'a valid session credential is required');
+  }
+  return new Set(ids);
+}
+
+function requireFlightRecorderSessionRead(body: Record<string, unknown>, runtime: SafeloopRuntime): string {
+  const sessionId = requireString(body, 'session_id');
+  if (!ownedSessionIds(body, runtime).has(sessionId)) {
+    throw new RuntimeError('unauthenticated', 'a valid session credential is required');
+  }
+  return sessionId;
+}
+
+function flightRecorderLimit(body: Record<string, unknown>): number {
+  const limit = optionalInteger(body, 'limit') ?? 100;
+  if (limit <= 0) throw new RuntimeError('invalid_request', 'invalid_limit');
+  return Math.min(limit, MAX_FLIGHT_RECORDER_LIMIT);
+}
+
+function listOwnedFlightRecorderSessions(body: Record<string, unknown>, runtime: SafeloopRuntime, storageOptions: SafeloopStorageOptions) {
+  const ids = Array.from(ownedSessionIds(body, runtime)).sort();
+  const limit = flightRecorderLimit(body);
+  const cursor = optionalString(body, 'cursor');
+  const start = cursor ? ids.indexOf(cursor) + 1 : 0;
+  if (cursor && start === 0) throw new RuntimeError('invalid_request', 'invalid_cursor');
+  const pageIds = ids.slice(start, start + limit);
+  const sessions = pageIds
+    .map((sessionId) => buildFlightRecorderSession(sessionId, storageOptions).summary)
+    .sort((left, right) => (right.last_event_at ?? '').localeCompare(left.last_event_at ?? ''));
+  const next = start + pageIds.length < ids.length ? pageIds[pageIds.length - 1] : undefined;
+  return {
+    schema_version: 1 as const,
+    sessions,
+    page: {
+      limit,
+      returned_count: sessions.length,
+      total_count: ids.length,
+      ...(next ? { next_cursor: next } : {}),
+      has_more: Boolean(next),
+      max_limit: MAX_FLIGHT_RECORDER_LIMIT,
+    },
+  };
+}
+
 function requireTimelineSessionRead(body: Record<string, unknown>, runtime: SafeloopRuntime): string {
   const sessionId = requireString(body, 'session_id');
   const credential = sessionCredential(body);
@@ -150,6 +202,41 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
     {
       method: 'POST', path: '/v1/session/start', auth: 'runtime',
       handle: (body, runtime) => runtime.startSession(body as never),
+    },
+
+    {
+      method: 'POST', path: '/v1/sessions', auth: 'runtime',
+      handle: (body, runtime) => listOwnedFlightRecorderSessions(body, runtime, storageOptions),
+    },
+    {
+      method: 'POST', path: '/v1/session/summary', auth: 'runtime',
+      handle: (body, runtime) => buildFlightRecorderSession(requireFlightRecorderSessionRead(body, runtime), storageOptions).summary,
+    },
+    {
+      method: 'POST', path: '/v1/session/prevented', auth: 'runtime',
+      handle: (body, runtime) => ({
+        session_id: requireFlightRecorderSessionRead(body, runtime),
+        prevented_actions: buildFlightRecorderSession(requireString(body, 'session_id'), storageOptions).prevented_actions,
+      }),
+    },
+    {
+      method: 'POST', path: '/v1/session/evidence', auth: 'runtime',
+      handle: (body, runtime) => {
+        const sessionId = requireFlightRecorderSessionRead(body, runtime);
+        const flight = buildFlightRecorderSession(sessionId, storageOptions);
+        return { session_id: sessionId, execution_proofs: flight.execution_proofs, evidence: flight.evidence, artifacts: flight.artifacts };
+      },
+    },
+    {
+      method: 'POST', path: '/v1/session/memory', auth: 'runtime',
+      handle: (body, runtime) => {
+        const sessionId = requireFlightRecorderSessionRead(body, runtime);
+        return { session_id: sessionId, memory: buildFlightRecorderSession(sessionId, storageOptions).memory };
+      },
+    },
+    {
+      method: 'POST', path: '/v1/session/export', auth: 'runtime',
+      handle: (body, runtime) => exportFlightRecorderSession(requireFlightRecorderSessionRead(body, runtime), storageOptions),
     },
     {
       method: 'POST', path: '/v1/session/timeline', auth: 'runtime',

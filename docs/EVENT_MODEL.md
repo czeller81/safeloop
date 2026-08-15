@@ -130,6 +130,14 @@ The projector does not infer missing causality as success. It reports diagnostic
 such as legacy event count, work event count, and work events missing causal
 metadata.
 
+## Flight Recorder projection
+
+Phase 3 adds `buildFlightRecorderSession(session_id)`, a human-facing read-only projection over the existing session work graph. It summarizes session lifecycle, prevented actions, verification status, evidence and artifact references, governed memory provenance, and proof limitations. It does not create new causal links; missing `parent_event_id` or `causes` references remain visible as missing links.
+
+The daemon exposes authenticated read-only Flight Recorder APIs for session summaries, prevented actions, evidence/proof views, memory provenance, safe export, and the existing bounded timeline. These APIs require both the runtime bearer credential and the credential for the requested session.
+
+See [FLIGHT_RECORDER.md](FLIGHT_RECORDER.md).
+
 ## Compatibility
 
 Use `normalizeRuntimeEvent()` to read old ledger records as runtime governance events. Use `recordRuntimeGovernanceEvent()` to write normalized runtime events through the existing JSONL ledger without changing the top-level ledger schema.
