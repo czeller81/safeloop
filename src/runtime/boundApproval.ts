@@ -30,6 +30,7 @@ import {
   type ApprovalRedemptionFailure,
   type ApprovalRequestRecord,
   type BoundApprovalToken,
+  type PolicyDecisionProvenanceRecord,
 } from './protocol';
 import type { SafeloopStorageOptions } from '../localStorage';
 
@@ -90,6 +91,7 @@ export interface RedeemApprovalInput extends ApprovalIdentity {
   resolved_target?: string;
   /** Resolved real path of a filesystem move destination; signed. */
   resolved_destination?: string;
+  policy_provenance?: PolicyDecisionProvenanceRecord;
 }
 
 function tokenClaims(token: Omit<BoundApprovalToken, 'signature'>): string {
@@ -329,6 +331,7 @@ export function createApprovalAuthority(config: ApprovalAuthorityConfig = {}): A
         head_commit: input.head_commit,
         resolved_target: input.resolved_target,
         resolved_destination: input.resolved_destination,
+        policy_provenance: input.policy_provenance,
         ttl_ms: config.permitTtlMs,
       });
 

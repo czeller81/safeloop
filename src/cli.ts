@@ -35,6 +35,19 @@ import {
 } from './runtime/cliCommands';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
+import {
+  activatePolicyBundle,
+  approvePolicyBundle,
+  createPolicyBundle,
+  ensureBaselinePolicyLifecycle,
+  policyLifecycleStatus,
+  readPolicyLifecycleStore,
+  redactPolicyLifecycleValue,
+  rollbackPolicy,
+  safePolicyDiff,
+  validatePolicyBundle,
+} from './policyLifecycle';
+import { loadProfile } from './runtime/profiles';
 
 /** Shared option parsing for the v0.2 runtime commands. */
 function runtimeCliOptions(args: string[]): CliOptions {
@@ -635,6 +648,68 @@ function runGovernance(args: string[]): void {
   throw new Error('Usage: safeloop governance <evaluate|memory> (--input <path>|--stdin) [--record] [--baseDir <path>]');
 }
 
+
+function runPolicyLifecycle(args: string[]): void {
+  const action = args[0];
+  const actionArgs = args.slice(1);
+  const baseDir = resolveCliBaseDir(actionArgs);
+  const storageOptions = baseDir ? { baseDir } : {};
+  const actor = parseFlagValue(actionArgs, '--actor') ?? 'operator';
+
+  if (action === 'status') {
+    printJson(policyLifecycleStatus(storageOptions));
+    return;
+  }
+  if (action === 'list') {
+    const store = readPolicyLifecycleStore(storageOptions);
+    printJson(redactPolicyLifecycleValue({ bundles: store.bundles.map(({ profile, ...bundle }) => bundle), active: store.active }));
+    return;
+  }
+  if (action === 'import-baseline') {
+    printJson(ensureBaselinePolicyLifecycle(parseFlagValue(actionArgs, '--profile') ?? 'coding', actor, storageOptions));
+    return;
+  }
+  if (action === 'create') {
+    const profileId = parseFlagValue(actionArgs, '--profile') ?? 'coding';
+    const version = parseFlagValue(actionArgs, '--version') ?? `manual-${Date.now()}`;
+    printJson(createPolicyBundle({ profile: loadProfile(profileId), profile_id: profileId, version, created_by: actor }, storageOptions));
+    return;
+  }
+  if (action === 'validate') {
+    printJson(validatePolicyBundle(parseFlagValue(actionArgs, '--bundle') ?? '', actor, storageOptions));
+    return;
+  }
+  if (action === 'approve') {
+    printJson(approvePolicyBundle(parseFlagValue(actionArgs, '--bundle') ?? '', actor, storageOptions));
+    return;
+  }
+  if (action === 'activate') {
+    printJson(activatePolicyBundle({
+      bundle_id: parseFlagValue(actionArgs, '--bundle') ?? '',
+      actor,
+      approved_by: parseFlagValue(actionArgs, '--approved-by') ?? actor,
+      request_id: parseFlagValue(actionArgs, '--request-id'),
+      reason: parseFlagValue(actionArgs, '--reason'),
+    }, storageOptions));
+    return;
+  }
+  if (action === 'rollback') {
+    printJson(rollbackPolicy({
+      target_bundle_id: parseFlagValue(actionArgs, '--target') ?? '',
+      actor,
+      approved_by: parseFlagValue(actionArgs, '--approved-by') ?? actor,
+      reason: parseFlagValue(actionArgs, '--reason') ?? 'operator rollback',
+      request_id: parseFlagValue(actionArgs, '--request-id'),
+    }, storageOptions));
+    return;
+  }
+  if (action === 'diff') {
+    printJson({ diff: safePolicyDiff(parseFlagValue(actionArgs, '--left') ?? '', parseFlagValue(actionArgs, '--right') ?? '', storageOptions) });
+    return;
+  }
+  throw new Error('Usage: safeloop policy-lifecycle <status|list|import-baseline|create|validate|approve|activate|rollback|diff> [--baseDir <path>]');
+}
+
 function printDoctor(result: ReturnType<typeof runMcpDoctor>): void {
   console.log(`SafeLoop MCP doctor (${result.host})`);
   for (const entry of result.checks) {
@@ -780,6 +855,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'policy-lifecycle') {
+    runPolicyLifecycle(process.argv.slice(3));
+    return;
+  }
+
   if (command === 'appliance') {
     runAppliance(process.argv.slice(3));
     return;
@@ -817,6 +897,7 @@ async function main(): Promise<void> {
   console.log('  safeloop session inspect <session_id> [--json] [--baseDir <path>]');
   console.log('  safeloop certify [--profile <profile>] [--adapter <name>] [--json] [--out <path>]');
   console.log('  safeloop profiles [--profile <profile>] [--json]');
+  console.log('  safeloop policy-lifecycle <status|list|import-baseline|create|validate|approve|activate|rollback|diff>');
   console.log('');
   console.log('  Agent governance (v0.1):');
   console.log('  safeloop init [--profile <default|k12-offline-rag>] [--baseDir <path>]');

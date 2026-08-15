@@ -108,7 +108,7 @@ function outsidePath(name: string): string {
 }
 
 /** Hold an action for approval and return everything needed to redeem it. */
-async function heldAction(context: CheckContext, name: string) {
+async function heldActionFor(context: CheckContext, name: string, credential: string, sessionId: string, taskId: string) {
   const target = outsidePath(name);
   const build = context.capabilities.holdAction ?? ((path: string, content: string) => fsAction(path, content));
   const action = build(target, `payload-${name}`);
@@ -119,12 +119,14 @@ async function heldAction(context: CheckContext, name: string) {
   const preexisting = action.operation === 'read';
   if (preexisting) writeFileSync(target, `payload-${name}`);
 
-  const decision = context.runtime.propose(context.credential, {
-    session_id: context.sessionId, task_id: context.taskId, action,
-  });
+  const decision = context.runtime.propose(credential, { session_id: sessionId, task_id: taskId, action });
   // `preexisting` marks the target as a fixture, so checks can tell a test
   // fixture apart from an actual unauthorized side effect.
   return { target, action, decision, preexisting };
+}
+
+async function heldAction(context: CheckContext, name: string) {
+  return heldActionFor(context, name, context.credential, context.sessionId, context.taskId);
 }
 
 const CHECKS: CheckDefinition[] = [
@@ -313,14 +315,10 @@ const CHECKS: CheckDefinition[] = [
     id: 'C12', name: 'Approval from another agent is rejected', category: 'isolation', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const other = context.runtime.startSession({
-        agent: { agent_id: 'other-agent' }, tenant_id: 'conformance-tenant', workspace: context.workspace, profile: 'coding',
+        agent: { agent_id: 'other-agent' }, tenant_id: 'conformance-tenant', workspace: context.workspace, profile: context.runtime.sessions().find((entry) => entry.session.session_id === context.sessionId)!.profile.id,
       });
       const otherTask = context.runtime.startTask(other.credential, { session_id: other.session.session_id }).task_id;
-      const target = outsidePath('crossagent');
-      const action = fsAction(target, 'cross agent');
-      const decision = context.runtime.propose(other.credential, {
-        session_id: other.session.session_id, task_id: otherTask, action,
-      });
+      const { target, action, decision } = await heldActionFor(context, 'crossagent', other.credential, other.session.session_id, otherTask);
       const grant = context.runtime.grantApproval({
         approval_request_id: decision.approval_request!.approval_request_id, approver: 'conformance',
       });
@@ -338,14 +336,10 @@ const CHECKS: CheckDefinition[] = [
     id: 'C13', name: 'Approval from another tenant is rejected', category: 'isolation', required: true, requires: ['hold'] as const,
     run: async (context) => {
       const other = context.runtime.startSession({
-        agent: { agent_id: 'tenant-b-agent' }, tenant_id: 'tenant-b', workspace: context.workspace, profile: 'coding',
+        agent: { agent_id: 'tenant-b-agent' }, tenant_id: 'tenant-b', workspace: context.workspace, profile: context.runtime.sessions().find((entry) => entry.session.session_id === context.sessionId)!.profile.id,
       });
       const otherTask = context.runtime.startTask(other.credential, { session_id: other.session.session_id }).task_id;
-      const target = outsidePath('crosstenant');
-      const action = fsAction(target, 'cross tenant');
-      const decision = context.runtime.propose(other.credential, {
-        session_id: other.session.session_id, task_id: otherTask, action,
-      });
+      const { target, action, decision } = await heldActionFor(context, 'crosstenant', other.credential, other.session.session_id, otherTask);
       const grant = context.runtime.grantApproval({
         approval_request_id: decision.approval_request!.approval_request_id, approver: 'conformance',
       });
@@ -475,7 +469,7 @@ const CHECKS: CheckDefinition[] = [
   {
     id: 'C20', name: 'Open circuit breaker stops managed execution', category: 'runtime-controls', required: true, requires: ['workspace_write'] as const,
     run: async (context) => {
-      const isolated = createIsolatedRuntime(context.baseDir, context.workspace);
+      const isolated = createIsolatedRuntime(context.baseDir, context.workspace, context.runtime.sessions().find((entry) => entry.session.session_id === context.sessionId)!.profile.id);
       const path = join(context.workspace, 'breaker.txt');
       const action = fsAction(path, 'after breaker');
       const decision = isolated.runtime.propose(isolated.credential, {
@@ -1010,10 +1004,10 @@ function memoryStoreFor(baseDir: string) {
 }
 
 /** A separate runtime whose breaker can be driven open without affecting others. */
-function createIsolatedRuntime(baseDir: string, workspace: string) {
-  const runtime = createSafeloopRuntime({ storageOptions: { baseDir }, defaultProfile: 'coding', workspace });
+function createIsolatedRuntime(baseDir: string, workspace: string, profileId: string) {
+  const runtime = createSafeloopRuntime({ storageOptions: { baseDir }, defaultProfile: profileId, workspace });
   const handle = runtime.startSession({
-    agent: { agent_id: 'conformance-agent' }, tenant_id: 'conformance-tenant', workspace, profile: 'coding',
+    agent: { agent_id: 'conformance-agent' }, tenant_id: 'conformance-tenant', workspace, profile: profileId,
   });
   const taskId = runtime.startTask(handle.credential, { session_id: handle.session.session_id }).task_id;
   return { runtime, credential: handle.credential, sessionId: handle.session.session_id, taskId };

@@ -26,6 +26,7 @@ import {
   type ExecutionPermit,
   type ExecutionRejectionReason,
   type RuntimeDispositionCode,
+  type PolicyDecisionProvenanceRecord,
 } from './protocol';
 import type { SafeloopStorageOptions } from '../localStorage';
 
@@ -44,6 +45,7 @@ export interface IssuePermitInput extends PermitIdentity {
   action_fingerprint: string;
   disposition: RuntimeDispositionCode;
   approval_id?: string;
+  policy_provenance?: PolicyDecisionProvenanceRecord;
   /** Workspace relation classified at proposal time; signed into the permit. */
   workspace_relation?: 'inside' | 'outside' | 'unknown';
   /** Resolved workspace root at proposal time; signed into the permit. */
@@ -82,6 +84,7 @@ function permitClaims(permit: Omit<ExecutionPermit, 'signature'>): string {
     tenant_id: permit.tenant_id,
     disposition: permit.disposition,
     approval_id: permit.approval_id ?? '',
+    policy_provenance: permit.policy_provenance ?? {},
     workspace_relation: permit.workspace_relation ?? '',
     workspace_root: permit.workspace_root ?? '',
     execution_cwd: permit.execution_cwd ?? '',
@@ -113,6 +116,7 @@ export function issueExecutionPermit(input: IssuePermitInput, secret: string): E
     tenant_id: input.tenant_id,
     disposition: input.disposition,
     approval_id: input.approval_id,
+    policy_provenance: input.policy_provenance,
     workspace_relation: input.workspace_relation,
     workspace_root: input.workspace_root,
     execution_cwd: input.execution_cwd,

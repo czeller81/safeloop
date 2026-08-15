@@ -2898,6 +2898,33 @@ p {
   overflow-wrap: anywhere;
 }
 
+.policy-lifecycle-strip {
+  border-top: 1px solid var(--border-muted);
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.policy-lifecycle-strip h3,
+.policy-lifecycle-strip p {
+  margin: 0;
+}
+
+.policy-lifecycle-strip p {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .policy-lifecycle-strip {
+    align-items: flex-start;
+    display: grid;
+  }
+}
+
 @media (max-width: 720px) {
   .health-metrics-row {
     display: grid;

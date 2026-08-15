@@ -157,6 +157,19 @@ export interface ActionFingerprint {
   canonical_form: string;
 }
 
+
+export interface PolicyDecisionProvenanceRecord {
+  policy_bundle_id: string;
+  policy_bundle_version: string;
+  policy_hash: string;
+  config_snapshot_id: string;
+  config_hash: string;
+  runtime_version: string;
+  protocol_version: string;
+  event_schema_version: 1;
+  profile: string;
+}
+
 export interface GovernanceDecision {
   protocol_version: string;
   decision_id: string;
@@ -171,6 +184,7 @@ export interface GovernanceDecision {
   explanation: string;
   recommended_remediation: string[];
   evaluated_at: string;
+  policy_provenance?: PolicyDecisionProvenanceRecord;
   /** Present only when the decision authorizes immediate execution. */
   execution_permit?: ExecutionPermit;
   /** Present when the disposition is REQUIRE_APPROVAL. */
@@ -285,6 +299,7 @@ export interface ExecutionPermit {
   tenant_id: string;
   disposition: RuntimeDispositionCode;
   approval_id?: string;
+  policy_provenance?: PolicyDecisionProvenanceRecord;
   /**
    * The workspace relation this authorization was granted under, as classified
    * at proposal time. Signed, so it cannot be edited.

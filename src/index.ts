@@ -1692,3 +1692,5 @@ export type { FlightRecorderSession, FlightRecorderIndex, FlightRecorderExportBu
 
 export { buildOperationalTelemetry, prometheusText, recordTelemetry } from './runtime/operationalTelemetry';
 export type { OperationalTelemetrySnapshot, HealthComponent, DependencyHealth, MetricSample, GoldenControlResult, SyntheticGovernanceReport, TelemetryExporter } from './runtime/operationalTelemetry';
+export { createPolicyBundle, validatePolicyBundle, approvePolicyBundle, activatePolicyBundle, rollbackPolicy, ensureBaselinePolicyLifecycle, activePolicyProvenance, resolveHistoricalPolicyContext, detectPolicyDrift, policyLifecycleStatus, readPolicyLifecycleStore, safePolicyDiff } from './policyLifecycle';
+export type { PolicyLifecycleState, PolicyDriftState, PolicyBundle, GovernanceConfigSnapshot, PolicyActivationRecord, PolicyLifecycleEvent, PolicyValidationResult, GoldenPolicyControlsResult, PolicyLifecycleStore, PolicyDecisionProvenance, PolicyLifecycleStatus } from './policyLifecycle';

@@ -40,6 +40,19 @@ import type { SafeloopStorageOptions } from '../localStorage';
 import { buildSessionTimelinePage } from './sessionWorkGraph';
 import { buildFlightRecorderSession, exportFlightRecorderSession, MAX_FLIGHT_RECORDER_LIMIT, redactFlightRecorderValue } from './flightRecorder';
 import { buildOperationalTelemetry } from './operationalTelemetry';
+import {
+  activatePolicyBundle,
+  approvePolicyBundle,
+  createPolicyBundle,
+  ensureBaselinePolicyLifecycle,
+  policyLifecycleStatus,
+  readPolicyLifecycleStore,
+  redactPolicyLifecycleValue,
+  rollbackPolicy,
+  safePolicyDiff,
+  validatePolicyBundle,
+} from '../policyLifecycle';
+import { loadProfile } from './profiles';
 
 export const DEFAULT_DAEMON_PORT = 3787;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -240,6 +253,76 @@ export function buildRoutes(storageOptions: SafeloopStorageOptions = {}): Route[
     {
       method: 'GET', path: '/v1/status', auth: 'runtime',
       handle: (_body, runtime) => runtime.status(),
+    },
+    {
+      method: 'GET', path: '/v1/policy/status', auth: 'runtime',
+      handle: () => policyLifecycleStatus(storageOptions),
+    },
+    {
+      method: 'GET', path: '/v1/policy/list', auth: 'runtime',
+      handle: () => {
+        const store = readPolicyLifecycleStore(storageOptions);
+        return redactPolicyLifecycleValue({ bundles: store.bundles.map(({ profile, ...bundle }) => bundle), active: store.active });
+      },
+    },
+    {
+      method: 'POST', path: '/v1/policy/show', auth: 'runtime',
+      handle: (body) => {
+        const bundleId = requireString(body, 'bundle_id');
+        const store = readPolicyLifecycleStore(storageOptions);
+        const bundle = store.bundles.find((entry) => entry.bundle_id === bundleId);
+        if (!bundle) throw new RuntimeError('invalid_request', 'policy_bundle_not_found');
+        return redactPolicyLifecycleValue({ bundle });
+      },
+    },
+    {
+      method: 'POST', path: '/v1/policy/diff', auth: 'runtime',
+      handle: (body) => ({ diff: safePolicyDiff(requireString(body, 'left_bundle_id'), requireString(body, 'right_bundle_id'), storageOptions) }),
+    },
+    {
+      method: 'POST', path: '/v1/policy/import-baseline', auth: 'operator',
+      handle: (body) => ensureBaselinePolicyLifecycle(optionalString(body, 'profile') ?? 'coding', optionalString(body, 'actor') ?? 'operator', storageOptions),
+    },
+    {
+      method: 'POST', path: '/v1/policy/create', auth: 'operator',
+      handle: (body) => createPolicyBundle({
+        profile: body.profile && typeof body.profile === 'object' ? body.profile as never : loadProfile(optionalString(body, 'profile') ?? 'coding'),
+        profile_id: optionalString(body, 'profile_id') ?? optionalString(body, 'profile') ?? 'coding',
+        version: requireString(body, 'version'),
+        created_by: optionalString(body, 'actor') ?? 'operator',
+        metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata as Record<string, unknown> : {},
+        tenant_id: optionalString(body, 'tenant_id'),
+      }, storageOptions),
+    },
+    {
+      method: 'POST', path: '/v1/policy/validate', auth: 'operator',
+      handle: (body) => validatePolicyBundle(requireString(body, 'bundle_id'), optionalString(body, 'actor') ?? 'operator', storageOptions),
+    },
+    {
+      method: 'POST', path: '/v1/policy/approve', auth: 'operator',
+      handle: (body) => approvePolicyBundle(requireString(body, 'bundle_id'), optionalString(body, 'actor') ?? 'operator', storageOptions),
+    },
+    {
+      method: 'POST', path: '/v1/policy/activate', auth: 'operator',
+      handle: (body) => activatePolicyBundle({
+        bundle_id: requireString(body, 'bundle_id'),
+        actor: optionalString(body, 'actor') ?? 'operator',
+        approved_by: optionalString(body, 'approved_by') ?? 'operator',
+        request_id: optionalString(body, 'request_id'),
+        reason: optionalString(body, 'reason'),
+        tenant_id: optionalString(body, 'tenant_id'),
+      }, storageOptions),
+    },
+    {
+      method: 'POST', path: '/v1/policy/rollback', auth: 'operator',
+      handle: (body) => rollbackPolicy({
+        target_bundle_id: requireString(body, 'target_bundle_id'),
+        actor: optionalString(body, 'actor') ?? 'operator',
+        approved_by: optionalString(body, 'approved_by') ?? 'operator',
+        reason: optionalString(body, 'reason') ?? 'operator rollback',
+        request_id: optionalString(body, 'request_id'),
+        tenant_id: optionalString(body, 'tenant_id'),
+      }, storageOptions),
     },
     {
       method: 'POST', path: '/v1/session/start', auth: 'runtime',

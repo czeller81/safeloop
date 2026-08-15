@@ -5,6 +5,7 @@ import { redactSecrets } from './redaction';
 import { PROTOCOL_VERSION, type RuntimeWorkEvent } from './protocol';
 import type { RuntimeStatus } from './runtimeCore';
 import { buildFlightRecorderSession } from './flightRecorder';
+import { policyLifecycleStatus, type PolicyLifecycleStatus } from '../policyLifecycle';
 
 export type OperationalStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
 export type DependencyCriticality = 'critical' | 'optional' | 'degraded-capable';
@@ -71,6 +72,7 @@ export interface OperationalTelemetrySnapshot {
   metrics: MetricSample[];
   synthetic: SyntheticGovernanceReport;
   alerts: Array<{ id: string; status: 'active' | 'clear'; reason: string }>;
+  policy_lifecycle?: PolicyLifecycleStatus;
   privacy: {
     telemetry_contains_raw_credentials: boolean;
     high_cardinality_metric_risk_found: boolean;
@@ -222,7 +224,7 @@ function policyVersions(status: RuntimeStatus): string[] {
   return Array.from(profiles.size ? profiles : new Set(['default'])).sort().map((profile) => `profile:${profile}`);
 }
 
-function buildMetrics(events: RuntimeWorkEvent[], status: RuntimeStatus): MetricSample[] {
+function buildMetrics(events: RuntimeWorkEvent[], status: RuntimeStatus, lifecycle?: PolicyLifecycleStatus): MetricSample[] {
   const samples = new Map<string, MetricSample>();
   for (const event of events) {
     if (event.type === 'decision.recorded') {
@@ -251,6 +253,12 @@ function buildMetrics(events: RuntimeWorkEvent[], status: RuntimeStatus): Metric
   gauge(samples, 'safeloop_pending_approvals', status.sessions.reduce((sum, session) => sum + session.pending_approvals, 0));
   gauge(samples, 'safeloop_breaker_open_sessions', status.sessions.filter((session) => session.breaker_state === 'OPEN').length);
   gauge(samples, 'safeloop_budget_remaining_actions', status.sessions.reduce((sum, session) => sum + (session.budget_remaining.actions ?? 0), 0));
+  if (lifecycle) {
+    gauge(samples, 'safeloop_policy_lifecycle_state', lifecycle.active_bundle?.status === 'ACTIVE' ? 1 : 0, { status: lifecycle.active_bundle?.status ?? 'UNKNOWN' });
+    gauge(samples, 'safeloop_policy_config_drift_state', lifecycle.drift_state === 'NO_DRIFT' ? 0 : lifecycle.drift_state === 'DRIFT' ? 1 : 2, { status: lifecycle.drift_state });
+    gauge(samples, 'safeloop_policy_validation_failures_total', lifecycle.latest_validation && !lifecycle.latest_validation.valid ? 1 : 0);
+    gauge(samples, 'safeloop_policy_activations_total', lifecycle.latest_activation ? 1 : 0);
+  }
   return sanitizeMetrics(Array.from(samples.values()).sort((left, right) => left.name.localeCompare(right.name)));
 }
 
@@ -322,12 +330,15 @@ export function buildOperationalTelemetry(status: RuntimeStatus, options: Operat
   const storageOptions = options.storageOptions ?? {};
   const checkedAt = (options.now ?? (() => new Date()))().toISOString();
   const { events, malformed } = workEvents(storageOptions);
-  const metrics = buildMetrics(events, status);
+  const lifecycle = policyLifecycleStatus(storageOptions);
+  const metrics = buildMetrics(events, status, lifecycle);
   const governanceReasons: string[] = [];
+  if (!lifecycle.active_bundle || !lifecycle.active_config) governanceReasons.push('active_policy_missing');
+  if (lifecycle.drift_state === 'DRIFT') governanceReasons.push('policy_config_drift');
   if (options.force?.policyUnavailable) governanceReasons.push('policy_unavailable');
   const blockedSessions = status.sessions.filter((session) => session.blocked_reason).length;
   if (blockedSessions > 0) governanceReasons.push('runtime_control_blocked');
-  const governanceStatus: OperationalStatus = options.force?.policyUnavailable ? 'unhealthy' : blockedSessions > 0 ? 'degraded' : 'healthy';
+  const governanceStatus: OperationalStatus = options.force?.policyUnavailable || !lifecycle.active_bundle || lifecycle.drift_state === 'DRIFT' ? 'unhealthy' : blockedSessions > 0 || lifecycle.drift_state === 'UNKNOWN' ? 'degraded' : 'healthy';
   const governance = component(governanceStatus, governanceStatus === 'healthy' ? 'Policy, approvals, permits, breaker, budget, and context state are readable.' : 'Governance state is observable with blocking conditions.', checkedAt, governanceReasons, {
     sessions: status.sessions.length,
     blocked_sessions: blockedSessions,
@@ -344,13 +355,14 @@ export function buildOperationalTelemetry(status: RuntimeStatus, options: Operat
     malformed_event_lines: malformed,
   });
   const dependencies: DependencyHealth[] = [
-    dependency('policy_profile_loader', 'critical', options.force?.policyUnavailable ? 'unhealthy' : 'healthy', options.force?.policyUnavailable ? 'Policy profile loading failed under injected failure.' : 'Policy profiles are loaded by active runtime sessions.', checkedAt),
+    dependency('policy_profile_loader', 'critical', options.force?.policyUnavailable || !lifecycle.active_bundle ? 'unhealthy' : 'healthy', options.force?.policyUnavailable ? 'Policy profile loading failed under injected failure.' : 'Active policy bundle is resolved from lifecycle state.', checkedAt),
     dependency('approval_permit_authority', 'critical', 'healthy', 'Approval and permit authorities are readable from runtime state.', checkedAt),
     dependency('managed_execution_adapter', 'critical', 'healthy', 'Managed execution adapter is configured.', checkedAt),
     dependency('evidence_store', 'degraded-capable', evidence.status === 'unhealthy' ? 'unhealthy' : evidence.status, 'Evidence store and projection are observable.', checkedAt),
     dependency('memory_store', 'degraded-capable', 'healthy', 'Governed memory store is reachable through runtime state.', checkedAt),
     dependency('optional_provider', 'optional', options.force?.optionalProviderUnavailable ? 'degraded' : 'healthy', options.force?.optionalProviderUnavailable ? 'Optional provider unavailable; enforcement remains governed for available paths.' : 'No optional provider outage detected.', checkedAt),
     dependency('telemetry_exporter', 'optional', telemetryStatus, telemetry.summary, checkedAt, telemetryReasons),
+    dependency('policy_lifecycle_store', 'critical', lifecycle.drift_state === 'DRIFT' || !lifecycle.active_config ? 'unhealthy' : lifecycle.drift_state === 'UNKNOWN' ? 'degraded' : 'healthy', lifecycle.drift_state === 'NO_DRIFT' ? 'Policy lifecycle store integrity is valid.' : 'Policy lifecycle drift or uncertainty is present.', checkedAt, lifecycle.drift_reasons),
   ];
   const critical = dependencies.filter((entry) => entry.criticality === 'critical').map((entry) => entry.status);
   const readinessStatus: OperationalStatus = worstStatus([governance.status, ...critical]);
@@ -389,6 +401,7 @@ export function buildOperationalTelemetry(status: RuntimeStatus, options: Operat
     metrics,
     synthetic,
     alerts,
+    policy_lifecycle: lifecycle,
     privacy: {
       telemetry_contains_raw_credentials: false,
       high_cardinality_metric_risk_found: false,

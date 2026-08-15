@@ -34,6 +34,7 @@ export function renderOperationalHealthPanel(viewModel: MonitorViewModel): strin
     ['Telemetry', health.telemetry.status, health.telemetry.summary],
     ['Synthetic', snapshot.synthetic.status, snapshot.synthetic.summary],
   ];
+  const lifecycle = snapshot.policy_lifecycle;
   const metrics = snapshot.metrics.slice(0, 8).map((sample) => `
     <li>
       <span>${escapeHtml(sample.name)}</span>
@@ -60,6 +61,13 @@ export function renderOperationalHealthPanel(viewModel: MonitorViewModel): strin
             <p>${escapeHtml(summary)}</p>
           </article>
         `).join('')}
+      </div>
+      <div class="policy-lifecycle-strip">
+        <div>
+          <h3>Policy lifecycle</h3>
+          <p>${escapeHtml(lifecycle?.active_bundle?.version ?? 'No active bundle')} ? ${escapeHtml(lifecycle?.active_config?.snapshot_id ?? 'No active config')}</p>
+        </div>
+        <span class="status-pill ${statusClass(lifecycle?.drift_state === 'NO_DRIFT' ? 'healthy' : lifecycle?.drift_state === 'DRIFT' ? 'unhealthy' : 'unknown')}">${escapeHtml(lifecycle?.drift_state ?? 'UNKNOWN')}</span>
       </div>
       <div class="health-metrics-row">
         <div>

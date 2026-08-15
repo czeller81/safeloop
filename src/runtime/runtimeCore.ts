@@ -59,6 +59,7 @@ import {
   type TaskContext,
 } from './protocol';
 import type { SafeloopStorageOptions } from '../localStorage';
+import { activePolicyProvenance } from '../policyLifecycle';
 
 export const RUNTIME_VERSION = '0.2.0';
 
@@ -105,6 +106,7 @@ export interface SessionState {
      * (SL-RC3-HIGH-004).
      */
     granted_approval_id?: string;
+    policy_provenance?: import('./protocol').PolicyDecisionProvenanceRecord;
   }>;
   parent_session_id?: string;
   finished_at?: string;
@@ -382,6 +384,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
    * has forgotten the request cannot grant against it either.
    */
   const approvedContexts = new Map<string, AuthorizationContext>();
+  const approvedPolicyProvenance = new Map<string, import('./protocol').PolicyDecisionProvenanceRecord>();
 
   function authenticate(credential: string, sessionId: string): SessionState {
     if (!credential) throw new RuntimeError('unauthenticated', 'a session credential is required');
@@ -626,6 +629,8 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       const fingerprint = fingerprintAction(canonical).fingerprint;
       const proposalId = newId('proposal');
 
+      const policyProvenance = activePolicyProvenance(state.profile.id, config.storageOptions);
+
       const { profileEvaluation, riskDecision, disposition } = evaluateEffectiveGovernance(
         state,
         input.task_id,
@@ -660,6 +665,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         explanation: [...profileEvaluation.explanations, riskDecision.explanation].filter(Boolean).join(' | '),
         recommended_remediation: riskDecision.recommendedRemediation,
         evaluated_at: new Date().toISOString(),
+        policy_provenance: policyProvenance,
       };
 
       // Resolve the host state this decision is about, once, here. For an
@@ -693,6 +699,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           // Signed into the permit so the executor can detect the target
           // resolving somewhere else before the side effect runs.
           ...authorizationContext,
+          policy_provenance: policyProvenance,
         });
       } else if (decision.requires_approval) {
         const context = authorizationContext as AuthorizationContext;
@@ -710,7 +717,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           ...describedForOperator,
         });
         decision.approval_request = request;
-        state.pendingApprovals.set(request.approval_request_id, { request, proposal: bound, context });
+        state.pendingApprovals.set(request.approval_request_id, { request, proposal: bound, context, policy_provenance: policyProvenance });
         approvalRequests.set(request.approval_request_id, {
           sessionId: state.session.session_id,
           taskId: input.task_id,
@@ -748,7 +755,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         action_fingerprint: fingerprint,
         decision: disposition,
         summary: `Decision recorded: ${disposition}`,
-        detail: { proposal_id: proposalId, decision_id: decision.decision_id, matched_rules: profileEvaluation.matched_rules, risk_score: decision.risk_score, explanation: decision.explanation, requires_approval: decision.requires_approval, profile: state.profile.id },
+        detail: { proposal_id: proposalId, decision_id: decision.decision_id, matched_rules: profileEvaluation.matched_rules, risk_score: decision.risk_score, explanation: decision.explanation, requires_approval: decision.requires_approval, profile: state.profile.id, policy_provenance: policyProvenance },
         workEvent: {
           type: 'decision.recorded',
           session_id: canonical.session_id,
@@ -760,7 +767,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           decision_id: decision.decision_id,
           action_fingerprint: fingerprint,
           summary: `Decision recorded: ${disposition}`,
-          data: { disposition, matched_rules: profileEvaluation.matched_rules, risk_score: decision.risk_score, explanation: decision.explanation, requires_approval: decision.requires_approval, profile: state.profile.id },
+          data: { disposition, matched_rules: profileEvaluation.matched_rules, risk_score: decision.risk_score, explanation: decision.explanation, requires_approval: decision.requires_approval, profile: state.profile.id, policy_provenance: policyProvenance },
         },
       });
       if (decision.execution_permit) {
@@ -773,7 +780,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           action_fingerprint: fingerprint,
           decision: disposition,
           summary: `Execution permit issued: ${decision.execution_permit.permit_id}`,
-          detail: { proposal_id: proposalId, decision_id: decision.decision_id, permit_id: decision.execution_permit.permit_id },
+          detail: { proposal_id: proposalId, decision_id: decision.decision_id, permit_id: decision.execution_permit.permit_id, policy_provenance: policyProvenance },
           workEvent: {
             type: 'permit.issued',
             session_id: canonical.session_id,
@@ -786,6 +793,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
             permit_id: decision.execution_permit.permit_id,
             action_fingerprint: fingerprint,
             summary: `Execution permit issued: ${decision.execution_permit.permit_id}`,
+            data: { policy_provenance: policyProvenance },
           },
         });
       }
@@ -811,6 +819,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           sensitive_path: profileEvaluation.facts.sensitive_path,
           // The ledger is the operator's other surface onto a held action, so
           // the resolved location belongs in it too, not only on the request.
+          policy_provenance: policyProvenance,
           ...(describedForOperator ?? {}),
         },
         ...(decision.requires_approval ? {
@@ -863,6 +872,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
       // actually present. The operator decided about this context; the token
       // now has a way back to it.
       approvedContexts.set(grant.approval_id, held.context);
+      if (held.policy_provenance) approvedPolicyProvenance.set(grant.approval_id, held.policy_provenance);
       const approvalRequestEventId = recorder.findWorkEventIdByDomainId?.(request.session_id, request.approval_request_id);
       const approvalGrantEvent = recorder.recordEvent({
         type: 'approval.granted',
@@ -906,6 +916,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         fingerprint,
       );
       const stillRequiresApproval = disposition === 'REQUIRE_APPROVAL';
+      const proposalPolicyProvenance = input.token?.approval_id ? approvedPolicyProvenance.get(input.token.approval_id) : undefined;
 
       const redeemInput = {
         action_fingerprint: fingerprint,
@@ -915,6 +926,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
         scenario_id: canonical.scenario_id,
         tenant_id: canonical.tenant_id,
         approval_was_required: stillRequiresApproval,
+        policy_provenance: proposalPolicyProvenance,
       };
 
       const record = (redemption: ApprovalRedemption): ApprovalRedemption => {
@@ -930,7 +942,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
           summary: redemption.redeemed
             ? `Approval redeemed for ${describeCanonicalAction(canonical)}`
             : `Approval redemption rejected: ${redemption.failure}`,
-          detail: { approval_id: redemption.approval_id, permit_id: redemption.execution_permit?.permit_id, failure: redemption.failure, reason: redemption.reason },
+          detail: { approval_id: redemption.approval_id, permit_id: redemption.execution_permit?.permit_id, failure: redemption.failure, reason: redemption.reason, policy_provenance: proposalPolicyProvenance },
           workEvent: {
             type: redemption.redeemed ? 'approval.redeemed' : 'approval.denied',
             session_id: canonical.session_id,
@@ -944,7 +956,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
             summary: redemption.redeemed
               ? `Approval redeemed for ${describeCanonicalAction(canonical)}`
               : `Approval redemption rejected: ${redemption.failure}`,
-            data: { failure: redemption.failure, reason: redemption.reason },
+            data: { failure: redemption.failure, reason: redemption.reason, policy_provenance: proposalPolicyProvenance },
           },
         });
         if (redemption.redeemed && redemption.execution_permit) {
@@ -957,7 +969,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
             action_fingerprint: fingerprint,
             decision: 'ALLOW',
             summary: `Execution permit issued: ${redemption.execution_permit.permit_id}`,
-            detail: { approval_id: redemption.approval_id, permit_id: redemption.execution_permit.permit_id },
+            detail: { approval_id: redemption.approval_id, permit_id: redemption.execution_permit.permit_id, policy_provenance: proposalPolicyProvenance },
             workEvent: {
               type: 'permit.issued',
               session_id: canonical.session_id,
@@ -969,6 +981,7 @@ export function createSafeloopRuntime(config: SafeloopRuntimeConfig = {}): Safel
               permit_id: redemption.execution_permit.permit_id,
               action_fingerprint: fingerprint,
               summary: `Execution permit issued: ${redemption.execution_permit.permit_id}`,
+              data: { policy_provenance: proposalPolicyProvenance },
             },
           });
         }
