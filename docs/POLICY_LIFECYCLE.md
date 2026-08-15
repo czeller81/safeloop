@@ -6,6 +6,8 @@ Policy lifecycle governance does not rewrite historical decisions.
 
 Phase 6.1 makes lifecycle authority fail closed on corrupt storage. Missing storage is distinct from malformed or unsupported storage; only missing first-use storage may be bootstrapped by explicit baseline import/session startup. Corrupt storage is preserved for inspection and is not treated as an empty lifecycle.
 
+Phase 6.2 routes authoritative lifecycle mutations through one process-safe transaction helper. Creation, validation, approval, activation, rollback, and baseline import acquire the lifecycle lock, operate on one store revision, advance the monotonic revision on commit, and report failure before durable success is claimed.
+
 Rollback changes the active future policy state; it does not erase actions or decisions made under the rolled-back version.
 
 ## Architecture
@@ -16,7 +18,7 @@ policy/config draft
   -> structural validation
   -> golden controls
   -> approval
-  -> atomic activation
+  -> revisioned transaction commit
   -> decision provenance
   -> telemetry/drift detection
   -> controlled rollback
@@ -82,17 +84,22 @@ Validation checks:
 - profile structural validity
 - budget, threshold, managed-path, memory-policy, and runtime-control shape
 - direct stored config content hash when resolving active or historical configs
-- filesystem safe-read and sensitive-delete controls
+- bounded policy payload size, nesting depth, rule count, array length, string length, and metadata size
+- filesystem safe-read, sensitive-delete, and governance-config write controls
 - destructive shell command control
 - authenticated HTTP mutation control
+- dangerous MCP tool control
+- Git force-push control
+- approval-gated outside write control
+- memory governance declaration control
 
-The positive control checks a known safe read path. The negative control checks a dangerous outside delete path and requires a blocking disposition such as `DENY`, `STOP_AGENT`, `REQUIRE_APPROVAL`, or `PAUSE`.
+The golden-control set is versioned as `phase6-v2`. Each validation records every required control ID, family, expected dispositions, observed disposition, and pass/fail status. Activation fails closed when validation fails. Missing or failing mandatory controls are not treated as success.
 
 Validation proves structure and defined behavioral controls, not that every future policy outcome is desirable.
 
 ## Activation
 
-Activation requires an approved bundle and re-runs validation immediately before the atomic active pointer update. If activation fails before the atomic write, the previous active bundle remains authoritative. Repeated activation with the same request ID is idempotent.
+Activation requires an approved bundle and re-runs validation inside the same lifecycle transaction as the active pointer update. If activation fails before the transaction commits, the previous active bundle remains authoritative. Repeated activation with the same request ID, or activation of an already active bundle, returns the existing authoritative activation rather than creating duplicate active state.
 
 New governance decisions resolve one complete active policy/config state at proposal evaluation start. The proposal hot path is read-only with respect to lifecycle authority: it verifies the active profile-scoped bundle/config and fails closed on drift instead of importing, activating, or repairing state. A lightweight verified-provenance cache is invalidated when the lifecycle store file changes or a lifecycle mutation writes a new revision.
 
@@ -117,7 +124,7 @@ If policy changes after a proposal is held for approval, the approval redemption
 
 ## Rollback
 
-Rollback creates new lifecycle events and a new activation record pointing at a previous known-good version. It preserves the version being rolled back from and any decisions already made under it.
+Rollback is one authoritative lifecycle transaction. It validates the target bundle, changes the profile-scoped active pointer, marks the prior active bundle rolled back where applicable, appends rollback events, appends the rollback activation record, and advances the store revision in one durable commit. If the transaction fails before commit, the previous active bundle remains authoritative and no half-rollback is persisted. It preserves the version being rolled back from and any decisions already made under it.
 
 History remains:
 
@@ -143,7 +150,7 @@ SafeLoop does not silently repair drift in Phase 6. Drift is exposed through lif
 
 ## Audit Events
 
-Lifecycle operations append policy lifecycle events for creation, validation, approval, activation, supersession, rollback, activation failure, validation failure, and drift-related status. These events use the existing event stream and are visible to operator systems that read that stream.
+Lifecycle operations append policy lifecycle events for creation, validation, approval, activation, supersession, rollback, activation failure, validation failure, and drift-related status. Store events are authoritative and include revision context. Export to the existing event stream is best effort; event-stream export failure must not corrupt or roll back the lifecycle store commit.
 
 ## CLI and API
 
@@ -163,9 +170,22 @@ safeloop policy-lifecycle diff --left <id> --right <id>
 
 Daemon read routes require the runtime credential. Mutation routes require the operator credential.
 
-## Tenant Scope
+## Lifecycle Scope
 
-Policy lifecycle state is global by default in the current SafeLoop runtime. Tenant-specific bundles may carry a `tenant_id`, and activation rejects mismatched tenant activation requests. SafeLoop does not claim full tenant-specific policy administration beyond that explicit bound in this phase.
+Lifecycle scope is `PROFILE_SCOPED_LOCAL`. Active policy state is maintained per profile in one local lifecycle store. Tenant labels may be recorded as metadata and activation rejects explicit mismatches, but the lifecycle store is not a tenant isolation boundary and does not claim tenant-specific policy administration. Existing runtime/session tenant authorization remains separate from lifecycle version governance.
+
+## Input Limits
+
+Phase 6.2 lifecycle input limits are:
+
+- `MAX_POLICY_PAYLOAD_BYTES`: 512 KiB
+- `MAX_NESTING_DEPTH`: 48
+- `MAX_RULE_COUNT`: 500
+- `MAX_ARRAY_LENGTH`: 1000
+- `MAX_STRING_LENGTH`: 16 KiB
+- `MAX_METADATA_BYTES`: 64 KiB
+
+Over-limit lifecycle input is rejected with a structured `lifecycle_input_limit_exceeded:*` error before persistence. Policy semantics are not silently truncated.
 
 ## Limitations
 

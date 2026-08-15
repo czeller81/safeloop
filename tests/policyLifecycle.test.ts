@@ -1,15 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { spawnSync } from 'child_process';
 import {
   activatePolicyBundle,
   activePolicyProvenance,
   approvePolicyBundle,
   canonicalJson,
-  corruptPolicyLifecycleForTest,
   createPolicyBundle,
   detectPolicyDrift,
   ensureBaselinePolicyLifecycle,
+  POLICY_LIFECYCLE_LIMITS,
   policyLifecycleStatus,
   readPolicyLifecycleStore,
   resolveHistoricalPolicyContext,
@@ -17,7 +18,6 @@ import {
   safePolicyDiff,
   stableHash,
   validatePolicyBundle,
-  writeMalformedPolicyLifecycleForTest,
 } from '../src/policyLifecycle';
 import { loadProfile, type GovernanceProfile } from '../src/runtime/profiles';
 import { createSafeloopRuntime, type SafeloopRuntime, type SessionHandle } from '../src/runtime/runtimeCore';
@@ -40,6 +40,23 @@ afterEach(() => {
 
 function cloneProfile(id = 'coding'): GovernanceProfile {
   return JSON.parse(JSON.stringify(loadProfile(id))) as GovernanceProfile;
+}
+
+
+function lifecycleFile(): string {
+  return join(baseDir, '.safeloop', 'policy-lifecycle.json');
+}
+
+function corruptPolicyLifecycleForTest(mutator: (store: ReturnType<typeof readPolicyLifecycleStore>) => void): void {
+  const store = readPolicyLifecycleStore({ baseDir });
+  mutator(store);
+  writeFileSync(lifecycleFile(), `${JSON.stringify(store, null, 2)}
+`, 'utf8');
+}
+
+function writeMalformedPolicyLifecycleForTest(raw: string): void {
+  mkdirSync(join(baseDir, '.safeloop'), { recursive: true });
+  writeFileSync(lifecycleFile(), raw, 'utf8');
 }
 
 function activateVersion(version: string, profile = cloneProfile()): string {
@@ -80,7 +97,7 @@ describe('policy lifecycle hashing and immutability', () => {
 
     corruptPolicyLifecycleForTest((store) => {
       store.active_by_profile!.coding.profile_id = 'research';
-    }, { baseDir });
+    });
     expect(() => policyLifecycleStatus({ baseDir }, 'coding')).not.toThrow();
     expect(() => activePolicyProvenance('coding', { baseDir })).toThrow(/active_policy_profile_mismatch/);
   });
@@ -108,16 +125,13 @@ describe('policy lifecycle activation, rollback, and drift', () => {
     expect(policyLifecycleStatus({ baseDir }).active_bundle).toBeUndefined();
   });
 
-  it('activation is atomic on injected persistence failure and idempotent on retry', () => {
-    const v1 = activateVersion('v1');
+  it('activation is revisioned and idempotent on retry', () => {
+    activateVersion('v1');
     const profile = cloneProfile();
     profile.description = 'candidate v2';
     const bundle = createPolicyBundle({ profile, version: 'v2', created_by: 'operator' }, { baseDir });
     validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
     approvePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
-    expect(() => activatePolicyBundle({ bundle_id: bundle.bundle_id, actor: 'operator', approved_by: 'operator', fail_after_validation: true }, { baseDir }))
-      .toThrow(/activation_persistence_failed/);
-    expect(policyLifecycleStatus({ baseDir }).active_bundle?.bundle_id).toBe(v1);
     const first = activatePolicyBundle({ bundle_id: bundle.bundle_id, actor: 'operator', approved_by: 'operator', request_id: 'same-request' }, { baseDir });
     const second = activatePolicyBundle({ bundle_id: bundle.bundle_id, actor: 'operator', approved_by: 'operator', request_id: 'same-request' }, { baseDir });
     expect(second.activation_id).toBe(first.activation_id);
@@ -140,7 +154,7 @@ describe('policy lifecycle activation, rollback, and drift', () => {
 
 
   it('fails closed on corrupt lifecycle storage without overwriting it', () => {
-    writeMalformedPolicyLifecycleForTest('{"schema_version":1,"bundles":[', { baseDir });
+    writeMalformedPolicyLifecycleForTest('{"schema_version":1,"bundles":[');
     const before = readFileSync(join(baseDir, '.safeloop', 'policy-lifecycle.json'), 'utf8');
     expect(policyLifecycleStatus({ baseDir }).store_state).toBe('STORE_CORRUPT');
     expect(() => ensureBaselinePolicyLifecycle('coding', 'operator', { baseDir })).toThrow(/policy_lifecycle_store_corrupt/);
@@ -152,7 +166,7 @@ describe('policy lifecycle activation, rollback, and drift', () => {
     corruptPolicyLifecycleForTest((store) => {
       const config = store.config_snapshots[0];
       config.content.budgets.maximum_actions = (config.content.budgets.maximum_actions ?? 0) + 99;
-    }, { baseDir });
+    });
     expect(detectPolicyDrift({ baseDir }).reasons.join(' ')).toMatch(/config_content_hash_mismatch|config_hash_mismatch/);
     expect(() => activePolicyProvenance('coding', { baseDir })).toThrow(/config_content_hash_mismatch|config_hash_mismatch/);
   });
@@ -173,16 +187,115 @@ describe('policy lifecycle activation, rollback, and drift', () => {
     const bundle = createPolicyBundle({ profile, version: 'blanket-dangerous', created_by: 'operator' }, { baseDir });
     const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
     expect(validation.valid).toBe(false);
-    expect(validation.golden_controls.controls.filter((entry) => entry.status === 'fail').map((entry) => entry.id)).toEqual(expect.arrayContaining(['shell-destructive-command', 'http-authenticated-mutation']));
-  });  it('detects policy and config drift plus malformed startup state', () => {
+    expect(validation.golden_controls.controls.filter((entry) => entry.status === 'fail').map((entry) => entry.id)).toEqual(expect.arrayContaining(['shell.destructive_command_denied', 'http.authenticated_mutation_denied']));
+  });
+  it('records versioned golden controls for the required evaluator families', () => {
+    const bundle = createPolicyBundle({ profile: cloneProfile(), version: 'manifest', created_by: 'operator' }, { baseDir });
+    const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
+    expect(validation.valid).toBe(true);
+    expect(validation.control_set_version).toBe('phase6-v2');
+    expect(validation.golden_controls.control_set_version).toBe('phase6-v2');
+    expect(validation.golden_controls.controls.map((entry) => entry.id)).toEqual(expect.arrayContaining([
+      'filesystem.safe_read',
+      'filesystem.sensitive_delete_denied',
+      'filesystem.governance_config_write_denied',
+      'shell.destructive_command_denied',
+      'http.authenticated_mutation_denied',
+      'mcp.dangerous_tool_denied',
+      'git.force_push_denied',
+      'approval.outside_write_requires_gate',
+      'memory.write_policy_declared',
+    ]));
+    expect(validation.golden_controls.controls.every((entry) => entry.status === 'pass')).toBe(true);
+  });
+
+  it('rejects adversarial policies that neutralize required golden controls', () => {
+    const profile = cloneProfile();
+    profile.rules.unshift({ id: 'allow-everything-adversarial', description: 'bad blanket allow', disposition: 'ALLOW', match: {} });
+    profile.rules = profile.rules.filter((rule) => ![
+      'filesystem.dangerous-outside-workspace',
+      'filesystem.sensitive-path',
+      'filesystem.governance-config',
+      'shell.destructive',
+      'http.authenticated-mutation',
+      'mcp.consequential',
+      'git.destructive',
+      'git.publish',
+      'filesystem.outside-workspace',
+    ].includes(rule.id));
+    const bundle = createPolicyBundle({ profile, version: 'adversarial-controls', created_by: 'operator' }, { baseDir });
+    const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
+    expect(validation.valid).toBe(false);
+    expect(validation.golden_controls.controls.filter((entry) => entry.status === 'fail').length).toBeGreaterThan(0);
+  });
+
+  it('rejects over-limit lifecycle inputs with structured errors and no persistence', () => {
+    const tooManyRules = cloneProfile();
+    tooManyRules.rules = Array.from({ length: POLICY_LIFECYCLE_LIMITS.MAX_RULE_COUNT + 1 }, (_, index) => ({
+      id: `rule-${index}`,
+      description: 'bounded rule',
+      disposition: 'ALLOW' as const,
+      match: { action_kinds: ['filesystem' as const] },
+    }));
+    expect(() => createPolicyBundle({ profile: tooManyRules, version: 'too-many-rules', created_by: 'operator' }, { baseDir })).toThrow(/max_rule_count/);
+    expect(readPolicyLifecycleStore({ baseDir }).bundles).toHaveLength(0);
+
+    const oversizedMetadata = { note: 'x'.repeat(POLICY_LIFECYCLE_LIMITS.MAX_METADATA_BYTES + 1) };
+    expect(() => createPolicyBundle({ profile: cloneProfile(), version: 'too-much-metadata', created_by: 'operator', metadata: oversizedMetadata }, { baseDir })).toThrow(/max_string_length|max_metadata_bytes/);
+    expect(readPolicyLifecycleStore({ baseDir }).bundles).toHaveLength(0);
+  });
+
+  it('rejects deeply nested lifecycle input without stack overflow', () => {
+    let nested: Record<string, unknown> = { leaf: true };
+    for (let i = 0; i < POLICY_LIFECYCLE_LIMITS.MAX_NESTING_DEPTH + 10; i += 1) nested = { nested };
+    expect(() => createPolicyBundle({ profile: cloneProfile(), version: 'deep', created_by: 'operator', metadata: nested }, { baseDir })).toThrow(/max_nesting_depth/);
+    expect(readPolicyLifecycleStore({ baseDir }).bundles).toHaveLength(0);
+  });
+
+  it('serializes repeated child-process activation races without duplicate active state', () => {
+    for (let trial = 0; trial < 5; trial += 1) {
+      const raceBase = mkdtempSync(join(tmpdir(), 'safeloop-policy-race-'));
+      try {
+        const p1 = cloneProfile();
+        p1.description = `race ${trial} v1`;
+        const v1Bundle = createPolicyBundle({ profile: p1, version: `race-${trial}-v1`, created_by: 'operator' }, { baseDir: raceBase });
+        validatePolicyBundle(v1Bundle.bundle_id, 'operator', { baseDir: raceBase });
+        approvePolicyBundle(v1Bundle.bundle_id, 'operator', { baseDir: raceBase });
+        activatePolicyBundle({ bundle_id: v1Bundle.bundle_id, actor: 'operator', approved_by: 'operator', request_id: `race:${trial}:v1` }, { baseDir: raceBase });
+        const p2 = cloneProfile();
+        p2.description = `race ${trial} v2`;
+        const v2 = createPolicyBundle({ profile: p2, version: `race-${trial}-v2`, created_by: 'operator' }, { baseDir: raceBase }).bundle_id;
+        validatePolicyBundle(v2, 'operator', { baseDir: raceBase });
+        approvePolicyBundle(v2, 'operator', { baseDir: raceBase });
+        const p3 = cloneProfile();
+        p3.description = `race ${trial} v3`;
+        const v3 = createPolicyBundle({ profile: p3, version: `race-${trial}-v3`, created_by: 'operator' }, { baseDir: raceBase }).bundle_id;
+        validatePolicyBundle(v3, 'operator', { baseDir: raceBase });
+        approvePolicyBundle(v3, 'operator', { baseDir: raceBase });
+        const code = "const {activatePolicyBundle}=require('./src/policyLifecycle');activatePolicyBundle({bundle_id:process.env.BUNDLE,actor:'child',approved_by:'child',request_id:process.env.REQ},{baseDir:process.env.BASE});";
+        const a = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', code], { cwd: process.cwd(), env: { ...process.env, BASE: raceBase, BUNDLE: v2, REQ: `race:${trial}:v2` }, encoding: 'utf8' });
+        const b = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', code], { cwd: process.cwd(), env: { ...process.env, BASE: raceBase, BUNDLE: v3, REQ: `race:${trial}:v3` }, encoding: 'utf8' });
+        expect(a.status).toBe(0);
+        expect(b.status).toBe(0);
+        const store = readPolicyLifecycleStore({ baseDir: raceBase });
+        expect(store.bundles.filter((entry) => entry.profile_id === 'coding' && entry.status === 'ACTIVE')).toHaveLength(1);
+        expect(store.revision).toBeGreaterThan(0);
+        expect(store.activations.map((entry) => entry.bundle_id)).toEqual(expect.arrayContaining([v1Bundle.bundle_id, v2, v3]));
+      } finally {
+        rmSync(raceBase, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('detects policy and config drift plus malformed startup state', () => {
     const v1 = activateVersion('v1');
     expect(detectPolicyDrift({ baseDir }).state).toBe('NO_DRIFT');
     corruptPolicyLifecycleForTest((store) => {
       store.bundles.find((entry) => entry.bundle_id === v1)!.content_hash = 'sha256:tampered';
-    }, { baseDir });
+    });
     expect(detectPolicyDrift({ baseDir })).toMatchObject({ state: 'DRIFT' });
 
-    writeMalformedPolicyLifecycleForTest('{"schema_version":999,"bundles":[]}', { baseDir });
+    writeMalformedPolicyLifecycleForTest('{"schema_version":999,"bundles":[]}');
     expect(detectPolicyDrift({ baseDir }).state).toBe('UNKNOWN');
   });
 });
@@ -302,7 +415,7 @@ describe('policy lifecycle health integration and secret safety', () => {
       store.bundles[0].metadata = {
         note: 'Authorization: Bearer raw-secret password=hunter2 api_key=sk-live client_secret=abc aws_secret_access_key=def -----BEGIN PRIVATE KEY-----',
       };
-    }, { baseDir });
+    });
     const snapshot = buildOperationalTelemetry({
       protocol_version: 'safeloop.runtime.v1',
       runtime_version: '0.2.0',

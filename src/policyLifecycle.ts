@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { appendEvent } from './eventStream';
 import { ensureParentDir, resolveSafeloopPath, type SafeloopStorageOptions } from './localStorage';
 import { redactSecrets } from './runtime/redaction';
@@ -127,11 +127,13 @@ export interface PolicyValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
+  control_set_version: string;
   golden_controls: GoldenPolicyControlsResult;
 }
 
 export interface GoldenPolicyControlResult {
   id: string;
+  family: string;
   polarity: 'positive' | 'negative';
   expected: RuntimeDispositionCode[];
   observed: RuntimeDispositionCode;
@@ -139,6 +141,7 @@ export interface GoldenPolicyControlResult {
 }
 
 export interface GoldenPolicyControlsResult {
+  control_set_version: string;
   positive_pass: boolean;
   negative_pass: boolean;
   controls: GoldenPolicyControlResult[];
@@ -197,22 +200,36 @@ const provenanceCache = new Map<string, { mtimeMs: number; provenance: PolicyDec
 const SUPPORTED_SCHEMA_VERSION = 1;
 const POLICY_RUNTIME_VERSION = '0.2.0';
 const SECRET_KEYS = /(?:password|secret|credential|api[_-]?key|authorization|private[_-]?key|client_secret|operator|bearer|access[_-]?key|auth[_-]?token|session[_-]?token|token[_-]?value)/i;
+const GOLDEN_CONTROL_SET_VERSION = 'phase6-v2';
+export const POLICY_LIFECYCLE_LIMITS = {
+  MAX_POLICY_PAYLOAD_BYTES: 512 * 1024,
+  MAX_NESTING_DEPTH: 48,
+  MAX_RULE_COUNT: 500,
+  MAX_ARRAY_LENGTH: 1000,
+  MAX_STRING_LENGTH: 16 * 1024,
+  MAX_METADATA_BYTES: 64 * 1024,
+} as const;
 
 export function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalValue(value));
+  return JSON.stringify(canonicalValue(value, 0));
 }
 
 export function stableHash(value: unknown): string {
   return `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 }
 
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
+function canonicalValue(value: unknown, depth: number): unknown {
+  if (depth > POLICY_LIFECYCLE_LIMITS.MAX_NESTING_DEPTH) throw new Error('lifecycle_input_limit_exceeded:max_nesting_depth');
+  if (typeof value === 'string' && value.length > POLICY_LIFECYCLE_LIMITS.MAX_STRING_LENGTH) throw new Error('lifecycle_input_limit_exceeded:max_string_length');
+  if (Array.isArray(value)) {
+    if (value.length > POLICY_LIFECYCLE_LIMITS.MAX_ARRAY_LENGTH) throw new Error('lifecycle_input_limit_exceeded:max_array_length');
+    return value.map((entry) => canonicalValue(entry, depth + 1));
+  }
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.keys(value as Record<string, unknown>)
     .sort()
     .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
-    .map((key) => [key, canonicalValue((value as Record<string, unknown>)[key])]));
+    .map((key) => [key, canonicalValue((value as Record<string, unknown>)[key], depth + 1)]));
 }
 
 function now(): string {
@@ -294,7 +311,12 @@ export function redactPolicyLifecycleValue<T>(value: T): T {
 function readStoreState(options: SafeloopStorageOptions = {}): { state: PolicyStoreReadState; store?: PolicyLifecycleStore; error?: string } {
   const path = lifecyclePath(options);
   if (!existsSync(path)) return { state: 'STORE_NOT_INITIALIZED' };
-  const raw = readFileSync(path, 'utf8');
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    return { state: 'STORE_CORRUPT', error: redactSecrets(error instanceof Error ? error.message : String(error)) };
+  }
   if (!raw.trim()) return { state: 'STORE_CORRUPT', error: 'empty policy lifecycle store' };
   let parsed: PolicyLifecycleStore;
   try {
@@ -347,6 +369,43 @@ function writeStoreAtomic(store: PolicyLifecycleStore, options: SafeloopStorageO
 }
 
 
+interface LifecycleMutationResult<T> {
+  result: T;
+  changed: boolean;
+}
+
+function mutationResult<T>(result: T, changed = true): LifecycleMutationResult<T> {
+  return { result, changed };
+}
+
+function withLifecycleMutation<T>(options: SafeloopStorageOptions, fn: (store: PolicyLifecycleStore, baseRevision: number) => LifecycleMutationResult<T>): T {
+  return withLifecycleLock(options, () => {
+    const store = readStore(options);
+    const baseRevision = store.revision ?? 0;
+    const outcome = fn(store, baseRevision);
+    if (!outcome.changed) return outcome.result;
+    const current = readStoreState(options);
+    if (current.state === 'STORE_VALID' && current.store && (current.store.revision ?? 0) !== baseRevision) {
+      throw new Error('stale_lifecycle_write');
+    }
+    if (current.state !== 'STORE_VALID' && current.state !== 'STORE_NOT_INITIALIZED') {
+      throw new Error(current.state === 'UNSUPPORTED_SCHEMA' ? 'policy_lifecycle_unsupported_schema' : 'policy_lifecycle_store_corrupt');
+    }
+    store.revision = baseRevision + 1;
+    writeStoreAtomic(store, options);
+    return outcome.result;
+  });
+}
+
+function assertPolicyInputWithinLimits(profile: GovernanceProfile, metadata: Record<string, unknown> = {}): void {
+  const payloadBytes = Buffer.byteLength(canonicalJson(profile), 'utf8');
+  if (payloadBytes > POLICY_LIFECYCLE_LIMITS.MAX_POLICY_PAYLOAD_BYTES) throw new Error('lifecycle_input_limit_exceeded:max_policy_payload_bytes');
+  if ((profile.rules ?? []).length > POLICY_LIFECYCLE_LIMITS.MAX_RULE_COUNT) throw new Error('lifecycle_input_limit_exceeded:max_rule_count');
+  const metadataBytes = Buffer.byteLength(canonicalJson(metadata), 'utf8');
+  if (metadataBytes > POLICY_LIFECYCLE_LIMITS.MAX_METADATA_BYTES) throw new Error('lifecycle_input_limit_exceeded:max_metadata_bytes');
+}
+
+
 function activeFor(store: PolicyLifecycleStore, profileId: string): PolicyLifecycleStore['active'] | undefined {
   return store.active_by_profile?.[profileId] ?? (store.active?.profile_id === profileId ? store.active : undefined);
 }
@@ -376,21 +435,25 @@ function recordLifecycleEvent(store: PolicyLifecycleStore, input: Omit<PolicyLif
     detail: input.detail ? sanitize(input.detail) as Record<string, unknown> : undefined,
   };
   store.events.push(event);
-  appendEvent({
-    id: event.id,
-    type: event.type,
-    agentId: event.actor,
-    summary: event.summary,
-    timestamp: event.timestamp,
-    metadata: {
-      policyLifecycle: true,
-      bundleId: event.bundle_id,
-      bundleVersion: event.bundle_version,
-      configSnapshotId: event.config_snapshot_id,
-      tenantId: event.tenant_id,
-      detail: event.detail,
-    },
-  }, options);
+  try {
+    appendEvent({
+      id: event.id,
+      type: event.type,
+      agentId: event.actor,
+      summary: event.summary,
+      timestamp: event.timestamp,
+      metadata: {
+        policyLifecycle: true,
+        bundleId: event.bundle_id,
+        bundleVersion: event.bundle_version,
+        configSnapshotId: event.config_snapshot_id,
+        tenantId: event.tenant_id,
+        detail: event.detail,
+      },
+    }, options);
+  } catch {
+    // Operational event-stream export is best effort; the lifecycle store is authoritative.
+  }
 }
 
 function profileContent(profile: GovernanceProfile): GovernanceProfile {
@@ -413,24 +476,26 @@ export function createPolicyBundle(input: {
   metadata?: Record<string, unknown>;
   tenant_id?: string;
 }, options: SafeloopStorageOptions = {}): PolicyBundle {
-  const store = readStore(options);
-  const profileId = input.profile_id ?? input.profile.id;
-  const safeProfile = profileContent(input.profile);
-  const contentHash = stableHash(bundleContent(safeProfile, profileId));
-  const bundle: PolicyBundle = {
-    schema_version: 1,
-    bundle_id: `policy-${profileId}-${contentHash.slice(7, 19)}`,
-    version: input.version,
-    profile_id: profileId,
-    created_at: now(),
-    created_by: sanitizeIdentity(input.created_by),
-    content_hash: contentHash,
-    status: 'DRAFT',
-    profile: safeProfile,
-    metadata: sanitize(input.metadata ?? {}) as Record<string, unknown>,
-    tenant_id: input.tenant_id,
-  };
-  if (!store.bundles.some((entry) => entry.bundle_id === bundle.bundle_id && entry.version === bundle.version)) {
+  return withLifecycleMutation(options, (store) => {
+    const profileId = input.profile_id ?? input.profile.id;
+    assertPolicyInputWithinLimits(input.profile, input.metadata ?? {});
+    const safeProfile = profileContent(input.profile);
+    const contentHash = stableHash(bundleContent(safeProfile, profileId));
+    const existing = store.bundles.find((entry) => entry.bundle_id === `policy-${profileId}-${contentHash.slice(7, 19)}` && entry.version === input.version);
+    if (existing) return mutationResult(existing, false);
+    const bundle: PolicyBundle = {
+      schema_version: 1,
+      bundle_id: `policy-${profileId}-${contentHash.slice(7, 19)}`,
+      version: input.version,
+      profile_id: profileId,
+      created_at: now(),
+      created_by: sanitizeIdentity(input.created_by),
+      content_hash: contentHash,
+      status: 'DRAFT',
+      profile: safeProfile,
+      metadata: sanitize(input.metadata ?? {}) as Record<string, unknown>,
+      tenant_id: input.tenant_id,
+    };
     store.bundles.push(bundle);
     recordLifecycleEvent(store, {
       type: 'policy.bundle.created',
@@ -439,10 +504,10 @@ export function createPolicyBundle(input: {
       bundle_version: bundle.version,
       tenant_id: bundle.tenant_id,
       summary: `Policy bundle created: ${bundle.profile_id}@${bundle.version}`,
+      detail: { prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
     }, options);
-    writeStoreAtomic(store, options);
-  }
-  return bundle;
+    return mutationResult(bundle);
+  });
 }
 
 function buildConfigSnapshot(bundle: PolicyBundle, actor: string): GovernanceConfigSnapshot {
@@ -509,73 +574,117 @@ function validateLifecycleProfile(profile: GovernanceProfile): string[] {
   if (!validMemory.has(profile.memory_write_policy)) errors.push('memory_write_policy_invalid');
   return errors;
 }
+interface GoldenPolicyControlSpec {
+  id: string;
+  family: string;
+  polarity: 'positive' | 'negative';
+  expected: RuntimeDispositionCode[];
+  action: ActionProposal;
+  workspace?: string;
+}
+
+const GOLDEN_CONTROL_MANIFEST: GoldenPolicyControlSpec[] = [
+  {
+    id: 'filesystem.safe_read',
+    family: 'filesystem',
+    polarity: 'positive',
+    expected: ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'],
+    action: { action_kind: 'filesystem', operation: 'read', target: 'safe.txt', arguments: {}, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'filesystem.sensitive_delete_denied',
+    family: 'filesystem',
+    polarity: 'negative',
+    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+    action: { action_kind: 'filesystem', operation: 'delete', target: '/etc/passwd', arguments: {}, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'filesystem.governance_config_write_denied',
+    family: 'sensitive_paths',
+    polarity: 'negative',
+    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+    action: { action_kind: 'filesystem', operation: 'overwrite', target: '/tmp/safeloop-phase6-workspace/.safeloop/policy-lifecycle.json', arguments: { content: '{}' }, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'shell.destructive_command_denied',
+    family: 'shell',
+    polarity: 'negative',
+    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+    action: { action_kind: 'shell', operation: 'run', arguments: { command: 'rm -rf /tmp/safeloop-danger' }, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'http.authenticated_mutation_denied',
+    family: 'http',
+    polarity: 'negative',
+    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+    action: { action_kind: 'http', operation: 'authenticated_mutation', method: 'POST', resource: 'https://evil.example/mutate', arguments: {}, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'mcp.dangerous_tool_denied',
+    family: 'mcp',
+    polarity: 'negative',
+    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+    action: { action_kind: 'mcp', operation: 'call_tool', tool: 'delete_repository', arguments: { repository: 'prod' }, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'git.force_push_denied',
+    family: 'git',
+    polarity: 'negative',
+    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
+    action: { action_kind: 'git', operation: 'force_push', target: 'origin/master', arguments: {}, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'approval.outside_write_requires_gate',
+    family: 'approvals',
+    polarity: 'negative',
+    expected: ['REQUIRE_APPROVAL', 'DENY', 'STOP_AGENT', 'PAUSE'],
+    action: { action_kind: 'filesystem', operation: 'create', target: '/tmp/safeloop-outside-approval.txt', arguments: { content: 'x' }, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+  {
+    id: 'memory.write_policy_declared',
+    family: 'memory',
+    polarity: 'negative',
+    expected: ['REQUIRE_APPROVAL', 'DENY', 'STOP_AGENT', 'PAUSE', 'ALLOW_WITH_WARNING', 'ALLOW'],
+    action: { action_kind: 'memory', operation: 'write', arguments: { confidence: 0.1 }, agent_id: 'golden-agent' },
+    workspace: '/tmp/safeloop-phase6-workspace',
+  },
+];
+
 function goldenControls(profile: GovernanceProfile): GoldenPolicyControlsResult {
-  const safe = canonicalizeAction({
-    action_kind: 'filesystem',
-    operation: 'read',
-    target: 'safe.txt',
-    arguments: {},
-    agent_id: 'golden-agent',
+  const controls: GoldenPolicyControlResult[] = GOLDEN_CONTROL_MANIFEST.map((spec) => {
+    const observed = evaluateProfile(profile, canonicalizeAction(spec.action), spec.workspace).disposition;
+    return {
+      id: spec.id,
+      family: spec.family,
+      polarity: spec.polarity,
+      expected: spec.expected,
+      observed,
+      status: spec.expected.includes(observed) ? 'pass' : 'fail',
+    };
   });
-  const dangerous = canonicalizeAction({
-    action_kind: 'filesystem',
-    operation: 'delete',
-    target: '/etc/passwd',
-    arguments: {},
-    agent_id: 'golden-agent',
-  });
-  const safeDisposition = evaluateProfile(profile, safe, '/tmp/safeloop-phase6-workspace').disposition;
-  const dangerousDisposition = evaluateProfile(profile, dangerous, '/tmp/safeloop-phase6-workspace').disposition;
-  const shellDangerous = canonicalizeAction({ action_kind: 'shell', operation: 'run', arguments: { command: 'rm -rf /tmp/safeloop-danger' }, agent_id: 'golden-agent' });
-  const httpMutation = canonicalizeAction({ action_kind: 'http', operation: 'authenticated_mutation', method: 'POST', resource: 'https://evil.example/mutate', arguments: {}, agent_id: 'golden-agent' });
-  const shellDisposition = evaluateProfile(profile, shellDangerous, '/tmp/safeloop-phase6-workspace').disposition;
-  const httpDisposition = evaluateProfile(profile, httpMutation, '/tmp/safeloop-phase6-workspace').disposition;
-  const controls: GoldenPolicyControlResult[] = [
-    {
-      id: 'safe-read',
-      polarity: 'positive',
-      expected: ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'],
-      observed: safeDisposition,
-      status: ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'].includes(safeDisposition) ? 'pass' : 'fail',
-    },
-    {
-      id: 'dangerous-outside-delete',
-      polarity: 'negative',
-      expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-      observed: dangerousDisposition,
-      status: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'].includes(dangerousDisposition) ? 'pass' : 'fail',
-    },
-    {
-      id: 'shell-destructive-command',
-      polarity: 'negative',
-      expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-      observed: shellDisposition,
-      status: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'].includes(shellDisposition) ? 'pass' : 'fail',
-    },
-    {
-      id: 'http-authenticated-mutation',
-      polarity: 'negative',
-      expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-      observed: httpDisposition,
-      status: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'].includes(httpDisposition) ? 'pass' : 'fail',
-    },
-  ];
   return {
+    control_set_version: GOLDEN_CONTROL_SET_VERSION,
     positive_pass: controls.filter((entry) => entry.polarity === 'positive').every((entry) => entry.status === 'pass'),
     negative_pass: controls.filter((entry) => entry.polarity === 'negative').every((entry) => entry.status === 'pass'),
     controls,
   };
 }
 
-export function validatePolicyBundle(bundleId: string, actor: string, options: SafeloopStorageOptions = {}): PolicyValidationResult {
-  const store = readStore(options);
-  const bundle = store.bundles.find((entry) => entry.bundle_id === bundleId);
-  if (!bundle) throw new Error('policy_bundle_not_found');
+function buildPolicyValidationResult(bundle: PolicyBundle): PolicyValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   if (bundle.schema_version !== SUPPORTED_SCHEMA_VERSION) errors.push('unsupported_policy_bundle_schema_version');
-  if (stableHash(bundleContent(bundle.profile, bundle.profile_id)) !== bundle.content_hash) errors.push('policy_bundle_hash_mismatch');
+  try { verifyBundleIntegrity(bundle); } catch { errors.push('policy_bundle_hash_mismatch'); }
   try {
+    assertPolicyInputWithinLimits(bundle.profile, bundle.metadata);
     validateProfile(bundle.profile);
   } catch (error) {
     errors.push(redactSecrets(error instanceof Error ? error.message : String(error)));
@@ -583,9 +692,10 @@ export function validatePolicyBundle(bundleId: string, actor: string, options: S
   if (!bundle.profile.rules?.length) errors.push('profile_has_no_rules');
   errors.push(...validateLifecycleProfile(bundle.profile));
   const golden = goldenControls(bundle.profile);
+  if (golden.controls.length !== GOLDEN_CONTROL_MANIFEST.length) errors.push('golden_control_manifest_incomplete');
   if (!golden.positive_pass) errors.push('positive_golden_control_failed');
   if (!golden.negative_pass) errors.push('negative_golden_control_failed');
-  const result: PolicyValidationResult = {
+  return {
     validation_id: `validation-${Date.now()}-${bundle.content_hash.slice(7, 15)}`,
     bundle_id: bundle.bundle_id,
     bundle_version: bundle.version,
@@ -593,8 +703,13 @@ export function validatePolicyBundle(bundleId: string, actor: string, options: S
     valid: errors.length === 0,
     errors,
     warnings,
+    control_set_version: GOLDEN_CONTROL_SET_VERSION,
     golden_controls: golden,
   };
+}
+
+function appendValidation(store: PolicyLifecycleStore, bundle: PolicyBundle, actor: string, options: SafeloopStorageOptions): PolicyValidationResult {
+  const result = buildPolicyValidationResult(bundle);
   store.validations.push(result);
   bundle.status = result.valid ? (['APPROVED', 'ACTIVE', 'SUPERSEDED', 'ROLLED_BACK'].includes(bundle.status) ? bundle.status : 'VALIDATED') : 'INVALID';
   recordLifecycleEvent(store, {
@@ -604,44 +719,49 @@ export function validatePolicyBundle(bundleId: string, actor: string, options: S
     bundle_version: bundle.version,
     tenant_id: bundle.tenant_id,
     summary: result.valid ? `Policy bundle validated: ${bundle.profile_id}@${bundle.version}` : `Policy bundle validation failed: ${bundle.profile_id}@${bundle.version}`,
-    detail: { validation: result },
+    detail: { validation: result, prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
   }, options);
-  writeStoreAtomic(store, options);
   return result;
 }
 
-export function approvePolicyBundle(bundleId: string, actor: string, options: SafeloopStorageOptions = {}): PolicyBundle {
-  const store = readStore(options);
-  const bundle = store.bundles.find((entry) => entry.bundle_id === bundleId);
-  if (!bundle) throw new Error('policy_bundle_not_found');
-  if (bundle.status !== 'VALIDATED' && bundle.status !== 'APPROVED') throw new Error(`invalid_policy_lifecycle_transition:${bundle.status}->APPROVED`);
-  bundle.status = 'APPROVED';
-  recordLifecycleEvent(store, {
-    type: 'policy.bundle.approved',
-    actor: sanitizeIdentity(actor),
-    bundle_id: bundle.bundle_id,
-    bundle_version: bundle.version,
-    tenant_id: bundle.tenant_id,
-    summary: `Policy bundle approved: ${bundle.profile_id}@${bundle.version}`,
-  }, options);
-  writeStoreAtomic(store, options);
-  return bundle;
+export function validatePolicyBundle(bundleId: string, actor: string, options: SafeloopStorageOptions = {}): PolicyValidationResult {
+  return withLifecycleMutation(options, (store) => {
+    const bundle = store.bundles.find((entry) => entry.bundle_id === bundleId);
+    if (!bundle) throw new Error('policy_bundle_not_found');
+    return mutationResult(appendValidation(store, bundle, actor, options));
+  });
 }
 
-export function activatePolicyBundle(input: {
+export function approvePolicyBundle(bundleId: string, actor: string, options: SafeloopStorageOptions = {}): PolicyBundle {
+  return withLifecycleMutation(options, (store) => {
+    const bundle = store.bundles.find((entry) => entry.bundle_id === bundleId);
+    if (!bundle) throw new Error('policy_bundle_not_found');
+    if (bundle.status === 'APPROVED') return mutationResult(bundle, false);
+    if (bundle.status !== 'VALIDATED') throw new Error(`invalid_policy_lifecycle_transition:${bundle.status}->APPROVED`);
+    bundle.status = 'APPROVED';
+    recordLifecycleEvent(store, {
+      type: 'policy.bundle.approved',
+      actor: sanitizeIdentity(actor),
+      bundle_id: bundle.bundle_id,
+      bundle_version: bundle.version,
+      tenant_id: bundle.tenant_id,
+      summary: `Policy bundle approved: ${bundle.profile_id}@${bundle.version}`,
+      detail: { prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
+    }, options);
+    return mutationResult(bundle);
+  });
+}
+
+function activateBundleInStore(store: PolicyLifecycleStore, input: {
   bundle_id: string;
   actor: string;
   approved_by: string;
-  request_id?: string;
+  request_id: string;
   reason?: string;
-  fail_after_validation?: boolean;
   tenant_id?: string;
-}, options: SafeloopStorageOptions = {}): PolicyActivationRecord {
-  if (input.fail_after_validation && process.env.NODE_ENV !== 'test' && process.env.SAFELOOP_TEST_FAILURE_INJECTION !== '1') throw new Error('failure_injection_not_available');
-  return withLifecycleLock(options, () => {
-  const store = readStore(options);
-  const requestId = input.request_id ?? `activation:${input.bundle_id}`;
-  const existingId = store.idempotency[requestId];
+  rollback_from_bundle_id?: string;
+}, options: SafeloopStorageOptions): PolicyActivationRecord {
+  const existingId = store.idempotency[input.request_id];
   if (existingId) {
     const existing = store.activations.find((entry) => entry.activation_id === existingId);
     if (existing) return existing;
@@ -649,61 +769,32 @@ export function activatePolicyBundle(input: {
   const bundle = store.bundles.find((entry) => entry.bundle_id === input.bundle_id && (!input.tenant_id || entry.tenant_id === input.tenant_id));
   if (!bundle) throw new Error('policy_bundle_not_found');
   if (bundle.tenant_id && input.tenant_id && bundle.tenant_id !== input.tenant_id) throw new Error('cross_tenant_policy_activation_denied');
-  const validation = validatePolicyBundle(bundle.bundle_id, input.actor, options);
-  const fresh = readStore(options);
-  const freshBundle = fresh.bundles.find((entry) => entry.bundle_id === bundle.bundle_id);
-  if (!freshBundle) throw new Error('policy_bundle_not_found');
-  if (!validation.valid) {
-    recordLifecycleEvent(fresh, {
-      type: 'policy.bundle.activation_failed',
-      actor: sanitizeIdentity(input.actor),
-      bundle_id: bundle.bundle_id,
-      bundle_version: bundle.version,
-      tenant_id: bundle.tenant_id,
-      summary: `Policy activation failed validation: ${bundle.profile_id}@${bundle.version}`,
-      detail: { validation },
-    }, options);
-    writeStoreAtomic(fresh, options);
-    throw new Error('policy_validation_failed');
+  const alreadyActive = activeFor(store, bundle.profile_id);
+  if (alreadyActive?.bundle_id === bundle.bundle_id && !input.rollback_from_bundle_id) {
+    const existing = store.activations.find((entry) => entry.activation_id === alreadyActive.activation_id);
+    if (existing) {
+      store.idempotency[input.request_id] = existing.activation_id;
+      return existing;
+    }
   }
-  if (freshBundle.status !== 'APPROVED' && freshBundle.status !== 'ACTIVE' && freshBundle.status !== 'SUPERSEDED' && freshBundle.status !== 'ROLLED_BACK') {
-    recordLifecycleEvent(fresh, {
-      type: 'policy.bundle.activation_failed',
-      actor: sanitizeIdentity(input.actor),
-      bundle_id: bundle.bundle_id,
-      bundle_version: bundle.version,
-      tenant_id: bundle.tenant_id,
-      summary: `Policy activation rejected: bundle is ${freshBundle.status}`,
-    }, options);
-    writeStoreAtomic(fresh, options);
-    throw new Error(`policy_bundle_not_approved:${freshBundle.status}`);
+  const validation = appendValidation(store, bundle, input.actor, options);
+  if (!validation.valid) throw new Error('policy_validation_failed');
+  if (bundle.status !== 'APPROVED' && bundle.status !== 'ACTIVE' && bundle.status !== 'SUPERSEDED' && bundle.status !== 'ROLLED_BACK') {
+    throw new Error(`policy_bundle_not_approved:${bundle.status}`);
   }
-  if (input.fail_after_validation) {
-    recordLifecycleEvent(fresh, {
-      type: 'policy.bundle.activation_failed',
-      actor: sanitizeIdentity(input.actor),
-      bundle_id: bundle.bundle_id,
-      bundle_version: bundle.version,
-      tenant_id: bundle.tenant_id,
-      summary: 'Policy activation failed before atomic state update',
-    }, options);
-    writeStoreAtomic(fresh, options);
-    throw new Error('activation_persistence_failed');
-  }
-  const previous = activeFor(fresh, freshBundle.profile_id);
-  const previousBundle = previous ? fresh.bundles.find((entry) => entry.bundle_id === previous.bundle_id) : undefined;
-  const snapshot = buildConfigSnapshot(freshBundle, input.actor);
-  const existingSnapshot = fresh.config_snapshots.find((entry) => entry.snapshot_id === snapshot.snapshot_id);
-  if (!existingSnapshot) fresh.config_snapshots.push(snapshot);
-  for (const entry of fresh.bundles) {
-    if (entry.bundle_id === freshBundle.bundle_id) entry.status = 'ACTIVE';
-    else if (entry.profile_id === freshBundle.profile_id && entry.status === 'ACTIVE') entry.status = 'SUPERSEDED';
+  const previous = activeFor(store, bundle.profile_id);
+  const previousBundle = previous ? store.bundles.find((entry) => entry.bundle_id === previous.bundle_id) : undefined;
+  const snapshot = buildConfigSnapshot(bundle, input.actor);
+  if (!store.config_snapshots.some((entry) => entry.snapshot_id === snapshot.snapshot_id)) store.config_snapshots.push(snapshot);
+  for (const entry of store.bundles) {
+    if (entry.bundle_id === bundle.bundle_id) entry.status = 'ACTIVE';
+    else if (entry.profile_id === bundle.profile_id && entry.status === 'ACTIVE') entry.status = input.rollback_from_bundle_id ? 'ROLLED_BACK' : 'SUPERSEDED';
   }
   const activation: PolicyActivationRecord = {
-    activation_id: `activation-${Date.now()}-${freshBundle.content_hash.slice(7, 15)}`,
-    request_id: requestId,
-    bundle_id: freshBundle.bundle_id,
-    bundle_version: freshBundle.version,
+    activation_id: `activation-${Date.now()}-${bundle.content_hash.slice(7, 15)}`,
+    request_id: input.request_id,
+    bundle_id: bundle.bundle_id,
+    bundle_version: bundle.version,
     config_snapshot_id: snapshot.snapshot_id,
     previous_bundle_id: previous?.bundle_id,
     previous_config_snapshot_id: previous?.config_snapshot_id,
@@ -714,41 +805,66 @@ export function activatePolicyBundle(input: {
     validation_id: validation.validation_id,
     golden_controls_passed: validation.golden_controls.positive_pass && validation.golden_controls.negative_pass,
     reason: redactSecrets(input.reason ?? ''),
+    rollback_from_bundle_id: input.rollback_from_bundle_id,
   };
-  setActiveFor(fresh, freshBundle.profile_id, {
-    bundle_id: freshBundle.bundle_id,
+  setActiveFor(store, bundle.profile_id, {
+    bundle_id: bundle.bundle_id,
     config_snapshot_id: snapshot.snapshot_id,
     activated_at: activation.activated_at,
     activation_id: activation.activation_id,
-    profile_id: freshBundle.profile_id,
+    profile_id: bundle.profile_id,
   });
-  fresh.activations.push(activation);
-  fresh.idempotency[requestId] = activation.activation_id;
-  if (previousBundle && previousBundle.bundle_id !== freshBundle.bundle_id) {
-    recordLifecycleEvent(fresh, {
-      type: 'policy.bundle.superseded',
+  store.activations.push(activation);
+  store.idempotency[input.request_id] = activation.activation_id;
+  if (previousBundle && previousBundle.bundle_id !== bundle.bundle_id) {
+    recordLifecycleEvent(store, {
+      type: input.rollback_from_bundle_id ? 'policy.rollback.initiated' : 'policy.bundle.superseded',
       actor: sanitizeIdentity(input.actor),
-      bundle_id: previousBundle.bundle_id,
-      bundle_version: previousBundle.version,
+      bundle_id: input.rollback_from_bundle_id ? bundle.bundle_id : previousBundle.bundle_id,
+      bundle_version: input.rollback_from_bundle_id ? bundle.version : previousBundle.version,
       config_snapshot_id: previous?.config_snapshot_id,
-      tenant_id: previousBundle.tenant_id,
-      summary: `Policy bundle superseded: ${previousBundle.profile_id}@${previousBundle.version}`,
+      previous_bundle_id: previousBundle.bundle_id,
+      previous_config_snapshot_id: previous?.config_snapshot_id,
+      tenant_id: bundle.tenant_id,
+      summary: input.rollback_from_bundle_id ? `Policy rollback initiated to ${bundle.bundle_id}` : `Policy bundle superseded: ${previousBundle.profile_id}@${previousBundle.version}`,
+      detail: { reason: input.reason, prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
     }, options);
   }
-  recordLifecycleEvent(fresh, {
-    type: 'policy.bundle.activated',
+  recordLifecycleEvent(store, {
+    type: input.rollback_from_bundle_id ? 'policy.rollback.completed' : 'policy.bundle.activated',
     actor: sanitizeIdentity(input.actor),
-    bundle_id: freshBundle.bundle_id,
-    bundle_version: freshBundle.version,
+    bundle_id: bundle.bundle_id,
+    bundle_version: bundle.version,
     config_snapshot_id: snapshot.snapshot_id,
     previous_bundle_id: previous?.bundle_id,
     previous_config_snapshot_id: previous?.config_snapshot_id,
-    tenant_id: freshBundle.tenant_id,
-    summary: `Policy bundle activated: ${freshBundle.profile_id}@${freshBundle.version}`,
-    detail: { validation_id: validation.validation_id, golden_controls_passed: activation.golden_controls_passed, reason: activation.reason },
+    tenant_id: bundle.tenant_id,
+    summary: input.rollback_from_bundle_id ? `Policy rollback completed to ${bundle.version}` : `Policy bundle activated: ${bundle.profile_id}@${bundle.version}`,
+    detail: { validation_id: validation.validation_id, golden_controls_passed: activation.golden_controls_passed, reason: activation.reason, prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
   }, options);
-  writeStoreAtomic(fresh, options);
   return activation;
+}
+
+export function activatePolicyBundle(input: {
+  bundle_id: string;
+  actor: string;
+  approved_by: string;
+  request_id?: string;
+  reason?: string;
+  tenant_id?: string;
+}, options: SafeloopStorageOptions = {}): PolicyActivationRecord {
+  return withLifecycleMutation(options, (store) => {
+    const requestId = input.request_id ?? `activation:${input.bundle_id}`;
+    const beforeCount = store.activations.length;
+    const activation = activateBundleInStore(store, {
+      bundle_id: input.bundle_id,
+      actor: input.actor,
+      approved_by: input.approved_by,
+      request_id: requestId,
+      reason: input.reason,
+      tenant_id: input.tenant_id,
+    }, options);
+    return mutationResult(activation, store.activations.length !== beforeCount);
   });
 }
 
@@ -760,62 +876,81 @@ export function rollbackPolicy(input: {
   request_id?: string;
   tenant_id?: string;
 }, options: SafeloopStorageOptions = {}): PolicyActivationRecord {
-  const store = readStore(options);
-  const target = store.bundles.find((entry) => entry.bundle_id === input.target_bundle_id);
-  if (!target) throw new Error('policy_bundle_not_found');
-  const active = activeFor(store, target.profile_id);
-  recordLifecycleEvent(store, {
-    type: 'policy.rollback.initiated',
-    actor: sanitizeIdentity(input.actor),
-    bundle_id: input.target_bundle_id,
-    previous_bundle_id: active?.bundle_id,
-    previous_config_snapshot_id: active?.config_snapshot_id,
-    tenant_id: input.tenant_id,
-    summary: `Policy rollback initiated to ${input.target_bundle_id}`,
-    detail: { reason: input.reason },
-  }, options);
-  writeStoreAtomic(store, options);
-  const activation = activatePolicyBundle({
-    bundle_id: input.target_bundle_id,
-    actor: sanitizeIdentity(input.actor),
-    approved_by: sanitizeIdentity(input.approved_by),
-    request_id: input.request_id ?? `rollback:${active?.bundle_id ?? 'none'}:${input.target_bundle_id}`,
-    reason: input.reason,
-    tenant_id: input.tenant_id,
-  }, options);
-  const after = readStore(options);
-  const bundle = after.bundles.find((entry) => entry.bundle_id === activation.bundle_id);
-  if (bundle) bundle.status = 'ACTIVE';
-  const activeBefore = active ? after.bundles.find((entry) => entry.bundle_id === active.bundle_id) : undefined;
-  if (activeBefore && activeBefore.bundle_id !== activation.bundle_id) activeBefore.status = 'ROLLED_BACK';
-  const activationRecord = after.activations.find((entry) => entry.activation_id === activation.activation_id);
-  if (activationRecord) activationRecord.rollback_from_bundle_id = active?.bundle_id;
-  recordLifecycleEvent(after, {
-    type: 'policy.rollback.completed',
-    actor: sanitizeIdentity(input.actor),
-    bundle_id: activation.bundle_id,
-    bundle_version: activation.bundle_version,
-    config_snapshot_id: activation.config_snapshot_id,
-    previous_bundle_id: active?.bundle_id,
-    previous_config_snapshot_id: active?.config_snapshot_id,
-    tenant_id: input.tenant_id,
-    summary: `Policy rollback completed to ${activation.bundle_version}`,
-    detail: { reason: input.reason },
-  }, options);
-  writeStoreAtomic(after, options);
-  return activationRecord ?? activation;
+  return withLifecycleMutation(options, (store) => {
+    const target = store.bundles.find((entry) => entry.bundle_id === input.target_bundle_id && (!input.tenant_id || entry.tenant_id === input.tenant_id));
+    if (!target) throw new Error('policy_bundle_not_found');
+    const active = activeFor(store, target.profile_id);
+    if (active?.bundle_id === target.bundle_id) {
+      const existing = store.activations.find((entry) => entry.activation_id === active.activation_id);
+      if (existing) return mutationResult(existing, false);
+    }
+    const requestId = input.request_id ?? `rollback:${active?.bundle_id ?? 'none'}:${input.target_bundle_id}`;
+    const beforeCount = store.activations.length;
+    const activation = activateBundleInStore(store, {
+      bundle_id: input.target_bundle_id,
+      actor: input.actor,
+      approved_by: input.approved_by,
+      request_id: requestId,
+      reason: input.reason,
+      tenant_id: input.tenant_id,
+      rollback_from_bundle_id: active?.bundle_id,
+    }, options);
+    return mutationResult(activation, store.activations.length !== beforeCount);
+  });
 }
 
 export function ensureBaselinePolicyLifecycle(profileId: string, actor = 'safeloop-runtime', options: SafeloopStorageOptions = {}): PolicyLifecycleStatus {
-  const store = readStore(options);
-  const active = activeFor(store, profileId);
-  if (active) return policyLifecycleStatus(options, profileId);
-  const profile = loadProfile(profileId);
-  const bundle = createPolicyBundle({ profile, profile_id: profileId, version: `baseline-${profileId}`, created_by: sanitizeIdentity(actor), metadata: { imported_from: 'profiles directory' } }, options);
-  validatePolicyBundle(bundle.bundle_id, actor, options);
-  approvePolicyBundle(bundle.bundle_id, actor, options);
-  activatePolicyBundle({ bundle_id: bundle.bundle_id, actor, approved_by: actor, request_id: `baseline:${profileId}`, reason: 'import existing effective profile as immutable baseline' }, options);
-  return policyLifecycleStatus(options);
+  withLifecycleMutation(options, (store) => {
+    if (activeFor(store, profileId)) return mutationResult(undefined, false);
+    const profile = loadProfile(profileId);
+    assertPolicyInputWithinLimits(profile, { imported_from: 'profiles directory' });
+    const safeProfile = profileContent(profile);
+    const contentHash = stableHash(bundleContent(safeProfile, profileId));
+    let bundle = store.bundles.find((entry) => entry.bundle_id === `policy-${profileId}-${contentHash.slice(7, 19)}` && entry.version === `baseline-${profileId}`);
+    if (!bundle) {
+      bundle = {
+        schema_version: 1,
+        bundle_id: `policy-${profileId}-${contentHash.slice(7, 19)}`,
+        version: `baseline-${profileId}`,
+        profile_id: profileId,
+        created_at: now(),
+        created_by: sanitizeIdentity(actor),
+        content_hash: contentHash,
+        status: 'DRAFT',
+        profile: safeProfile,
+        metadata: sanitize({ imported_from: 'profiles directory' }) as Record<string, unknown>,
+      };
+      store.bundles.push(bundle);
+      recordLifecycleEvent(store, {
+        type: 'policy.bundle.created',
+        actor: sanitizeIdentity(actor),
+        bundle_id: bundle.bundle_id,
+        bundle_version: bundle.version,
+        summary: `Policy bundle created: ${bundle.profile_id}@${bundle.version}`,
+        detail: { baseline_import: true, prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
+      }, options);
+    }
+    const validation = appendValidation(store, bundle, actor, options);
+    if (!validation.valid) throw new Error('policy_validation_failed');
+    bundle.status = 'APPROVED';
+    recordLifecycleEvent(store, {
+      type: 'policy.bundle.approved',
+      actor: sanitizeIdentity(actor),
+      bundle_id: bundle.bundle_id,
+      bundle_version: bundle.version,
+      summary: `Policy bundle approved: ${bundle.profile_id}@${bundle.version}`,
+      detail: { baseline_import: true, prior_revision: store.revision ?? 0, new_revision: (store.revision ?? 0) + 1 },
+    }, options);
+    activateBundleInStore(store, {
+      bundle_id: bundle.bundle_id,
+      actor,
+      approved_by: actor,
+      request_id: `baseline:${profileId}`,
+      reason: 'import existing effective profile as immutable baseline',
+    }, options);
+    return mutationResult(undefined);
+  });
+  return policyLifecycleStatus(options, profileId);
 }
 
 export function activePolicyProvenance(profileId: string, options: SafeloopStorageOptions = {}): PolicyDecisionProvenance {
@@ -942,18 +1077,6 @@ export function safePolicyDiff(leftBundleId: string, rightBundleId: string, opti
   };
   walk('profile', left.profile, right.profile);
   return diffs.slice(0, 200);
-}
-
-export function corruptPolicyLifecycleForTest(mutator: (store: PolicyLifecycleStore) => void, options: SafeloopStorageOptions = {}): void {
-  const store = readStore(options);
-  mutator(store);
-  writeStoreAtomic(store, options);
-}
-
-export function writeMalformedPolicyLifecycleForTest(raw: string, options: SafeloopStorageOptions = {}): void {
-  const path = lifecyclePath(options);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, raw, 'utf8');
 }
 
 export function policyLifecycleFileExists(options: SafeloopStorageOptions = {}): boolean {
