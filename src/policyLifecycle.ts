@@ -403,20 +403,33 @@ function mutationResult<T>(result: T, changed = true): LifecycleMutationResult<T
 
 function withLifecycleMutation<T>(options: SafeloopStorageOptions, fn: (store: PolicyLifecycleStore, baseRevision: number) => LifecycleMutationResult<T>): T {
   return withLifecycleLock(options, () => {
-    const store = readStore(options);
-    const baseRevision = store.revision ?? 0;
-    const outcome = fn(store, baseRevision);
-    if (!outcome.changed) return outcome.result;
-    const current = readStoreState(options);
-    if (current.state === 'STORE_VALID' && current.store && (current.store.revision ?? 0) !== baseRevision) {
-      throw new Error('stale_lifecycle_write');
+    // compute/validate -> construct next state -> commit -> emit committed event.
+    const outerStage = stagedLifecycleExports;
+    const staged: Array<() => void> = [];
+    stagedLifecycleExports = staged;
+    let committed = false;
+    try {
+      const store = readStore(options);
+      const baseRevision = store.revision ?? 0;
+      const outcome = fn(store, baseRevision);
+      if (!outcome.changed) return outcome.result;
+      const current = readStoreState(options);
+      if (current.state === 'STORE_VALID' && current.store && (current.store.revision ?? 0) !== baseRevision) {
+        throw new Error('stale_lifecycle_write');
+      }
+      if (current.state !== 'STORE_VALID' && current.state !== 'STORE_NOT_INITIALIZED') {
+        throw new Error(current.state === 'UNSUPPORTED_SCHEMA' ? 'policy_lifecycle_unsupported_schema' : 'policy_lifecycle_store_corrupt');
+      }
+      store.revision = baseRevision + 1;
+      writeStoreAtomic(store, options);
+      committed = true;
+      return outcome.result;
+    } finally {
+      stagedLifecycleExports = outerStage;
+      // Only a committed transaction may announce itself. An export failure
+      // after this point never rolls back the authoritative state.
+      if (committed) for (const emit of staged) emit();
     }
-    if (current.state !== 'STORE_VALID' && current.state !== 'STORE_NOT_INITIALIZED') {
-      throw new Error(current.state === 'UNSUPPORTED_SCHEMA' ? 'policy_lifecycle_unsupported_schema' : 'policy_lifecycle_store_corrupt');
-    }
-    store.revision = baseRevision + 1;
-    writeStoreAtomic(store, options);
-    return outcome.result;
   });
 }
 
@@ -450,6 +463,19 @@ function verifyConfigIntegrity(config: GovernanceConfigSnapshot, bundle: PolicyB
   if (config.content.policy_bundle_id !== bundle.bundle_id || config.content.policy_hash !== bundle.content_hash) throw new Error('config_content_policy_reference_mismatch');
   if (buildConfigSnapshot(bundle, config.created_by).content_hash !== config.content_hash) throw new Error('config_hash_mismatch');
 }
+/**
+ * Event-stream exports staged by the in-flight lifecycle mutation.
+ *
+ * Phase 6.2 review found a failed activation could leave a
+ * `policy.bundle.validated` line in `.safeloop/events.jsonl` even though the
+ * lifecycle transaction never committed, so the operational stream claimed
+ * authoritative validation that no authoritative state supported. Exports are
+ * therefore staged here and flushed only after the store is durably written.
+ * If the mutation throws, the staged exports are discarded with the uncommitted
+ * store, and nothing ever claims a success that did not happen.
+ */
+let stagedLifecycleExports: Array<() => void> | null = null;
+
 function recordLifecycleEvent(store: PolicyLifecycleStore, input: Omit<PolicyLifecycleEvent, 'id' | 'timestamp'>, options: SafeloopStorageOptions): void {
   const event: PolicyLifecycleEvent = {
     id: `policy-event-${Date.now()}-${createHash('sha1').update(JSON.stringify(input)).digest('hex').slice(0, 10)}`,
@@ -458,25 +484,30 @@ function recordLifecycleEvent(store: PolicyLifecycleStore, input: Omit<PolicyLif
     detail: input.detail ? sanitize(input.detail) as Record<string, unknown> : undefined,
   };
   store.events.push(event);
-  try {
-    appendEvent({
-      id: event.id,
-      type: event.type,
-      agentId: event.actor,
-      summary: event.summary,
-      timestamp: event.timestamp,
-      metadata: {
-        policyLifecycle: true,
-        bundleId: event.bundle_id,
-        bundleVersion: event.bundle_version,
-        configSnapshotId: event.config_snapshot_id,
-        tenantId: event.tenant_id,
-        detail: event.detail,
-      },
-    }, options);
-  } catch {
-    // Operational event-stream export is best effort; the lifecycle store is authoritative.
-  }
+  const exportEvent = (): void => {
+    try {
+      appendEvent({
+        id: event.id,
+        type: event.type,
+        agentId: event.actor,
+        summary: event.summary,
+        timestamp: event.timestamp,
+        metadata: {
+          policyLifecycle: true,
+          bundleId: event.bundle_id,
+          bundleVersion: event.bundle_version,
+          configSnapshotId: event.config_snapshot_id,
+          tenantId: event.tenant_id,
+          detail: event.detail,
+        },
+      }, options);
+    } catch {
+      // Post-commit export is best effort. The lifecycle store is authoritative
+      // and stays committed; only telemetry/export health degrades.
+    }
+  };
+  if (stagedLifecycleExports) stagedLifecycleExports.push(exportEvent);
+  else exportEvent();
 }
 
 function profileContent(profile: GovernanceProfile): GovernanceProfile {
