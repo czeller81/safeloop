@@ -29,6 +29,8 @@ export interface ProfileRuleMatch {
   sensitive_path?: boolean;
   governance_config?: boolean;
   destructive?: boolean;
+  /** Matches the bounded MCP consequential-action classification. */
+  mcp_consequential?: boolean;
   target_pattern?: string;
   argument_pattern?: string;
   /**
@@ -119,6 +121,8 @@ export interface ActionFacts {
   sensitive_path: boolean;
   governance_config: boolean;
   destructive: boolean;
+  /** True when an MCP call names a consequential action in a bounded, semantic position. */
+  mcp_consequential: boolean;
   target: string;
   resource: string;
   arguments_json: string;
@@ -168,6 +172,67 @@ const DESTRUCTIVE_SHELL_PATTERNS: readonly RegExp[] = [
   />\s*\/dev\/[sh]d[a-z]/,
 ];
 
+/**
+ * Consequential MCP verbs, matched as whole tokens only.
+ *
+ * Phase 6 briefly matched these as bare substrings anywhere in the
+ * operation/tool/arguments text, which made any benign tool whose name merely
+ * contains one of them consequential - `weather_delete_status` became
+ * approval-gated because it contains "delete". Substring containment is not
+ * evidence of intent.
+ */
+const MCP_CONSEQUENTIAL_VERBS: ReadonlySet<string> = new Set([
+  'write', 'send', 'delete', 'deploy', 'publish', 'create', 'update', 'remove', 'execute',
+]);
+
+/**
+ * Split an identifier into lowercase word tokens across snake_case, kebab-case,
+ * and camelCase boundaries. `deleteRepository` and `delete_repository` both
+ * yield ['delete', 'repository'].
+ */
+function identifierTokens(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .flatMap((part) => part.split(/\s+/))
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+}
+
+/**
+ * A dangerous verb counts only in an action-verb position: the first or last
+ * token of the action name. MCP tools are named `verb_object`
+ * (`delete_repository`) or `object_verb` (`soft_delete`); a verb sitting in the
+ * middle is a qualifier describing the object, not the operation being invoked
+ * (`weather_delete_status` reports on deletion, it does not delete).
+ * Namespaces are stripped first, so `github.delete_repo` is judged on
+ * `delete_repo`.
+ */
+function namesConsequentialAction(value: string): boolean {
+  if (!value) return false;
+  const actionName = value.split(/[./:\\]+/).filter(Boolean).pop() ?? '';
+  const tokens = identifierTokens(actionName);
+  if (!tokens.length) return false;
+  return MCP_CONSEQUENTIAL_VERBS.has(tokens[0]) || MCP_CONSEQUENTIAL_VERBS.has(tokens[tokens.length - 1]);
+}
+
+/** String argument values are judged by the same bounded rule; keys are not. */
+function argumentsNameConsequentialAction(value: unknown): boolean {
+  if (typeof value === 'string') return namesConsequentialAction(value);
+  if (Array.isArray(value)) return value.some(argumentsNameConsequentialAction);
+  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>).some(argumentsNameConsequentialAction);
+  return false;
+}
+
+export function isMcpConsequential(action: Pick<CanonicalAction, 'operation' | 'tool' | 'arguments'>): boolean {
+  // `call_tool` is a transport verb, so the tool name carries the intent.
+  const generic = new Set(['call_tool', 'call', 'invoke', 'tools/call']);
+  const operationSignals = generic.has(action.operation) ? false : namesConsequentialAction(action.operation);
+  return operationSignals
+    || namesConsequentialAction(action.tool)
+    || argumentsNameConsequentialAction(action.arguments);
+}
+
 export function computeActionFacts(action: CanonicalAction, workspace?: string): ActionFacts {
   const argumentsJson = canonicalStringify(action.arguments);
   const pathish = action.target || action.resource;
@@ -191,6 +256,7 @@ export function computeActionFacts(action: CanonicalAction, workspace?: string):
     sensitive_path: isSensitivePath(pathish, action.cwd || undefined),
     governance_config: isGovernanceConfigPath(pathish, action.cwd || undefined),
     destructive,
+    mcp_consequential: action.action_kind === 'mcp' && isMcpConsequential(action),
     target: action.target,
     resource: action.resource,
     arguments_json: argumentsJson,
@@ -207,6 +273,7 @@ function ruleMatches(rule: ProfileRule, facts: ActionFacts): boolean {
   if (typeof match.sensitive_path === 'boolean' && match.sensitive_path !== facts.sensitive_path) return false;
   if (typeof match.governance_config === 'boolean' && match.governance_config !== facts.governance_config) return false;
   if (typeof match.destructive === 'boolean' && match.destructive !== facts.destructive) return false;
+  if (typeof match.mcp_consequential === 'boolean' && match.mcp_consequential !== facts.mcp_consequential) return false;
   const flags = match.ignore_case ? 'i' : '';
   if (match.target_pattern && !new RegExp(match.target_pattern, flags).test(facts.target || facts.resource)) return false;
   if (match.argument_pattern) {

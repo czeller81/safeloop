@@ -234,8 +234,7 @@
         "action_kinds": [
           "mcp"
         ],
-        "argument_pattern": "(write|send|delete|deploy|publish|create|update|remove|execute)",
-        "ignore_case": true
+        "mcp_consequential": true
       }
     },
     {
