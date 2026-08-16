@@ -809,6 +809,31 @@ const GOLDEN_CONTROL_MANIFEST: GoldenPolicyControlSpec[] = [
     probe: dispositionProbe({ action_kind: 'mcp', operation: 'call_tool', tool: 'deleteRepository', arguments: { repository: 'prod' }, agent_id: 'golden-agent' }),
   },
   {
+    /*
+     * Digit-led destructive exemplar.
+     *
+     * Phase 6.4 preserved verbs across camelCase but not across a digit that
+     * immediately follows the verb: `delete2FADevice` segmented as
+     * delete2 | fa | device and lost the action entirely. This control fails
+     * if that boundary rule regresses, so the class cannot silently return.
+     */
+    id: 'mcp.digit_boundary_dangerous_tool_gated',
+    family: 'mcp',
+    polarity: 'negative',
+    // Asserts the classification fact as well as the disposition. A
+    // disposition-only control cannot detect a classifier regression under a
+    // profile whose default_disposition already gates everything (strict-local
+    // holds every MCP call), which would leave the regression invisible there.
+    expected: ['CONSEQUENTIAL_AND_GATED'],
+    probe: (profile) => {
+      const action = canonicalizeAction({ action_kind: 'mcp', operation: 'call_tool', tool: 'delete2FADevice', arguments: { device: 'primary' }, agent_id: 'golden-agent' } as never);
+      const classified = action.mcp_consequential === true;
+      const gated = GATED.includes(evaluateProfile(profile, action, GOLDEN_WORKSPACE).disposition);
+      if (!classified) return 'NOT_CLASSIFIED_CONSEQUENTIAL';
+      return gated ? 'CONSEQUENTIAL_AND_GATED' : 'CLASSIFIED_BUT_NOT_GATED';
+    },
+  },
+  {
     id: 'mcp.benign_tool_not_over_gated',
     family: 'mcp',
     polarity: 'positive',

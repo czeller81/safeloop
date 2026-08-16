@@ -96,7 +96,10 @@ export function segmentActionName(value: string): string[] {
   const tokens: string[] = [];
   let current = '';
   const flush = (): void => {
-    if (current) { tokens.push(current.toLowerCase()); current = ''; }
+    // The cap is checked here, not only in the loop guard: the final flush
+    // after the loop would otherwise be able to push one token past the bound.
+    if (current && tokens.length < MCP_CLASSIFIER_MAX_TOKENS) tokens.push(current.toLowerCase());
+    current = '';
   };
   for (let i = 0; i < input.length && tokens.length < MCP_CLASSIFIER_MAX_TOKENS; i += 1) {
     const c = input[i];
@@ -106,7 +109,13 @@ export function segmentActionName(value: string): string[] {
     const next = i + 1 < input.length ? input[i + 1] : '';
     const lowerOrDigitToUpper = (isLower(prev) || isDigit(prev)) && isUpper(c);
     const acronymToWord = isUpper(prev) && isUpper(c) && isLower(next);
-    const letterToDigit = !isDigit(prev) && isDigit(c) && isUpper(prev);
+    // Any letter -> digit boundary, not just UPPER -> digit. Requiring an
+    // uppercase predecessor meant a digit immediately following a lowercase
+    // verb was absorbed into it: `delete2FADevice` segmented as
+    // delete2 | fa | device, losing `delete` entirely. `deleteUser2FA` only
+    // worked because the `U` split first, which is why the Phase 6.4 digit
+    // corpus passed while the verb-adjacent digit shape did not.
+    const letterToDigit = !isDigit(prev) && isDigit(c);
     if (lowerOrDigitToUpper || acronymToWord || letterToDigit) { flush(); current = c; continue; }
     if (current.length < MCP_CLASSIFIER_MAX_TOKEN_LENGTH) current += c;
   }

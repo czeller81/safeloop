@@ -177,7 +177,15 @@ Segmentation runs on the original proposal string, inside `canonicalizeAction`, 
 
 ### Segmentation
 
-A single linear pass splits on non-alphanumerics and on lower/digit to upper, acronym-to-word, and letter-to-digit boundaries:
+A single linear pass splits on non-alphanumerics and on three character transitions:
+
+| Transition | Example |
+| --- | --- |
+| lowercase or digit → uppercase | `deleteRepository` → `delete` \| `Repository` |
+| uppercase run → uppercase+lowercase (acronym) | `deleteAPIKey` → `delete` \| `API` \| `Key` |
+| any letter → digit | `delete2FADevice` → `delete` \| `2` \| `FA` \| `Device` |
+
+The letter→digit rule deliberately covers **lowercase** letters, not only uppercase. Restricting it to uppercase meant a digit immediately following a lowercase verb was absorbed into it — `delete2FADevice` segmented as `delete2` \| `fa` \| `device`, losing the action verb entirely. `deleteUser2FA` was unaffected only because the `U` split first, which is why an earlier digit corpus passed while the verb-adjacent digit shape did not.
 
 | Input | Tokens |
 | --- | --- |
@@ -185,7 +193,11 @@ A single linear pass splits on non-alphanumerics and on lower/digit to upper, ac
 | `DropDatabase` | `drop`, `database` |
 | `github.delete_repo` | `github`, `delete`, `repo` |
 | `deleteAPIKey` | `delete`, `api`, `key` |
+| `delete2FADevice` | `delete`, `2`, `fa`, `device` |
+| `dropDB2Table` | `drop`, `db`, `2`, `table` |
 | `weather_delete_status` | `weather`, `delete`, `status` |
+
+Digits are not semantically parsed beyond boundary preservation: `2FA` becomes `2` and `fa` rather than a single token. That is sufficient, because classification only needs the action verb to survive as its own token. A digit never implies destruction on its own — `listUsers2`, `getV2Config`, and `fetchS3Metadata` are all benign.
 
 ### Action grammar
 
@@ -216,6 +228,7 @@ Where a name is genuinely ambiguous, SafeLoop prefers not to gate on the name al
 - **The vocabulary is ASCII.** A Cyrillic homoglyph (`deletе...`) or full-width form (`Ｄｅｌｅｔｅ...`) is not recognized as a destructive verb. SafeLoop performs no Unicode confusable normalization and makes no homoglyph-resistance claim. Such calls remain governed by `mcp.call` rather than silently allowed.
 - The vocabulary is closed. A destructive verb outside it (for example a domain-specific one) is not recognized by name; gate it with an explicit profile rule.
 - Classification reads names and string argument values. It does not inspect downstream server behavior, so a benignly named tool that destroys data is bounded by managed-path configuration and approval policy, not by its name.
+- **The descriptor veto is deliberately narrow, and over-gates in a few cases.** `dropDownOptions`, `purgeScheduleView`, and `truncatePreviewLength` are classified consequential because `options`, `view`, and `length` are not descriptor nouns. Adding them would make `dropView`, `deleteView`, and `dropMaterializedView` benign — genuine SQL destruction — so the veto was left unchanged. Over-gating yields `REQUIRE_APPROVAL`, which an operator can clear; under-gating would silently permit destruction. Asserted in tests in both directions.
 
 ## Boundary
 
