@@ -51,6 +51,8 @@ describe('MCP digit-boundary segmentation', () => {
     'delete2FADevice', 'remove2FADevice', 'drop2FATable', 'delete2FAKey', 'revoke2FAToken',
     'disable2FADevice', 'reset2FACredential', 'destroyV2Resource', 'wipeS3Bucket', 'dropDB2Table',
     'terminateV2Session', 'purgeS3Object', 'overwriteV2Config', 'truncateV3Table', 'forceV2Push',
+    'delete2FAStatus', 'delete2FAState', 'removeV2History', 'destroyV3State', 'purgeS3History',
+    'disable2FAStatus', 'resetV2CredentialStatus', 'remove2FAHistory', 'destroyV2History', 'reset2FAStatus',
   ];
   it.each(DIGIT_DESTRUCTIVE)('%s is consequential', (tool) => expect(classify(tool)).toBe(true));
   it.each(DIGIT_DESTRUCTIVE)('%s gates through the production path', (tool) => {
@@ -58,9 +60,9 @@ describe('MCP digit-boundary segmentation', () => {
   });
 
   const DIGIT_BENIGN = [
-    'delete2FAStatus', 'delete2FAReport', 'remove2FAListener', 'drop2FAMenu', 'wipe2FACounter',
-    'destroyV2History', 'force2FAMultiplier', 'reset2FAStatus', 'revoke2FAPreview', 'removed2FAItems',
-    'deleted2FADevicesReport', 'remove2FAHistory', 'dropV2Preview', 'wipeS3Report', 'destroyV2Count',
+    'delete2FAReport', 'remove2FAListener', 'drop2FAMenu', 'wipe2FACounter',
+    'force2FAMultiplier', 'revoke2FAPreview', 'removed2FAItems',
+    'deleted2FADevicesReport', 'dropV2Preview', 'wipeS3Report', 'destroyV2Count',
   ];
   it.each(DIGIT_BENIGN)('%s stays benign', (tool) => expect(classify(tool)).toBe(false));
   it.each(DIGIT_BENIGN)('%s is not approval-gated by name', (tool) => {
@@ -104,7 +106,7 @@ describe('MCP digit-boundary segmentation', () => {
 
   describe('no substring regression', () => {
     it.each(['weather_delete_status', 'deleted_items', 'undelete', 'removed_items', 'drop_down_menu',
-      'wipe_counter', 'destroyed_count', 'delete_preview', 'delete_status', 'deletion_preview',
+      'wipe_counter', 'destroyed_count', 'delete_preview', 'deletion_preview',
       'removal_history', 'force_multiplier', 'push_notification_status', 'repository_deleted_at',
       'user_removed_at', 'remove_listener', 'list_resources', 'removed_resources'])(
       '%s remains benign', (tool) => expect(classify(tool)).toBe(false),
@@ -146,19 +148,17 @@ describe('MCP digit-boundary segmentation', () => {
     );
   });
 
-  describe('descriptor veto is unchanged by this pass', () => {
-    // Documented Phase 6.4 behavior, re-asserted so the tokenizer fix cannot
-    // have silently broadened or narrowed the veto.
-    it.each(['deleteStatus', 'destroyState', 'removeHistory', 'resetStatus'])(
-      '%s remains benign (descriptor-terminated)', (tool) => expect(classify(tool)).toBe(false),
+  describe('descriptor-target commands remain compatible with digit-boundary matching', () => {
+    it.each(['delete2FAStatus', 'delete2FAState', 'removeV2History', 'destroyV3State',
+      'purgeS3History', 'disable2FAStatus', 'resetV2CredentialStatus'])(
+      '%s is consequential when a digit-led target ends in a real descriptor target', (tool) => expect(classify(tool)).toBe(true),
     );
-    // Conservative over-gating retained deliberately: adding these objects to
-    // the veto would make dropView / deleteView / dropMaterializedView benign.
-    it.each(['dropDownOptions', 'purgeScheduleView', 'truncatePreviewLength'])(
-      '%s remains conservatively consequential', (tool) => expect(classify(tool)).toBe(true),
+    expect(classify('dropDownOptions')).toBe(true);
+    it.each(['purgeScheduleView', 'truncatePreviewLength'])(
+      '%s is now recognized as reporting/display shaped', (tool) => expect(classify(tool)).toBe(false),
     );
     it.each(['dropView', 'deleteView', 'dropMaterializedView'])(
-      '%s stays consequential, which is why the veto was not broadened', (tool) => expect(classify(tool)).toBe(true),
+      '%s stays consequential, which is why the veto is not broadened', (tool) => expect(classify(tool)).toBe(true),
     );
   });
 });

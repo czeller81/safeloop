@@ -65,7 +65,30 @@ const DESCRIPTOR_NOUNS: ReadonlySet<string> = new Set([
   'audit', 'menu', 'menus', 'notification', 'notifications', 'multiplier', 'multipliers',
   'listener', 'listeners', 'items', 'records', 'resources', 'at', 'timestamp', 'info',
   'help', 'hint', 'widget', 'button', 'icon', 'banner', 'tooltip', 'placeholder',
+  'progress', 'schedule', 'view', 'views', 'length', 'lengths',
 ]);
+
+/**
+ * Descriptor-like words that are also common real resources. In primary command
+ * position, `deleteStatus` is a command targeting a status resource; it is not a
+ * status page describing deletion. This deliberately stays smaller than
+ * DESCRIPTOR_NOUNS so UI/report words such as `preview`, `listener`, and
+ * `count` keep their false-positive protection.
+ */
+const DESCRIPTOR_TARGET_NOUNS: ReadonlySet<string> = new Set([
+  'status', 'statuses', 'state', 'history', 'view', 'views',
+]);
+
+const REPORTING_CONTEXT_TOKENS: ReadonlySet<string> = new Set([
+  'progress', 'schedule', 'preview', 'status', 'report', 'summary',
+]);
+
+function hasReportingContext(tokens: string[], verbIndex: number): boolean {
+  for (let i = verbIndex + 1; i < tokens.length - 1; i += 1) {
+    if (REPORTING_CONTEXT_TOKENS.has(tokens[i])) return true;
+  }
+  return false;
+}
 
 /** Transport verbs that carry no intent; the tool name decides instead. */
 const GENERIC_TRANSPORT_OPERATIONS: ReadonlySet<string> = new Set([
@@ -152,13 +175,22 @@ function actionSegment(value: string): string {
 export function namesConsequentialAction(value: string): boolean {
   const tokens = segmentActionName(actionSegment(value));
   if (!tokens.length) return false;
-  if (DESCRIPTOR_NOUNS.has(tokens[tokens.length - 1])) return false;
+  const descriptorTerminated = DESCRIPTOR_NOUNS.has(tokens[tokens.length - 1]);
   for (let i = 0; i < tokens.length; i += 1) {
     if (!DESTRUCTIVE_VERBS.has(tokens[i])) continue;
     const isFirst = i === 0;
     const isSecond = i === 1;
     const isLast = i === tokens.length - 1;
     const afterQualifier = i > 0 && DESTRUCTIVE_QUALIFIERS.has(tokens[i - 1]);
+    if (descriptorTerminated) {
+      const descriptorTargetCommand =
+        DESCRIPTOR_TARGET_NOUNS.has(tokens[tokens.length - 1]) &&
+        !isLast &&
+        (isFirst || afterQualifier) &&
+        !hasReportingContext(tokens, i);
+      if (!descriptorTargetCommand) continue;
+      return true;
+    }
     if (isFirst || isSecond || isLast || afterQualifier) return true;
   }
   return false;

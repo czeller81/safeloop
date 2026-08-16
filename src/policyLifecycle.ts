@@ -834,6 +834,26 @@ const GOLDEN_CONTROL_MANIFEST: GoldenPolicyControlSpec[] = [
     },
   },
   {
+    /*
+     * Descriptor-target destructive exemplar.
+     *
+     * Phase 6.5 still let `deleteStatus` bypass consequential classification
+     * because the trailing descriptor veto fired before command-role semantics.
+     * This control asserts the derived fact as well as the final disposition.
+     */
+    id: 'mcp.descriptor_target_dangerous_tool_gated',
+    family: 'mcp',
+    polarity: 'negative',
+    expected: ['CONSEQUENTIAL_AND_GATED'],
+    probe: (profile) => {
+      const action = canonicalizeAction({ action_kind: 'mcp', operation: 'call_tool', tool: 'deleteStatus', arguments: { resource: 'deployment' }, agent_id: 'golden-agent' } as never);
+      const classified = action.mcp_consequential === true;
+      const gated = GATED.includes(evaluateProfile(profile, action, GOLDEN_WORKSPACE).disposition);
+      if (!classified) return 'NOT_CLASSIFIED_CONSEQUENTIAL';
+      return gated ? 'CONSEQUENTIAL_AND_GATED' : 'CLASSIFIED_BUT_NOT_GATED';
+    },
+  },
+  {
     id: 'mcp.benign_tool_not_over_gated',
     family: 'mcp',
     polarity: 'positive',

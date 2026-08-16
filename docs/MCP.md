@@ -205,7 +205,9 @@ Matching is **exact token equality** against a closed vocabulary. There is no st
 
 A destructive verb counts only in an action position: first token, second token, last token, or immediately after a destructive qualifier (`hard`, `soft`, `force`, `permanent`, `bulk`, `mass`, `recursive`, `cascade`).
 
-A **trailing descriptor noun vetoes** all of the above, because such a name reports on an action rather than performing one. This veto is what keeps `weather_delete_status`, `drop_down_menu`, `force_multiplier`, and `push_notification_status` benign.
+The classifier distinguishes command roles from reporting roles. A primary command verb can act on a descriptor-like target when that target is a common resource noun: `deleteStatus`, `deleteUserStatus`, `destroyState`, `purgeHistory`, `disableAccountState`, and `resetCredentialStatus` are consequential because the first token is the action and the final descriptor-like token is the object. The separator-delimited form `delete_status` is treated conservatively the same way: it may mean either "delete the status resource" or "status of a delete operation", and SafeLoop chooses approval for destructive-looking command forms when name-only evidence is ambiguous.
+
+Reporting and morphology still veto classification. `deletionStatus`, `deletedItemStatus`, `removalHistory`, `destroyedState`, `weather_delete_status`, `drop_down_menu`, `force_multiplier`, `push_notification_status`, and `remove_listener` remain benign because they are noun/adjective/reporting forms or because the destructive token is not in primary command position.
 
 ### Evidence precedence
 
@@ -218,17 +220,19 @@ Names are judged on what they say, and SafeLoop does not invent certainty:
 | Name | Result | Reason |
 | --- | --- | --- |
 | `softDelete`, `dropConnection`, `resetPassword`, `disableAccount`, `deleteConfig` | consequential | A vocabulary verb acts on a real object. |
+| `deleteStatus`, `deleteUserStatus`, `destroyState`, `purgeHistory`, `resetCredentialStatus` | consequential | A primary command verb acts on a descriptor-like target object. |
+| `delete_status` | consequential | Ambiguous verb-object separator form; SafeLoop chooses conservative approval. |
 | `archiveUser`, `clearCache` | benign | `archive` and `clear` are not in the declared vocabulary. |
-| `resetStatus`, `removeListener` | benign | Descriptor-terminated: a reporting or listener surface. |
+| `deletionStatus`, `removedItems`, `removalHistory`, `removeListener` | benign | Morphology/reporting/listener surfaces are not command-shaped destructive actions. |
 
-Where a name is genuinely ambiguous, SafeLoop prefers not to gate on the name alone. Arguments, an explicit profile rule, or the managed-path configuration remain available to gate it, and every MCP call is still governed and recorded by `mcp.call`.
+Where a name is genuinely ambiguous, SafeLoop prefers conservative approval for command-shaped destructive forms and benign classification for reporting-shaped noun/adjective forms. Arguments, an explicit profile rule, or the managed-path configuration remain available to gate domain-specific names, and every MCP call is still governed and recorded by `mcp.call`.
 
 ### Limitations
 
 - **The vocabulary is ASCII.** A Cyrillic homoglyph (`deletе...`) or full-width form (`Ｄｅｌｅｔｅ...`) is not recognized as a destructive verb. SafeLoop performs no Unicode confusable normalization and makes no homoglyph-resistance claim. Such calls remain governed by `mcp.call` rather than silently allowed.
 - The vocabulary is closed. A destructive verb outside it (for example a domain-specific one) is not recognized by name; gate it with an explicit profile rule.
 - Classification reads names and string argument values. It does not inspect downstream server behavior, so a benignly named tool that destroys data is bounded by managed-path configuration and approval policy, not by its name.
-- **The descriptor veto is deliberately narrow, and over-gates in a few cases.** `dropDownOptions`, `purgeScheduleView`, and `truncatePreviewLength` are classified consequential because `options`, `view`, and `length` are not descriptor nouns. Adding them would make `dropView`, `deleteView`, and `dropMaterializedView` benign — genuine SQL destruction — so the veto was left unchanged. Over-gating yields `REQUIRE_APPROVAL`, which an operator can clear; under-gating would silently permit destruction. Asserted in tests in both directions.
+- **The descriptor grammar is conservative where name-only evidence remains ambiguous.** `dropDownOptions` is still classified consequential because `options` is not a reporting descriptor and broadening that veto would reopen target-object bypasses. Reporting-shaped `purgeScheduleView` and `truncatePreviewLength` are benign, while direct target commands such as `dropView`, `deleteView`, and `dropMaterializedView` remain consequential. Over-gating yields `REQUIRE_APPROVAL`, which an operator can clear; under-gating would silently permit destruction. Asserted in tests in both directions.
 
 ## Boundary
 

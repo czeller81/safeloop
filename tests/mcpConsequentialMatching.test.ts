@@ -82,7 +82,6 @@ const BENIGN: Array<[string, string]> = [
   ['wipe_counter', 'descriptor-terminated'],
   ['destroyed_count', 'past participle + descriptor'],
   ['delete_preview', 'descriptor-terminated'],
-  ['delete_status', 'descriptor-terminated'],
   ['deletion_preview', 'nominalization'],
   ['removal_history', 'nominalization'],
   ['force_multiplier', 'descriptor-terminated'],
@@ -186,12 +185,13 @@ describe('MCP action classification', () => {
   });
 
   describe('ambiguous names - documented decisions', () => {
-    // Consequential: a real state mutation is named, object is not a descriptor.
-    it.each(['softDelete', 'dropConnection', 'resetPassword', 'disableAccount', 'deleteConfig'])('%s is consequential', (t) => {
+    // Consequential: a real state mutation is named, including descriptor-like targets.
+    it.each(['softDelete', 'dropConnection', 'resetPassword', 'disableAccount', 'deleteConfig',
+      'deleteStatus', 'delete_status', 'deleteState', 'destroyState', 'purgeHistory', 'removeHistory', 'resetStatus'])('%s is consequential', (t) => {
       expect(classify(t)).toBe(true);
     });
-    // Benign: verb not in the declared vocabulary, or descriptor-terminated.
-    it.each(['archiveUser', 'clearCache', 'resetStatus', 'removeListener'])('%s is benign', (t) => {
+    // Benign: verb not in the declared vocabulary, or reporting/API descriptor-terminated.
+    it.each(['archiveUser', 'clearCache', 'removeListener'])('%s is benign', (t) => {
       expect(classify(t)).toBe(false);
     });
   });
