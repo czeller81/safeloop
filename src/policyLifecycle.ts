@@ -576,14 +576,35 @@ function buildConfigSnapshot(bundle: PolicyBundle, actor: string): GovernanceCon
 }
 
 
+/**
+ * Budget structure required by current SafeLoop semantics.
+ *
+ * createBudgetTracker treats an absent limit as unlimited (`exceeded()` only
+ * fires when the limit is a number), so `budgets: {}` silently removes the
+ * pre-execution admission check entirely. maximum_actions is the category
+ * checked before every managed execution, so a bundle must declare it. The
+ * remaining categories stay optional, matching the tracker's own semantics.
+ */
+const REQUIRED_BUDGET_CATEGORIES = ['maximum_actions'] as const;
+const INTEGER_BUDGET_CATEGORIES = new Set(['maximum_actions', 'maximum_runtime_ms', 'maximum_tokens', 'maximum_retries']);
+
 function validateLifecycleProfile(profile: GovernanceProfile): string[] {
   const errors: string[] = [];
-  const budget = profile.budgets ?? {};
+  if (profile.budgets !== undefined && (typeof profile.budgets !== 'object' || profile.budgets === null || Array.isArray(profile.budgets))) {
+    errors.push('budgets_must_be_object');
+  }
+  const budget = (typeof profile.budgets === 'object' && profile.budgets !== null && !Array.isArray(profile.budgets) ? profile.budgets : {}) as Record<string, unknown>;
+  for (const key of REQUIRED_BUDGET_CATEGORIES) {
+    if (budget[key] === undefined) errors.push(`budgets.${key}_is_required`);
+  }
   for (const key of ['maximum_actions', 'maximum_runtime_ms', 'maximum_tokens', 'maximum_cost_usd', 'maximum_retries'] as const) {
     const value = budget[key];
     if (value === undefined) continue;
-    if (typeof value !== 'number' || !Number.isFinite(value)) errors.push(`budgets.${key}_must_be_finite_number`);
-    else if (value < 0) errors.push(`budgets.${key}_must_be_non_negative`);
+    if (typeof value !== 'number' || !Number.isFinite(value)) { errors.push(`budgets.${key}_must_be_finite_number`); continue; }
+    if (value < 0) errors.push(`budgets.${key}_must_be_non_negative`);
+    // A zero limit is exhausted before the first action, which is not a budget.
+    if ((REQUIRED_BUDGET_CATEGORIES as readonly string[]).includes(key) && value <= 0) errors.push(`budgets.${key}_must_be_positive`);
+    if (INTEGER_BUDGET_CATEGORIES.has(key) && !Number.isSafeInteger(value)) errors.push(`budgets.${key}_must_be_safe_integer`);
   }
   if (typeof profile.minimum_memory_confidence !== 'number' || !Number.isFinite(profile.minimum_memory_confidence) || profile.minimum_memory_confidence < 0 || profile.minimum_memory_confidence > 1) errors.push('minimum_memory_confidence_invalid');
   const validManaged = new Set(['MANAGED', 'UNMANAGED', 'DISABLED', 'UNREACHABLE', 'PENDING_VERIFICATION', 'VERIFICATION_FAILED']);
