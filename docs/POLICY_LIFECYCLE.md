@@ -85,15 +85,40 @@ Validation checks:
 - budget, threshold, managed-path, memory-policy, and runtime-control shape
 - direct stored config content hash when resolving active or historical configs
 - bounded policy payload size, nesting depth, rule count, array length, string length, and metadata size
-- filesystem safe-read, sensitive-delete, and governance-config write controls
-- destructive shell command control
-- authenticated HTTP mutation control
-- dangerous MCP tool control
-- Git force-push control
-- approval-gated outside write control
-- memory governance declaration control
 
-The golden-control set is versioned as `phase6-v2`. Each validation records every required control ID, family, expected dispositions, observed disposition, and pass/fail status. Activation fails closed when validation fails. Missing or failing mandatory controls are not treated as success.
+### Governance family applicability
+
+The golden-control set is versioned as `phase6-v3`. Every governance family the rule engine can dispatch on, plus every cross-cutting mechanism a bundle can materially alter, carries an explicit classification. A family is never silently omitted.
+
+| Family | Applicability | Reason |
+| --- | --- | --- |
+| `filesystem` | REQUIRED | Rules match `action_kind` filesystem and decide read/write/delete dispositions. |
+| `shell` | REQUIRED | Rules match `action_kind` shell; destructive command detection feeds rule matching. |
+| `git` | REQUIRED | Rules match `action_kind` git, including destructive git operations. |
+| `http` | REQUIRED | Rules match `action_kind` http and gate authenticated mutations and egress. |
+| `mcp` | REQUIRED | Rules match `action_kind` mcp and gate consequential downstream tool calls. |
+| `delegation` | REQUIRED | Rules match `action_kind` delegation and decide whether sub-agent spawning is governed. |
+| `memory` | REQUIRED | `memory_write_policy` and `minimum_memory_confidence` are read directly by `verifyCandidateMemory`. |
+| `sensitive_paths` | REQUIRED | Rules match the `sensitive_path` fact, so a bundle can stop treating credential paths as sensitive. |
+| `governance_config` | REQUIRED | Rules match the `governance_config` fact, so a bundle can stop protecting SafeLoop's own control plane. |
+| `workspace_boundary` | REQUIRED | Rules match the workspace relation fact, so a bundle decides how out-of-workspace side effects are gated. |
+| `budgets` | REQUIRED | `profile.budgets` is passed verbatim to `createBudgetTracker`, the pre-execution admission check. |
+| `custom` | NOT_APPLICABLE | An open extension point with no fixed operation semantics and no canonical dangerous exemplar; a control would assert invented policy behavior. Rules matching `custom` are still evaluated by the same rule engine at runtime. |
+| `breaker` | NOT_APPLICABLE | `GovernanceProfile` declares no breaker fields. `runtimeCore` builds the breaker with `createRuntimeCircuitBreaker({ storageOptions })` and thresholds are code defaults. No bundle can raise, lower, or disable them. |
+| `permit` | NOT_APPLICABLE | Permit issuance and redemption are HMAC-signed over fixed claims and verified against a runtime secret. `GovernanceProfile` contributes no permit field. |
+| `execution_context` | NOT_APPLICABLE | Workspace relation, workspace root, and execution cwd are signed into the permit at proposal time and re-resolved by the executor in code. The part a bundle does control - which workspace relation is gated - is covered by `workspace_boundary`. |
+
+### Fail-closed coverage
+
+Validation fails closed when a required control is missing, fails, errors, returns an undeterminable outcome, when a control ID is duplicated, when a control is declared against a NOT_APPLICABLE family, when the control-set version does not match, or when coverage is otherwise incomplete.
+
+`golden_controls_passed` is true only when every required control actually ran and passed. The activation record carries the full manifest - control-set version, every control's family, expected outcomes, observed outcome, and status - so an auditor never has to trust the boolean.
+
+Controls exercise production paths only: `evaluateProfile` for dispositions, `verifyCandidateMemory` wired exactly as `runtimeCore` wires it, and `createBudgetTracker` for budget admission.
+
+### Budget semantics
+
+`createBudgetTracker` treats an absent limit as unlimited, so `budgets: {}` silently removes the pre-execution admission check. A bundle must therefore declare `maximum_actions`; remaining categories stay optional, matching the tracker's own semantics. The behavioral control exhausts a real tracker built from the candidate's own limits and requires the verdict to flip to denied. A budget that cannot be demonstrated to bind within the control's bounded probe is reported `BUDGET_NOT_DEMONSTRABLE` and fails closed, which catches effectively unlimited budgets without introducing an arbitrary maximum.
 
 Validation proves structure and defined behavioral controls, not that every future policy outcome is desirable.
 
@@ -150,7 +175,9 @@ SafeLoop does not silently repair drift in Phase 6. Drift is exposed through lif
 
 ## Audit Events
 
-Lifecycle operations append policy lifecycle events for creation, validation, approval, activation, supersession, rollback, activation failure, validation failure, and drift-related status. Store events are authoritative and include revision context. Export to the existing event stream is best effort; event-stream export failure must not corrupt or roll back the lifecycle store commit.
+Lifecycle operations append policy lifecycle events for creation, validation, approval, activation, supersession, rollback, activation failure, validation failure, and drift-related status. Store events are authoritative and include revision context.
+
+Event-stream export is staged during the mutation and flushed only after the authoritative store is durably written: compute/validate, construct next state, commit, then emit. If the transaction throws, staged exports are discarded with the uncommitted store, so a failed activation never leaves a `policy.bundle.validated` or `policy.bundle.activated` line claiming a commit that did not happen. In the other direction, export remains best effort: an export failure after commit degrades telemetry/export health only and never rolls back committed lifecycle state.
 
 ## CLI and API
 
@@ -192,3 +219,5 @@ Over-limit lifecycle input is rejected with a structured `lifecycle_input_limit_
 - Policy lifecycle is not a Git replacement.
 - Dry replay and broad historical impact analysis are foundation-level only and remain candidates for a later phase.
 - Prometheus-native policy lifecycle export is not added; metrics remain in the Phase 5 JSON telemetry foundation.
+- MCP consequential detection reads separator-delimited tool names (`snake_case`, `kebab-case`, dotted, slashed), which is what MCP servers use. `canonicalizeAction` lowercases tool names for case-insensitive matching, so a camelCase name collapses to a single token and is no longer segmentable; splitting a collapsed token by prefix would re-gate benign names such as `deleteditems`. Such calls stay governed and recorded by `mcp.call` rather than silently allowed. This behavior is asserted in tests so it cannot regress unnoticed.
+- Golden controls prove that named governance families are present and behave, not that a candidate policy is good. `custom`, `breaker`, `permit`, and `execution_context` are explicitly NOT_APPLICABLE for the architectural reasons recorded above; breaker, permit, and execution-context enforcement is exercised by the runtime suites rather than by lifecycle validation.
