@@ -5,7 +5,7 @@ import { appendEvent } from './eventStream';
 import { ensureParentDir, resolveSafeloopPath, type SafeloopStorageOptions } from './localStorage';
 import { redactSecrets } from './runtime/redaction';
 import { canonicalizeAction } from './runtime/canonicalAction';
-import { evaluateProfile, loadProfile, validateProfile, type GovernanceProfile } from './runtime/profiles';
+import { evaluateProfile, loadProfile, moreSevere, validateProfile, type GovernanceProfile } from './runtime/profiles';
 import { PROTOCOL_VERSION, type RuntimeDispositionCode } from './runtime/protocol';
 import { createBudgetTracker } from './runtime/budgets';
 import { verifyCandidateMemory } from './runtimeGovernance';
@@ -800,11 +800,46 @@ const GOLDEN_CONTROL_MANIFEST: GoldenPolicyControlSpec[] = [
     probe: dispositionProbe({ action_kind: 'mcp', operation: 'call_tool', tool: 'delete_repository', arguments: { repository: 'prod' }, agent_id: 'golden-agent' }),
   },
   {
+    // camelCase is the naming style Phase 6.3 missed entirely; the golden set
+    // now proves the classifier survives lowercasing canonicalization.
+    id: 'mcp.camelcase_dangerous_tool_gated',
+    family: 'mcp',
+    polarity: 'negative',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'mcp', operation: 'call_tool', tool: 'deleteRepository', arguments: { repository: 'prod' }, agent_id: 'golden-agent' }),
+  },
+  {
     id: 'mcp.benign_tool_not_over_gated',
     family: 'mcp',
     polarity: 'positive',
     expected: ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'],
     probe: dispositionProbe({ action_kind: 'mcp', operation: 'call_tool', tool: 'list_resources', arguments: {}, agent_id: 'golden-agent' }),
+  },
+  {
+    /*
+     * Over-gating control, stated relative to the profile's own baseline.
+     *
+     * An absolute expectation cannot express this: strict-local holds every MCP
+     * call for approval by design, so "must not be REQUIRE_APPROVAL" would fail
+     * a legitimately strict profile. What must never happen is a benign
+     * near-match being treated MORE severely than a plainly benign call - that
+     * is exactly the Phase 6.2 substring regression.
+     */
+    id: 'mcp.benign_near_match_not_over_gated',
+    family: 'mcp',
+    polarity: 'positive',
+    expected: ['NOT_ESCALATED'],
+    probe: (profile) => {
+      const at = (tool: string) => evaluateProfile(
+        profile,
+        canonicalizeAction({ action_kind: 'mcp', operation: 'call_tool', tool, arguments: {}, agent_id: 'golden-agent' } as never),
+        GOLDEN_WORKSPACE,
+      ).disposition;
+      const baseline = at('list_resources');
+      const nearMatch = at('weather_delete_status');
+      if (nearMatch === baseline) return 'NOT_ESCALATED';
+      return moreSevere(nearMatch, baseline) === nearMatch ? 'ESCALATED_OVER_BASELINE' : 'NOT_ESCALATED';
+    },
   },
   {
     id: 'delegation.subagent_governed',

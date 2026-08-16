@@ -141,6 +141,14 @@ export interface CanonicalAction {
   scenario_id: string;
   tenant_id: string;
   /**
+   * Consequential-action classification for MCP calls, computed at
+   * canonicalization time from the ORIGINAL tool/operation strings so that
+   * camelCase boundaries survive. Deliberately EXCLUDED from the fingerprint
+   * (see fingerprintBindingSet): it is derived evidence about the action, not
+   * part of the action's identity, so adding it changes no existing permit.
+   */
+  mcp_consequential?: boolean;
+  /**
    * Correlation lineage. Deliberately EXCLUDED from the fingerprint:
    * an approval requested in one trace must remain redeemable by the
    * execution that follows it. See docs/APPROVAL_MODEL.md.

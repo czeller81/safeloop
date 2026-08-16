@@ -160,6 +160,63 @@ This preserves MCP stdio behavior while making consequential custom tools partic
 - expected effect adapters
 - known effect coverage gaps
 
+## Consequential Action Classification
+
+SafeLoop decides whether a downstream MCP call is consequential from the *action name*, not from substring containment. The classifier lives in `src/runtime/mcpActionClassifier.ts` and is exercised by the `mcp.consequential` profile rule through the `mcp_consequential` action fact.
+
+### Order of operations
+
+```text
+original tool/operation string
+  -> segment lexical boundaries   (case still present)
+  -> lowercase each token
+  -> classify against a closed vocabulary
+```
+
+Segmentation runs on the original proposal string, inside `canonicalizeAction`, because `tool` and `operation` are lowercased for fingerprint stability and that collapses `deleteRepository` into `deleterepository`. The resulting `mcp_consequential` flag is carried on the canonical action and is deliberately **excluded from `fingerprintBindingSet`**, so classification changes no action fingerprint, permit, or approval token.
+
+### Segmentation
+
+A single linear pass splits on non-alphanumerics and on lower/digit to upper, acronym-to-word, and letter-to-digit boundaries:
+
+| Input | Tokens |
+| --- | --- |
+| `deleteRepository` | `delete`, `repository` |
+| `DropDatabase` | `drop`, `database` |
+| `github.delete_repo` | `github`, `delete`, `repo` |
+| `deleteAPIKey` | `delete`, `api`, `key` |
+| `weather_delete_status` | `weather`, `delete`, `status` |
+
+### Action grammar
+
+Matching is **exact token equality** against a closed vocabulary. There is no stemming and no prefix matching, so `deletion`, `deleted`, `removal`, `droppable`, and `undelete` are non-actions by construction rather than by a suffix blocklist.
+
+A destructive verb counts only in an action position: first token, second token, last token, or immediately after a destructive qualifier (`hard`, `soft`, `force`, `permanent`, `bulk`, `mass`, `recursive`, `cascade`).
+
+A **trailing descriptor noun vetoes** all of the above, because such a name reports on an action rather than performing one. This veto is what keeps `weather_delete_status`, `drop_down_menu`, `force_multiplier`, and `push_notification_status` benign.
+
+### Evidence precedence
+
+A consequential tool name or a consequential string argument value is independently sufficient. Two signals do not escalate further than one: the `mcp.consequential` rule raises a single `REQUIRE_APPROVAL` either way.
+
+### Ambiguous names
+
+Names are judged on what they say, and SafeLoop does not invent certainty:
+
+| Name | Result | Reason |
+| --- | --- | --- |
+| `softDelete`, `dropConnection`, `resetPassword`, `disableAccount`, `deleteConfig` | consequential | A vocabulary verb acts on a real object. |
+| `archiveUser`, `clearCache` | benign | `archive` and `clear` are not in the declared vocabulary. |
+| `resetStatus`, `removeListener` | benign | Descriptor-terminated: a reporting or listener surface. |
+
+Where a name is genuinely ambiguous, SafeLoop prefers not to gate on the name alone. Arguments, an explicit profile rule, or the managed-path configuration remain available to gate it, and every MCP call is still governed and recorded by `mcp.call`.
+
+### Limitations
+
+- **The vocabulary is ASCII.** A Cyrillic homoglyph (`deletе...`) or full-width form (`Ｄｅｌｅｔｅ...`) is not recognized as a destructive verb. SafeLoop performs no Unicode confusable normalization and makes no homoglyph-resistance claim. Such calls remain governed by `mcp.call` rather than silently allowed.
+- The vocabulary is closed. A destructive verb outside it (for example a domain-specific one) is not recognized by name; gate it with an explicit profile rule.
+- Classification reads names and string argument values. It does not inspect downstream server behavior, so a benignly named tool that destroys data is bounded by managed-path configuration and approval policy, not by its name.
+
 ## Boundary
 
 MCP hosts must choose SafeLoop tools when governance is required. If a host also exposes raw shell, file, deployment, messaging, or API tools and an agent uses those directly, SafeLoop cannot govern those actions.

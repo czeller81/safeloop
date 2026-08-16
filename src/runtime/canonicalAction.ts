@@ -27,6 +27,7 @@
  */
 
 import { createHash } from 'crypto';
+import { classifyMcpAction } from './mcpActionClassifier';
 import { posix as posixPath, win32 as win32Path } from 'path';
 import {
   PROTOCOL_VERSION,
@@ -130,9 +131,18 @@ export function canonicalizeAction(proposal: ActionProposal): CanonicalAction {
   const kindRaw = normalizeCaseInsensitive(proposal.action_kind);
   const action_kind = (ACTION_KINDS.has(kindRaw) ? kindRaw : 'custom') as ActionKind;
 
+  // Classify BEFORE the case-insensitive slots are lowercased. `tool` and
+  // `operation` are normalized to lowercase for fingerprint stability, which
+  // collapses `deleteRepository` to `deleterepository`; segmenting here is the
+  // only place the original word boundaries still exist.
+  const mcp_consequential = action_kind === 'mcp'
+    ? classifyMcpAction({ operation: proposal.operation, tool: proposal.tool, arguments: proposal.arguments })
+    : undefined;
+
   return {
     protocol_version: normalizeScalar(proposal.protocol_version) || PROTOCOL_VERSION,
     action_kind,
+    ...(mcp_consequential === undefined ? {} : { mcp_consequential }),
     tool: normalizeCaseInsensitive(proposal.tool),
     operation: normalizeCaseInsensitive(proposal.operation),
     arguments: normalizeArguments(proposal.arguments),

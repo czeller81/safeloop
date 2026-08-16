@@ -16,6 +16,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { classifyMcpAction } from './mcpActionClassifier';
 import { canonicalStringify } from './canonicalAction';
 import { classifyWorkspaceRelation, isGovernanceConfigPath, isSensitivePath } from './workspace';
 import type { ActionKind, CanonicalAction, ManagedPathDeclaration, RuntimeDispositionCode } from './protocol';
@@ -173,64 +174,18 @@ const DESTRUCTIVE_SHELL_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * Consequential MCP verbs, matched as whole tokens only.
+ * MCP consequential classification.
  *
- * Phase 6 briefly matched these as bare substrings anywhere in the
- * operation/tool/arguments text, which made any benign tool whose name merely
- * contains one of them consequential - `weather_delete_status` became
- * approval-gated because it contains "delete". Substring containment is not
- * evidence of intent.
+ * The real work lives in mcpActionClassifier so it can segment the ORIGINAL
+ * tool name. `canonicalizeAction` precomputes `mcp_consequential` there and
+ * carries it on the canonical action; this function only re-derives it when the
+ * flag is absent (a CanonicalAction rebuilt from storage or hand-constructed in
+ * a test). The fallback still classifies separator-delimited names correctly -
+ * it just cannot recover camelCase boundaries already lost to lowercasing.
  */
-const MCP_CONSEQUENTIAL_VERBS: ReadonlySet<string> = new Set([
-  'write', 'send', 'delete', 'deploy', 'publish', 'create', 'update', 'remove', 'execute',
-]);
-
-/**
- * Split an identifier into lowercase word tokens across snake_case, kebab-case,
- * and camelCase boundaries. `deleteRepository` and `delete_repository` both
- * yield ['delete', 'repository'].
- */
-function identifierTokens(value: string): string[] {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[^A-Za-z0-9]+/)
-    .flatMap((part) => part.split(/\s+/))
-    .filter(Boolean)
-    .map((part) => part.toLowerCase());
-}
-
-/**
- * A dangerous verb counts only in an action-verb position: the first or last
- * token of the action name. MCP tools are named `verb_object`
- * (`delete_repository`) or `object_verb` (`soft_delete`); a verb sitting in the
- * middle is a qualifier describing the object, not the operation being invoked
- * (`weather_delete_status` reports on deletion, it does not delete).
- * Namespaces are stripped first, so `github.delete_repo` is judged on
- * `delete_repo`.
- */
-function namesConsequentialAction(value: string): boolean {
-  if (!value) return false;
-  const actionName = value.split(/[./:\\]+/).filter(Boolean).pop() ?? '';
-  const tokens = identifierTokens(actionName);
-  if (!tokens.length) return false;
-  return MCP_CONSEQUENTIAL_VERBS.has(tokens[0]) || MCP_CONSEQUENTIAL_VERBS.has(tokens[tokens.length - 1]);
-}
-
-/** String argument values are judged by the same bounded rule; keys are not. */
-function argumentsNameConsequentialAction(value: unknown): boolean {
-  if (typeof value === 'string') return namesConsequentialAction(value);
-  if (Array.isArray(value)) return value.some(argumentsNameConsequentialAction);
-  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>).some(argumentsNameConsequentialAction);
-  return false;
-}
-
-export function isMcpConsequential(action: Pick<CanonicalAction, 'operation' | 'tool' | 'arguments'>): boolean {
-  // `call_tool` is a transport verb, so the tool name carries the intent.
-  const generic = new Set(['call_tool', 'call', 'invoke', 'tools/call']);
-  const operationSignals = generic.has(action.operation) ? false : namesConsequentialAction(action.operation);
-  return operationSignals
-    || namesConsequentialAction(action.tool)
-    || argumentsNameConsequentialAction(action.arguments);
+export function isMcpConsequential(action: Pick<CanonicalAction, 'operation' | 'tool' | 'arguments'> & { mcp_consequential?: boolean }): boolean {
+  if (typeof action.mcp_consequential === 'boolean') return action.mcp_consequential;
+  return classifyMcpAction({ operation: action.operation, tool: action.tool, arguments: action.arguments });
 }
 
 export function computeActionFacts(action: CanonicalAction, workspace?: string): ActionFacts {
