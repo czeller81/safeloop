@@ -6,7 +6,9 @@ import { ensureParentDir, resolveSafeloopPath, type SafeloopStorageOptions } fro
 import { redactSecrets } from './runtime/redaction';
 import { canonicalizeAction } from './runtime/canonicalAction';
 import { evaluateProfile, loadProfile, validateProfile, type GovernanceProfile } from './runtime/profiles';
-import { PROTOCOL_VERSION, type ActionProposal, type RuntimeDispositionCode } from './runtime/protocol';
+import { PROTOCOL_VERSION, type RuntimeDispositionCode } from './runtime/protocol';
+import { createBudgetTracker } from './runtime/budgets';
+import { verifyCandidateMemory } from './runtimeGovernance';
 
 export type PolicyLifecycleState =
   | 'DRAFT'
@@ -87,7 +89,11 @@ export interface PolicyActivationRecord {
   approved_at: string;
   activated_at: string;
   validation_id: string;
+  /** True only when every REQUIRED control ran and passed with complete coverage. */
   golden_controls_passed: boolean;
+  control_set_version: string;
+  /** Full required-control manifest, so an auditor never has to trust the boolean. */
+  control_manifest: GoldenPolicyControlsResult;
   reason?: string;
   rollback_from_bundle_id?: string;
 }
@@ -135,15 +141,25 @@ export interface GoldenPolicyControlResult {
   id: string;
   family: string;
   polarity: 'positive' | 'negative';
-  expected: RuntimeDispositionCode[];
-  observed: RuntimeDispositionCode;
-  status: 'pass' | 'fail';
+  applicability: GoldenControlApplicability;
+  expected: string[];
+  observed: string;
+  status: GoldenControlStatus;
+  detail?: string;
 }
 
 export interface GoldenPolicyControlsResult {
   control_set_version: string;
+  /** Every governance family, each explicitly REQUIRED or NOT_APPLICABLE. */
+  families: GovernanceFamilyDeclaration[];
+  required_control_ids: string[];
+  executed_control_ids: string[];
+  coverage_errors: string[];
+  coverage_complete: boolean;
   positive_pass: boolean;
   negative_pass: boolean;
+  /** True only when every required control actually ran and passed. */
+  all_required_passed: boolean;
   controls: GoldenPolicyControlResult[];
 }
 
@@ -200,7 +216,14 @@ const provenanceCache = new Map<string, { mtimeMs: number; provenance: PolicyDec
 const SUPPORTED_SCHEMA_VERSION = 1;
 const POLICY_RUNTIME_VERSION = '0.2.0';
 const SECRET_KEYS = /(?:password|secret|credential|api[_-]?key|authorization|private[_-]?key|client_secret|operator|bearer|access[_-]?key|auth[_-]?token|session[_-]?token|token[_-]?value)/i;
-const GOLDEN_CONTROL_SET_VERSION = 'phase6-v2';
+const GOLDEN_CONTROL_SET_VERSION = 'phase6-v3';
+
+/**
+ * Every action kind the rule engine can dispatch on. Kept beside the family
+ * table so a new enforcement surface cannot be added without either a control
+ * or an explicit NOT_APPLICABLE justification.
+ */
+const GOVERNANCE_ACTION_KINDS = ['shell', 'filesystem', 'git', 'http', 'memory', 'mcp', 'delegation', 'custom'] as const;
 export const POLICY_LIFECYCLE_LIMITS = {
   MAX_POLICY_PAYLOAD_BYTES: 512 * 1024,
   MAX_NESTING_DEPTH: 48,
@@ -574,110 +597,270 @@ function validateLifecycleProfile(profile: GovernanceProfile): string[] {
   if (!validMemory.has(profile.memory_write_policy)) errors.push('memory_write_policy_invalid');
   return errors;
 }
+/**
+ * Golden control completeness model.
+ *
+ * Phase 6.2 review found that a candidate policy could activate while whole
+ * enforcement families were simply absent from the control set, and that a
+ * global `golden_controls_passed: true` could be produced by `.every()` over an
+ * empty or partial control list. Activation must fail closed not only when a
+ * control fails, but when SafeLoop cannot prove that every lifecycle-relevant
+ * governance family was actually exercised.
+ *
+ * `GOVERNANCE_CONTROL_FAMILIES` is therefore the authoritative enumeration of
+ * every governance surface the evaluator can dispatch on, plus the cross-cutting
+ * mechanisms a candidate bundle can materially alter. Every family carries an
+ * explicit applicability. A family is never silently omitted.
+ */
+export type GoldenControlApplicability = 'REQUIRED' | 'NOT_APPLICABLE';
+export type GoldenControlStatus = 'pass' | 'fail' | 'error' | 'unknown';
+
+export interface GovernanceFamilyDeclaration {
+  family: string;
+  applicability: GoldenControlApplicability;
+  /** Why this family is lifecycle-relevant, or the architectural reason it cannot be. */
+  reason: string;
+}
+
+/**
+ * Applicability is decided by one question: can a candidate policy bundle
+ * change this mechanism's behavior? Only `GovernanceProfile` fields travel
+ * inside a bundle, so a mechanism with no profile input cannot be gated by
+ * lifecycle validation and is marked NOT_APPLICABLE with its reason recorded.
+ */
+export const GOVERNANCE_CONTROL_FAMILIES: readonly GovernanceFamilyDeclaration[] = [
+  { family: 'filesystem', applicability: 'REQUIRED', reason: 'Profile rules match action_kind filesystem and decide read/write/delete dispositions.' },
+  { family: 'shell', applicability: 'REQUIRED', reason: 'Profile rules match action_kind shell; destructive command detection feeds rule matching.' },
+  { family: 'git', applicability: 'REQUIRED', reason: 'Profile rules match action_kind git, including destructive git operations.' },
+  { family: 'http', applicability: 'REQUIRED', reason: 'Profile rules match action_kind http and gate authenticated mutations and egress.' },
+  { family: 'mcp', applicability: 'REQUIRED', reason: 'Profile rules match action_kind mcp and gate consequential downstream tool calls.' },
+  { family: 'delegation', applicability: 'REQUIRED', reason: 'Profile rules match action_kind delegation and decide whether sub-agent spawning is governed.' },
+  { family: 'memory', applicability: 'REQUIRED', reason: 'profile.memory_write_policy and profile.minimum_memory_confidence are read directly by verifyCandidateMemory.' },
+  { family: 'sensitive_paths', applicability: 'REQUIRED', reason: 'Rules match the sensitive_path fact, so a bundle can stop treating credential paths as sensitive.' },
+  { family: 'governance_config', applicability: 'REQUIRED', reason: 'Rules match the governance_config fact, so a bundle can stop protecting SafeLoop"s own control plane.' },
+  { family: 'workspace_boundary', applicability: 'REQUIRED', reason: 'Rules match the workspace relation fact, so a bundle decides how out-of-workspace side effects are gated.' },
+  { family: 'budgets', applicability: 'REQUIRED', reason: 'profile.budgets is passed verbatim to createBudgetTracker, which is the pre-execution admission check.' },
+  {
+    family: 'custom',
+    applicability: 'NOT_APPLICABLE',
+    reason: 'action_kind custom is an open extension point with no fixed operation semantics. SafeLoop ships no canonical dangerous exemplar for it, so any control would assert invented policy behavior rather than a real invariant. Rules matching custom are still evaluated at runtime by the same rule engine the other families exercise.',
+  },
+  {
+    family: 'breaker',
+    applicability: 'NOT_APPLICABLE',
+    reason: 'GovernanceProfile declares no circuit-breaker fields. runtimeCore constructs the breaker with createRuntimeCircuitBreaker({ storageOptions }) and the thresholds are code defaults (maxRepeatedToolCalls 3, maxDeniedActions 2, maxFailures 3). No candidate bundle can raise, lower, or disable them, so breaker behavior is not lifecycle-gated.',
+  },
+  {
+    family: 'permit',
+    applicability: 'NOT_APPLICABLE',
+    reason: 'Permit issuance and redemption are HMAC-signed over fixed claims and verified in executionPermit.ts against a runtime secret. GovernanceProfile contributes no permit field, so a candidate bundle cannot weaken permit validation.',
+  },
+  {
+    family: 'execution_context',
+    applicability: 'NOT_APPLICABLE',
+    reason: 'Workspace relation, workspace root, and execution cwd are resolved at proposal time and signed into the permit; the executor re-resolves and compares them in code. A bundle cannot alter that comparison. The part a bundle does control is which workspace relation is gated, and that is covered by the workspace_boundary family.',
+  },
+];
+
 interface GoldenPolicyControlSpec {
   id: string;
   family: string;
   polarity: 'positive' | 'negative';
-  expected: RuntimeDispositionCode[];
-  action: ActionProposal;
-  workspace?: string;
+  expected: string[];
+  /** Exercises the production governance path and returns the observed outcome token. */
+  probe: (profile: GovernanceProfile) => string;
 }
+
+const GOLDEN_WORKSPACE = '/tmp/safeloop-phase6-workspace';
+
+function dispositionProbe(action: Record<string, unknown>, workspace = GOLDEN_WORKSPACE) {
+  return (profile: GovernanceProfile): string =>
+    evaluateProfile(profile, canonicalizeAction(action as never), workspace).disposition;
+}
+
+const GATED = ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'];
+const PERMITTED = ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'];
+/** Not a policy limit: the bounded work this control will do to prove a budget binds. */
+const BUDGET_PROBE_CEILING = 10_000;
 
 const GOLDEN_CONTROL_MANIFEST: GoldenPolicyControlSpec[] = [
   {
-    id: 'filesystem.safe_read',
+    id: 'filesystem.safe_read_permitted',
     family: 'filesystem',
     polarity: 'positive',
-    expected: ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'],
-    action: { action_kind: 'filesystem', operation: 'read', target: 'safe.txt', arguments: {}, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: PERMITTED,
+    probe: dispositionProbe({ action_kind: 'filesystem', operation: 'read', target: 'safe.txt', arguments: {}, agent_id: 'golden-agent' }),
   },
   {
-    id: 'filesystem.sensitive_delete_denied',
+    id: 'filesystem.sensitive_delete_gated',
     family: 'filesystem',
     polarity: 'negative',
-    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-    action: { action_kind: 'filesystem', operation: 'delete', target: '/etc/passwd', arguments: {}, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'filesystem', operation: 'delete', target: '/etc/passwd', arguments: {}, agent_id: 'golden-agent' }),
   },
   {
-    id: 'filesystem.governance_config_write_denied',
+    id: 'sensitive_paths.credential_read_gated',
     family: 'sensitive_paths',
     polarity: 'negative',
-    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-    action: { action_kind: 'filesystem', operation: 'overwrite', target: '/tmp/safeloop-phase6-workspace/.safeloop/policy-lifecycle.json', arguments: { content: '{}' }, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'filesystem', operation: 'read', target: '/etc/shadow', arguments: {}, agent_id: 'golden-agent' }),
   },
   {
-    id: 'shell.destructive_command_denied',
+    id: 'governance_config.write_gated',
+    family: 'governance_config',
+    polarity: 'negative',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'filesystem', operation: 'overwrite', target: `${GOLDEN_WORKSPACE}/.safeloop/policy-lifecycle.json`, arguments: { content: '{}' }, agent_id: 'golden-agent' }),
+  },
+  {
+    id: 'workspace_boundary.outside_write_gated',
+    family: 'workspace_boundary',
+    polarity: 'negative',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'filesystem', operation: 'create', target: '/tmp/safeloop-outside-approval.txt', arguments: { content: 'x' }, agent_id: 'golden-agent' }),
+  },
+  {
+    id: 'shell.destructive_command_gated',
     family: 'shell',
     polarity: 'negative',
-    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-    action: { action_kind: 'shell', operation: 'run', arguments: { command: 'rm -rf /tmp/safeloop-danger' }, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'shell', operation: 'run', arguments: { command: 'rm -rf /tmp/safeloop-danger' }, agent_id: 'golden-agent' }),
   },
   {
-    id: 'http.authenticated_mutation_denied',
+    id: 'http.authenticated_mutation_gated',
     family: 'http',
     polarity: 'negative',
-    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-    action: { action_kind: 'http', operation: 'authenticated_mutation', method: 'POST', resource: 'https://evil.example/mutate', arguments: {}, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'http', operation: 'authenticated_mutation', method: 'POST', resource: 'https://evil.example/mutate', arguments: {}, agent_id: 'golden-agent' }),
   },
   {
-    id: 'mcp.dangerous_tool_denied',
-    family: 'mcp',
-    polarity: 'negative',
-    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-    action: { action_kind: 'mcp', operation: 'call_tool', tool: 'delete_repository', arguments: { repository: 'prod' }, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
-  },
-  {
-    id: 'git.force_push_denied',
+    id: 'git.force_push_gated',
     family: 'git',
     polarity: 'negative',
-    expected: ['DENY', 'STOP_AGENT', 'REQUIRE_APPROVAL', 'PAUSE'],
-    action: { action_kind: 'git', operation: 'force_push', target: 'origin/master', arguments: {}, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'git', operation: 'force_push', target: 'origin/master', arguments: {}, agent_id: 'golden-agent' }),
   },
   {
-    id: 'approval.outside_write_requires_gate',
-    family: 'approvals',
+    id: 'mcp.dangerous_tool_gated',
+    family: 'mcp',
     polarity: 'negative',
-    expected: ['REQUIRE_APPROVAL', 'DENY', 'STOP_AGENT', 'PAUSE'],
-    action: { action_kind: 'filesystem', operation: 'create', target: '/tmp/safeloop-outside-approval.txt', arguments: { content: 'x' }, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    expected: GATED,
+    probe: dispositionProbe({ action_kind: 'mcp', operation: 'call_tool', tool: 'delete_repository', arguments: { repository: 'prod' }, agent_id: 'golden-agent' }),
   },
   {
-    id: 'memory.write_policy_declared',
+    id: 'mcp.benign_tool_not_over_gated',
+    family: 'mcp',
+    polarity: 'positive',
+    expected: ['ALLOW', 'ALLOW_WITH_WARNING', 'REQUIRE_APPROVAL'],
+    probe: dispositionProbe({ action_kind: 'mcp', operation: 'call_tool', tool: 'list_resources', arguments: {}, agent_id: 'golden-agent' }),
+  },
+  {
+    id: 'delegation.subagent_governed',
+    family: 'delegation',
+    polarity: 'negative',
+    // A bundle may allow delegation, but it must not become an ungoverned plain
+    // ALLOW: sub-agent spawning has to stay at least recorded/warned.
+    expected: ['ALLOW_WITH_WARNING', ...GATED],
+    probe: dispositionProbe({ action_kind: 'delegation', operation: 'spawn', target: 'subagent', arguments: {}, agent_id: 'golden-agent' }),
+  },
+  {
+    id: 'memory.low_confidence_not_durably_allowed',
     family: 'memory',
     polarity: 'negative',
-    expected: ['REQUIRE_APPROVAL', 'DENY', 'STOP_AGENT', 'PAUSE', 'ALLOW_WITH_WARNING', 'ALLOW'],
-    action: { action_kind: 'memory', operation: 'write', arguments: { confidence: 0.1 }, agent_id: 'golden-agent' },
-    workspace: '/tmp/safeloop-phase6-workspace',
+    // Exercises verifyCandidateMemory exactly as runtimeCore wires it.
+    expected: ['QUARANTINE', 'REJECT', 'REQUIRE_REVIEW'],
+    probe: (profile) => verifyCandidateMemory(
+      {
+        memory_id: 'golden-memory-low-confidence',
+        memory_type: 'procedural',
+        situation: 'A golden control probe for durable memory admission.',
+        lesson: 'Low-confidence memory must not be durably written without review.',
+        confidence: 0,
+        evidence: ['golden-evidence'],
+      } as never,
+      {
+        scenario: { scenarioId: profile.id, memoryWritePolicy: profile.memory_write_policy } as never,
+        minimumConfidence: profile.minimum_memory_confidence,
+      },
+    ).decision,
+  },
+  {
+    id: 'budgets.action_budget_binds',
+    family: 'budgets',
+    polarity: 'negative',
+    expected: ['BUDGET_BINDS'],
+    probe: (profile) => {
+      const limits = profile.budgets ?? {};
+      const limit = limits.maximum_actions;
+      if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return 'NO_ACTION_BUDGET';
+      if (limit > BUDGET_PROBE_CEILING) {
+        // Cannot be demonstrated within bounded work, so it is not proven to bind.
+        return 'BUDGET_NOT_DEMONSTRABLE';
+      }
+      const tracker = createBudgetTracker(limits);
+      if (!tracker.check().permitted) return 'BUDGET_DENIES_IMMEDIATELY';
+      for (let i = 0; i < limit; i += 1) tracker.recordAction();
+      const verdict = tracker.check();
+      return verdict.permitted ? 'BUDGET_DOES_NOT_BIND' : 'BUDGET_BINDS';
+    },
   },
 ];
 
 function goldenControls(profile: GovernanceProfile): GoldenPolicyControlsResult {
+  const declaredFamilies = new Set(GOVERNANCE_CONTROL_FAMILIES.map((entry) => entry.family));
+  const requiredFamilies = GOVERNANCE_CONTROL_FAMILIES.filter((entry) => entry.applicability === 'REQUIRED').map((entry) => entry.family);
+  const coverageErrors: string[] = [];
+
+  // A family the evaluator can dispatch on but the manifest never mentions is a
+  // silent omission, which is exactly the Phase 6.2 false-green condition.
+  for (const kind of GOVERNANCE_ACTION_KINDS) {
+    if (!declaredFamilies.has(kind)) coverageErrors.push(`family_not_declared:${kind}`);
+  }
+  const seen = new Set<string>();
+  for (const spec of GOLDEN_CONTROL_MANIFEST) {
+    if (seen.has(spec.id)) coverageErrors.push(`duplicate_control_id:${spec.id}`);
+    seen.add(spec.id);
+    if (!declaredFamilies.has(spec.family)) coverageErrors.push(`control_family_not_declared:${spec.family}`);
+    const declaration = GOVERNANCE_CONTROL_FAMILIES.find((entry) => entry.family === spec.family);
+    if (declaration?.applicability === 'NOT_APPLICABLE') coverageErrors.push(`control_declared_not_applicable:${spec.family}`);
+    if (!spec.expected.length) coverageErrors.push(`control_expected_undeterminable:${spec.id}`);
+  }
+  for (const family of requiredFamilies) {
+    if (!GOLDEN_CONTROL_MANIFEST.some((spec) => spec.family === family)) coverageErrors.push(`required_family_has_no_control:${family}`);
+  }
+
   const controls: GoldenPolicyControlResult[] = GOLDEN_CONTROL_MANIFEST.map((spec) => {
-    const observed = evaluateProfile(profile, canonicalizeAction(spec.action), spec.workspace).disposition;
-    return {
-      id: spec.id,
-      family: spec.family,
-      polarity: spec.polarity,
-      expected: spec.expected,
-      observed,
-      status: spec.expected.includes(observed) ? 'pass' : 'fail',
-    };
+    const base = { id: spec.id, family: spec.family, polarity: spec.polarity, applicability: 'REQUIRED' as const, expected: spec.expected };
+    let observed: string;
+    try {
+      observed = spec.probe(profile);
+    } catch (error) {
+      return { ...base, observed: 'ERROR', status: 'error' as const, detail: redactSecrets(error instanceof Error ? error.message : String(error)) };
+    }
+    if (typeof observed !== 'string' || !observed) return { ...base, observed: 'UNKNOWN', status: 'unknown' as const, detail: 'control produced no determinable outcome' };
+    return { ...base, observed, status: spec.expected.includes(observed) ? 'pass' as const : 'fail' as const };
   });
+
+  const executed = controls.map((entry) => entry.id);
+  const coveredFamilies = new Set(controls.filter((entry) => entry.status === 'pass').map((entry) => entry.family));
+  const missingProven = requiredFamilies.filter((family) => !coveredFamilies.has(family));
+  const allRequiredPassed = coverageErrors.length === 0
+    && controls.length === GOLDEN_CONTROL_MANIFEST.length
+    && controls.every((entry) => entry.status === 'pass');
+
   return {
     control_set_version: GOLDEN_CONTROL_SET_VERSION,
+    families: [...GOVERNANCE_CONTROL_FAMILIES],
+    required_control_ids: GOLDEN_CONTROL_MANIFEST.map((spec) => spec.id),
+    executed_control_ids: executed,
+    coverage_errors: coverageErrors,
+    coverage_complete: coverageErrors.length === 0 && missingProven.length === 0,
     positive_pass: controls.filter((entry) => entry.polarity === 'positive').every((entry) => entry.status === 'pass'),
     negative_pass: controls.filter((entry) => entry.polarity === 'negative').every((entry) => entry.status === 'pass'),
+    all_required_passed: allRequiredPassed,
     controls,
   };
 }
-
 function buildPolicyValidationResult(bundle: PolicyBundle): PolicyValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -692,9 +875,19 @@ function buildPolicyValidationResult(bundle: PolicyBundle): PolicyValidationResu
   if (!bundle.profile.rules?.length) errors.push('profile_has_no_rules');
   errors.push(...validateLifecycleProfile(bundle.profile));
   const golden = goldenControls(bundle.profile);
-  if (golden.controls.length !== GOLDEN_CONTROL_MANIFEST.length) errors.push('golden_control_manifest_incomplete');
+  // Fail closed on incomplete proof, not only on a failing control.
+  if (golden.control_set_version !== GOLDEN_CONTROL_SET_VERSION) errors.push('golden_control_set_version_mismatch');
+  for (const reason of golden.coverage_errors) errors.push(`golden_control_coverage:${reason}`);
+  if (golden.executed_control_ids.length !== golden.required_control_ids.length) errors.push('golden_control_manifest_incomplete');
+  if (!golden.coverage_complete) errors.push('golden_control_coverage_incomplete');
+  for (const control of golden.controls) {
+    if (control.status === 'error') errors.push(`golden_control_errored:${control.id}`);
+    else if (control.status === 'unknown') errors.push(`golden_control_undeterminable:${control.id}`);
+    else if (control.status === 'fail') errors.push(`golden_control_failed:${control.id}`);
+  }
   if (!golden.positive_pass) errors.push('positive_golden_control_failed');
   if (!golden.negative_pass) errors.push('negative_golden_control_failed');
+  if (!golden.all_required_passed) errors.push('required_golden_controls_not_all_passed');
   return {
     validation_id: `validation-${Date.now()}-${bundle.content_hash.slice(7, 15)}`,
     bundle_id: bundle.bundle_id,
@@ -803,7 +996,9 @@ function activateBundleInStore(store: PolicyLifecycleStore, input: {
     approved_at: now(),
     activated_at: now(),
     validation_id: validation.validation_id,
-    golden_controls_passed: validation.golden_controls.positive_pass && validation.golden_controls.negative_pass,
+    golden_controls_passed: validation.golden_controls.all_required_passed,
+    control_set_version: validation.control_set_version,
+    control_manifest: validation.golden_controls,
     reason: redactSecrets(input.reason ?? ''),
     rollback_from_bundle_id: input.rollback_from_bundle_id,
   };

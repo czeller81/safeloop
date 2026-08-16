@@ -187,26 +187,34 @@ describe('policy lifecycle activation, rollback, and drift', () => {
     const bundle = createPolicyBundle({ profile, version: 'blanket-dangerous', created_by: 'operator' }, { baseDir });
     const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
     expect(validation.valid).toBe(false);
-    expect(validation.golden_controls.controls.filter((entry) => entry.status === 'fail').map((entry) => entry.id)).toEqual(expect.arrayContaining(['shell.destructive_command_denied', 'http.authenticated_mutation_denied']));
+    expect(validation.golden_controls.controls.filter((entry) => entry.status === 'fail').map((entry) => entry.id)).toEqual(expect.arrayContaining(['shell.destructive_command_gated', 'http.authenticated_mutation_gated']));
   });
   it('records versioned golden controls for the required evaluator families', () => {
     const bundle = createPolicyBundle({ profile: cloneProfile(), version: 'manifest', created_by: 'operator' }, { baseDir });
     const validation = validatePolicyBundle(bundle.bundle_id, 'operator', { baseDir });
     expect(validation.valid).toBe(true);
-    expect(validation.control_set_version).toBe('phase6-v2');
-    expect(validation.golden_controls.control_set_version).toBe('phase6-v2');
+    expect(validation.control_set_version).toBe('phase6-v3');
+    expect(validation.golden_controls.control_set_version).toBe('phase6-v3');
     expect(validation.golden_controls.controls.map((entry) => entry.id)).toEqual(expect.arrayContaining([
-      'filesystem.safe_read',
-      'filesystem.sensitive_delete_denied',
-      'filesystem.governance_config_write_denied',
-      'shell.destructive_command_denied',
-      'http.authenticated_mutation_denied',
-      'mcp.dangerous_tool_denied',
-      'git.force_push_denied',
-      'approval.outside_write_requires_gate',
-      'memory.write_policy_declared',
+      'filesystem.safe_read_permitted',
+      'filesystem.sensitive_delete_gated',
+      'sensitive_paths.credential_read_gated',
+      'governance_config.write_gated',
+      'workspace_boundary.outside_write_gated',
+      'shell.destructive_command_gated',
+      'http.authenticated_mutation_gated',
+      'git.force_push_gated',
+      'mcp.dangerous_tool_gated',
+      'mcp.benign_tool_not_over_gated',
+      'delegation.subagent_governed',
+      'memory.low_confidence_not_durably_allowed',
+      'budgets.action_budget_binds',
     ]));
     expect(validation.golden_controls.controls.every((entry) => entry.status === 'pass')).toBe(true);
+    // Stronger than the previous assertion: coverage itself must be proven.
+    expect(validation.golden_controls.coverage_complete).toBe(true);
+    expect(validation.golden_controls.all_required_passed).toBe(true);
+    expect(validation.golden_controls.coverage_errors).toEqual([]);
   });
 
   it('rejects adversarial policies that neutralize required golden controls', () => {
