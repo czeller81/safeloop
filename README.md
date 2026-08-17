@@ -15,6 +15,14 @@ Git tracks code. **SafeLoop tracks and governs agent work.**
 
 SafeLoop is a local runtime governance layer for autonomous AI agents. It evaluates and controls agent actions, approvals, memory, budgets, evidence, and configured managed execution paths routed through the SafeLoop runtime.
 
+## Repository Status
+
+The approved public baseline is available from the `stable` branch and the `phase5-approved` tag, both pinned to `0120e92a87b0245faf079391bcddcbf3d6627c81`. That baseline is the last formally approved SafeLoop state before Phase 6 lifecycle-governance review work.
+
+The current Phase 6 review candidate is published separately on `review/phase6` at `e4f8953aad51b2946c4903b06062a562e398973c`. It is intentionally marked **not approved** while MCP descriptor-target classification findings remain under review. Do not treat `review/phase6` or active development commits as the stable release line.
+
+`master` is the development branch. For a reproducible approved checkout, use `stable` or `phase5-approved`. See [docs/INSTALL.md](docs/INSTALL.md) for clone, install, and verification commands.
+
 > Govern what your agents remember, not just what they do.
 
 ## Why Runtime Governance Matters
@@ -147,8 +155,8 @@ Do not treat `DENY` as a warning or omit it from integration handling.
 ## Quick Start
 
 ```bash
-npm install
-npm test
+npm ci
+npm test -- --runInBand
 npm run build
 ```
 

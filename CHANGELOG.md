@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Repository Publication Status - 2026-08-17
+
+- Approved stable baseline: `stable` branch and `phase5-approved` tag at `0120e92a87b0245faf079391bcddcbf3d6627c81`.
+- Phase 6 review candidate: `review/phase6` at `e4f8953aad51b2946c4903b06062a562e398973c`, status `PHASE_6_NOT_APPROVED`.
+- The Phase 6 candidate is published for controlled review only and is not a stable release.
+
 ## 0.2.1 - 2026-08-14
 
 This source/GitHub patch release contains work that landed after the immutable
