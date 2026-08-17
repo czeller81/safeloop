@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-This project currently supports the current `0.2.x` runtime-governance release line on this branch. Security fixes will be made on top of the immutable `v0.2.0` release history where practical; the `v0.2.0` tag itself remains bound to its audited release commit.
+This project currently supports the approved GitHub baseline published on the `stable` branch and `phase5-approved` tag. Active development and `review/phase6` are not stable release lines unless a later approval explicitly says so. Security fixes will be made on top of immutable approved release history where practical; existing release tags remain bound to their audited commits.
 
 ## Reporting a Vulnerability
 
